@@ -1,9 +1,10 @@
-# [Project name]
+# Friday
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+Um projeto Python simples, com ponto de entrada em `main.py`.
 
 ## Run & Operate
 
+- `python main.py` — run the Python program
 - `pnpm --filter @workspace/api-server run dev` — run the API server (port 5000)
 - `pnpm run typecheck` — full typecheck across all packages
 - `pnpm run build` — typecheck + build all packages
