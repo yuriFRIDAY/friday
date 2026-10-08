@@ -1,6 +1,7 @@
-def main():
-    print("Hello from Friday!")
-
-
-if __name__ == "__main__":
-    main()
+print("================================")
+print("        FRIDAY 0.0.1")
+print("================================")
+print()
+print("Sistema iniciado.")
+print("FRIDAY online.")
+print("Aguardando comando...")
