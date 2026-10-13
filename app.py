@@ -1,21 +1,29 @@
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from http.cookies import SimpleCookie
+from http.cookies import CookieError, SimpleCookie
 from urllib.parse import urlsplit
 import json
 import os
-import secrets
 
 from core.assistant import FridayAssistant
 from core.auth import FridayAuth
+from core.sessions import SessionStore
 
 
-SESSIONS = set()
 SESSION_COOKIE = "friday_session"
 MAX_BODY = 8192
-CHAT_HISTORY = {}
 MAX_HISTORY_MESSAGES = 10
+SESSION_TTL_SECONDS = 1800
+COOKIE_SECURE_MODE = os.getenv(
+    "FRIDAY_COOKIE_SECURE",
+    "auto",
+).strip().lower()
+if COOKIE_SECURE_MODE not in {"auto", "always", "never"}:
+    raise RuntimeError(
+        "FRIDAY_COOKIE_SECURE deve ser auto, always ou never."
+    )
 
 auth = FridayAuth()
+SESSION_STORE = SessionStore(ttl_seconds=SESSION_TTL_SECONDS)
 friday = FridayAssistant()
 
 
@@ -1004,12 +1012,11 @@ class FridayHandler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
 
-        secure = (
-            self.headers.get("X-Forwarded-Proto", "").lower() == "https"
-        )
+        secure = self.cookie_is_secure()
 
         cookie_text = (
-            f"{SESSION_COOKIE}={cookie}; Path=/; HttpOnly; SameSite=Strict"
+            f"{SESSION_COOKIE}={cookie}; Path=/; HttpOnly; "
+            f"SameSite=Strict; Max-Age={SESSION_TTL_SECONDS}"
         )
 
         if secure:
@@ -1021,7 +1028,7 @@ class FridayHandler(BaseHTTPRequestHandler):
             self.send_header(
                 "Set-Cookie",
                 f"{SESSION_COOKIE}=; Path=/; HttpOnly; "
-                f"SameSite=Strict; Max-Age=0"
+                "SameSite=Strict; Max-Age=0"
                 + ("; Secure" if secure else "")
             )
 
@@ -1035,18 +1042,72 @@ class FridayHandler(BaseHTTPRequestHandler):
         try:
             cookie.load(cookie_header)
             token = cookie.get(SESSION_COOKIE)
-            if token and token.value in SESSIONS:
+            if token and SESSION_STORE.get(token.value):
                 return token.value
-        except Exception:
+        except (CookieError, TypeError, ValueError):
             pass
 
         return None
 
+    def request_scheme(self):
+        forwarded = self.headers.get(
+            "X-Forwarded-Proto",
+            "",
+        ).split(",", 1)[0].strip().lower()
+        return forwarded if forwarded in {"http", "https"} else "http"
+
+    def cookie_is_secure(self):
+        if COOKIE_SECURE_MODE == "always":
+            return True
+        if COOKIE_SECURE_MODE == "never":
+            return False
+        return self.request_scheme() == "https"
+
+    @staticmethod
+    def normalize_origin(origin):
+        if not isinstance(origin, str):
+            return None
+
+        try:
+            parsed = urlsplit(origin)
+            if (
+                parsed.scheme.lower() not in {"http", "https"}
+                or not parsed.netloc
+                or parsed.username is not None
+                or parsed.password is not None
+                or parsed.path not in {"", "/"}
+                or parsed.query
+                or parsed.fragment
+            ):
+                return None
+            parsed.port
+        except ValueError:
+            return None
+
+        return f"{parsed.scheme.lower()}://{parsed.netloc.lower()}"
+
     def valid_origin(self):
         origin = self.headers.get("Origin")
-        if not origin:
-            return True
-        return urlsplit(origin).netloc == self.headers.get("Host", "")
+        normalized_origin = self.normalize_origin(origin)
+        if not normalized_origin:
+            return False
+
+        configured_origins = os.getenv(
+            "FRIDAY_ALLOWED_ORIGINS",
+            "",
+        ).strip()
+        if configured_origins:
+            allowed_origins = {
+                self.normalize_origin(value.strip())
+                for value in configured_origins.split(",")
+            }
+            return normalized_origin in allowed_origins
+
+        host = self.headers.get("Host", "").strip()
+        expected_origin = self.normalize_origin(
+            f"{self.request_scheme()}://{host}"
+        )
+        return bool(expected_origin and normalized_origin == expected_origin)
 
     def read_json(self):
         try:
@@ -1078,9 +1139,11 @@ class FridayHandler(BaseHTTPRequestHandler):
             return
 
         if path == "/session":
+            token = self.get_session()
             self.send_json(
                 200,
-                {"authenticated": self.get_session() is not None}
+                {"authenticated": token is not None},
+                clear_cookie=token is None,
             )
             return
 
@@ -1102,7 +1165,10 @@ class FridayHandler(BaseHTTPRequestHandler):
             password = data.get("password")
             if (
                 not isinstance(password, str)
-                or not auth.authenticate(password)
+                or not auth.authenticate(
+                    password,
+                    client_key=self.client_address[0],
+                )
             ):
                 self.send_json(
                     401,
@@ -1110,8 +1176,7 @@ class FridayHandler(BaseHTTPRequestHandler):
                 )
                 return
 
-            token = secrets.token_urlsafe(32)
-            SESSIONS.add(token)
+            token = SESSION_STORE.create()
             self.send_json(200, {"ok": True}, cookie=token)
             return
 
@@ -1125,8 +1190,7 @@ class FridayHandler(BaseHTTPRequestHandler):
             return
 
         if path == "/logout":
-            SESSIONS.discard(token)
-            CHAT_HISTORY.pop(token, None)
+            SESSION_STORE.invalidate(token)
             self.send_json(200, {"ok": True}, clear_cookie=True)
             return
 
@@ -1146,7 +1210,14 @@ class FridayHandler(BaseHTTPRequestHandler):
             try:
                 clean_command = command.strip()
                 intention = friday.interpret(clean_command)
-                history = CHAT_HISTORY.setdefault(token, [])
+                history = SESSION_STORE.get_history(token)
+                if history is None:
+                    self.send_json(
+                        401,
+                        {"error": "Sessão inválida. Entre novamente."},
+                        clear_cookie=True,
+                    )
+                    return
 
                 response = friday.execute(
                     intention,
@@ -1156,8 +1227,7 @@ class FridayHandler(BaseHTTPRequestHandler):
                 )
 
                 if response is None:
-                    SESSIONS.discard(token)
-                    CHAT_HISTORY.pop(token, None)
+                    SESSION_STORE.invalidate(token)
                     self.send_json(
                         200,
                         {"response": "FRIDAY encerrada.", "closed": True},
@@ -1177,7 +1247,7 @@ class FridayHandler(BaseHTTPRequestHandler):
                             {"role": "user", "content": clean_command},
                             {"role": "assistant", "content": str(response)},
                         ])
-                        CHAT_HISTORY[token] = history[-MAX_HISTORY_MESSAGES:]
+                        history[:] = history[-MAX_HISTORY_MESSAGES:]
 
                 self.send_json(
                     200,
