@@ -1,4 +1,6 @@
 
+import re
+
 from core.memory import FridayMemory
 from core.permissions import PermissionManager
 from core.context import FridayContext
@@ -19,26 +21,54 @@ class FridayAssistant:
         self.tools.load_default_tools()
         self.audit = AuditLog()
 
+
     def interpret(self, command):
         command = command.lower().strip()
 
         if command == "sair":
             return "exit"
 
-        if "olá" in command or "oi" in command:
+        if command in (
+            "oi", "olá", "ola", "bom dia",
+            "boa tarde", "boa noite"
+        ):
             return "greeting"
 
         if "status" in command:
             return "status"
 
-        if "quem é você" in command:
+        if (
+            "quem é você" in command
+            or "quem e voce" in command
+        ):
             return "identity"
 
         if "lembre que" in command:
             return "remember"
 
-        if "o que você lembra" in command:
+        # Listagem explícita de todas as lembranças.
+        if (
+            "listar lembranças" in command
+            or "listar memorias" in command
+            or "listar memórias" in command
+            or "mostrar todas as lembranças" in command
+            or "mostrar todas as memorias" in command
+            or "mostrar todas as memórias" in command
+            or command in (
+                "mostrar lembranças",
+                "mostrar memorias",
+                "mostrar memórias",
+                "o que você lembra",
+                "o que voce lembra",
+            )
+        ):
             return "recall"
+
+        if re.match(
+            r"^(corrija|corrigir) a lembrança\b",
+            command
+        ):
+            return "update_memory"
 
         if command.startswith((
             "calcule ",
@@ -48,9 +78,15 @@ class FridayAssistant:
         )):
             return "calculate"
 
-        if "sobre você" in command or "suas informações" in command:
+        if (
+            "sobre você" in command
+            or "sobre voce" in command
+            or "suas informações" in command
+        ):
             return "context"
 
+        # Perguntas específicas seguem para a IA,
+        # que poderá consultar as lembranças relevantes.
         return "unknown"
 
     def format_response(self, message):
@@ -58,10 +94,55 @@ class FridayAssistant:
         name = instructions.get("name", "FRIDAY")
         return f"{name}: {message}"
 
+    def retrieve_relevant_memories(self, question, limit=5):
+        memories = self.memory.get_details()
+
+        if not memories:
+            return []
+
+        stopwords = {
+            "a", "o", "as", "os", "um", "uma", "de", "do",
+            "da", "dos", "das", "em", "no", "na", "nos",
+            "nas", "e", "ou", "que", "eu", "meu", "minha",
+            "meus", "minhas", "você", "voce", "é", "para",
+            "por", "com", "sobre", "como", "qual", "quais",
+            "quem", "quando", "onde", "está", "esta", "são",
+            "sao", "foi", "ser", "tem", "tenho", "lembra",
+            "lembrar", "disse", "falamos"
+        }
+
+        question_words = set(
+            re.findall(r"\w+", question.lower())
+        ) - stopwords
+
+        ranked = []
+
+        for memory in memories:
+            content_words = set(
+                re.findall(
+                    r"\w+",
+                    memory["content"].lower()
+                )
+            ) - stopwords
+
+            overlap = len(question_words & content_words)
+
+            if overlap > 0:
+                ranked.append((overlap, memory))
+
+        ranked.sort(
+            key=lambda item: item[0],
+            reverse=True
+        )
+
+        return [
+            item[1]["content"]
+            for item in ranked[:limit]
+        ]
+
     def execute(self, intention, command, role, history=None):
         self.audit.record("COMMAND", command)
 
-        # Perguntas gerais passam pela IA, mantendo as permissões.
         if intention == "unknown":
             self.audit.record("UNKNOWN_COMMAND", command)
 
@@ -79,51 +160,18 @@ class FridayAssistant:
             if not provider.available():
                 return "A IA não está configurada."
 
-
-            # Seleciona lembranças relevantes para a pergunta.
-            question = command.lower()
-
-            if any(term in question for term in (
-                "meu projeto",
-                "projeto tony stark",
-                "projeto friday",
-                "sobre o projeto",
-            )):
-                memories = self.memory.get_by_category("projeto")
-
-            elif any(term in question for term in (
-                "minhas preferências",
-                "minhas preferencias",
-                "o que eu prefiro",
-                "do que eu gosto",
-            )):
-                memories = self.memory.get_by_category("preferencia")
-
-            elif any(term in question for term in (
-                "meus estudos",
-                "o que estou estudando",
-                "o que estou aprendendo",
-            )):
-                memories = self.memory.get_by_category("estudos")
-
-            else:
-                memories = self.memory.get_all()
-
-            # Limita o contexto enviado à IA.
-            recent_memories = memories[-20:]
-
-
+            memories = self.retrieve_relevant_memories(command)
             memory_context = ""
 
-            if recent_memories:
+            if memories:
                 memory_context = (
-                    "\n\nInformações salvas na memória da FRIDAY:\n"
+                    "\n\nLembranças relevantes da FRIDAY:\n"
                     + "\n".join(
-                        f"- {memory}"
-                        for memory in recent_memories
+                        f"- {memory}" for memory in memories
                     )
-                    + "\nUse essas informações quando forem relevantes. "
-                    "Não invente informações pessoais ausentes."
+                    + "\nUse essas informações somente quando "
+                    "forem relevantes. Não invente informações "
+                    "pessoais ausentes."
                 )
 
             contextual_command = command
@@ -153,8 +201,9 @@ class FridayAssistant:
             "identity": "converse",
             "remember": "write_memory",
             "recall": "read_memory",
+            "update_memory": "write_memory",
             "calculate": "use_tools",
-            "exit": "converse"
+            "exit": "converse",
         }
 
         required_permission = permission_map.get(intention)
@@ -179,7 +228,6 @@ class FridayAssistant:
 
         if intention == "context":
             information = self.context.get_context()
-
             return (
                 f"Sou {information['name']}, "
                 "seu assistente pessoal. "
@@ -196,10 +244,13 @@ class FridayAssistant:
         if intention == "identity":
             return "Eu sou FRIDAY, seu assistente pessoal."
 
-
         if intention == "remember":
-            information = command.replace(
-                "lembre que", "", 1
+            information = re.sub(
+                r"lembre que",
+                "",
+                command,
+                count=1,
+                flags=re.IGNORECASE
             ).strip()
 
             if not information:
@@ -218,6 +269,7 @@ class FridayAssistant:
             elif any(word in text for word in (
                 "prefiro",
                 "minha preferência",
+                "minhas preferências",
                 "gosto de",
                 "não gosto de",
             )):
@@ -235,29 +287,71 @@ class FridayAssistant:
                 category = "geral"
 
             self.memory.save(information, category)
-
             self.audit.record(
                 "MEMORY_SAVED",
                 f"{category}: {information}"
             )
 
             return (
-                f"Informação armazenada na memória, "
+                "Informação armazenada na memória, "
                 f"categoria: {category}."
             )
-            
+
+        if intention == "update_memory":
+            match = re.match(
+                r"^(?:corrija|corrigir) a lembrança\s+"
+                r"(\d+)\s+para\s+(.+)$",
+                command.strip(),
+                re.IGNORECASE
+            )
+
+            if not match:
+                return (
+                    "Formato inválido. Use: "
+                    "Corrija a lembrança 3 para novo conteúdo."
+                )
+
+            memory_id = int(match.group(1))
+            new_content = match.group(2).strip()
+
+            if not new_content:
+                return "O novo conteúdo não pode estar vazio."
+
+            updated = self.memory.update(
+                memory_id,
+                new_content
+            )
+
+            if not updated:
+                return (
+                    f"Não encontrei uma lembrança "
+                    f"com ID {memory_id}."
+                )
+
+            self.audit.record(
+                "MEMORY_UPDATED",
+                f"ID {memory_id}: conteúdo corrigido"
+            )
+
+            return (
+                f"Lembrança {memory_id} corrigida "
+                "com sucesso."
+            )
+
         if intention == "recall":
-            memories = self.memory.get_all()
+            memories = self.memory.get_details()
 
             if not memories:
                 return "Minha memória ainda está vazia."
 
-            response = (
-                "Estas são as informações que tenho armazenadas:\n"
-            )
+            response = "Estas são minhas lembranças armazenadas:\n"
 
             for memory in memories:
-                response += f"- {memory}\n"
+                response += (
+                    f"\nID: {memory['id']}"
+                    f"\nCategoria: {memory['category']}"
+                    f"\nInformação: {memory['content']}\n"
+                )
 
             return response.rstrip()
 
