@@ -129,7 +129,8 @@ class TestFridaySessionRoutes(unittest.TestCase):
         cls.thread.join(timeout=3)
 
     def setUp(self):
-        self.store = SessionStore()
+        self.now = [1000.0]
+        self.store = SessionStore(clock=lambda: self.now[0])
         self.auth = FridayAuth(password="test-password")
         self.patches = [
             patch.object(app, "SESSION_STORE", self.store),
@@ -178,6 +179,27 @@ class TestFridaySessionRoutes(unittest.TestCase):
         connection.close()
         return result
 
+    def get(self, path, *, cookie=None):
+        headers = {}
+        if cookie is not None:
+            headers["Cookie"] = cookie
+
+        connection = http.client.HTTPConnection(
+            "127.0.0.1",
+            self.port,
+            timeout=3,
+        )
+        connection.request("GET", path, headers=headers)
+        response = connection.getresponse()
+        body = json.loads(response.read().decode("utf-8"))
+        result = {
+            "status": response.status,
+            "body": body,
+            "headers": dict(response.getheaders()),
+        }
+        connection.close()
+        return result
+
     def login(self, *, origin="same", scheme=None):
         return self.post(
             "/login",
@@ -191,6 +213,22 @@ class TestFridaySessionRoutes(unittest.TestCase):
         cookie = SimpleCookie()
         cookie.load(response["headers"]["Set-Cookie"])
         return cookie["friday_session"].value
+
+    def test_login_creates_session_and_interface_reports_authenticated(self):
+        response = self.login()
+
+        self.assertEqual(response["status"], 200)
+        token = self.token_from(response)
+        self.assertIsNotNone(self.store.get(token))
+        self.assertIn("HttpOnly", response["headers"]["Set-Cookie"])
+
+        session_status = self.get(
+            "/session",
+            cookie=f"friday_session={token}",
+        )
+
+        self.assertEqual(session_status["status"], 200)
+        self.assertTrue(session_status["body"]["authenticated"])
 
     def test_login_rejects_missing_or_foreign_origin(self):
         missing = self.login(origin=None)
@@ -210,6 +248,52 @@ class TestFridaySessionRoutes(unittest.TestCase):
             response["headers"]["Set-Cookie"],
         )
 
+    def test_chat_command_uses_authenticated_session_without_external_api(self):
+        login = self.login()
+        token = self.token_from(login)
+
+        with patch.object(app, "friday") as assistant:
+            assistant.interpret.return_value = "greeting"
+            assistant.execute.return_value = "Olá, resposta local."
+            response = self.post(
+                "/chat",
+                {"command": "Olá, FRIDAY"},
+                cookie=f"friday_session={token}",
+            )
+
+        self.assertEqual(response["status"], 200)
+        self.assertEqual(
+            response["body"],
+            {"response": "Olá, resposta local.", "closed": False},
+        )
+        assistant.interpret.assert_called_once_with("Olá, FRIDAY")
+        assistant.execute.assert_called_once()
+        self.assertIs(
+            assistant.execute.call_args.kwargs["history"],
+            self.store.get_history(token),
+        )
+
+    def test_expired_session_returns_interface_to_signed_out_state(self):
+        login = self.login()
+        token = self.token_from(login)
+        self.assertTrue(
+            self.get(
+                "/session",
+                cookie=f"friday_session={token}",
+            )["body"]["authenticated"]
+        )
+
+        self.now[0] += app.SESSION_TTL_SECONDS
+        session_status = self.get(
+            "/session",
+            cookie=f"friday_session={token}",
+        )
+
+        self.assertEqual(session_status["status"], 200)
+        self.assertFalse(session_status["body"]["authenticated"])
+        self.assertIn("Max-Age=0", session_status["headers"]["Set-Cookie"])
+        self.assertIsNone(self.store.get(token))
+
     def test_logout_invalidates_session_and_clears_its_history(self):
         login = self.login()
         self.assertEqual(login["status"], 200)
@@ -228,6 +312,11 @@ class TestFridaySessionRoutes(unittest.TestCase):
         self.assertIsNone(self.store.get(token))
         self.assertEqual(history, [])
         self.assertIn("Max-Age=0", response["headers"]["Set-Cookie"])
+        session_status = self.get(
+            "/session",
+            cookie=f"friday_session={token}",
+        )
+        self.assertFalse(session_status["body"]["authenticated"])
 
     def test_invalid_token_is_rejected_before_assistant_call(self):
         with patch.object(app, "friday") as assistant:
