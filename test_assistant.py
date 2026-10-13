@@ -1,4 +1,3 @@
-```python
 import os
 import tempfile
 import unittest
@@ -128,4 +127,3 @@ class TestFridayAssistant(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
-```
