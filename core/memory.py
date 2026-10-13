@@ -120,3 +120,13 @@ class FridayMemory:
                 )
 
             return cursor.rowcount > 0
+
+    def delete(self, memory_id):
+        with self.connect() as connection:
+            cursor = connection.execute(
+                "DELETE FROM memories WHERE id = ?",
+                (memory_id,)
+            )
+
+            return cursor.rowcount > 0
+            
