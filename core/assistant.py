@@ -1,5 +1,5 @@
-
 import re
+import unicodedata
 
 from core.memory import FridayMemory
 from core.permissions import PermissionManager
@@ -95,6 +95,13 @@ class FridayAssistant:
         return f"{name}: {message}"
 
     def retrieve_relevant_memories(self, question, limit=5):
+        if isinstance(limit, bool) or not isinstance(limit, int):
+            raise TypeError("limit deve ser um inteiro não negativo")
+        if limit < 0:
+            raise ValueError("limit deve ser um inteiro não negativo")
+        if limit == 0:
+            return []
+
         memories = self.memory.get_details()
 
         if not memories:
@@ -111,9 +118,21 @@ class FridayAssistant:
             "lembrar", "disse", "falamos"
         }
 
+        def normalize(text):
+            decomposed = unicodedata.normalize("NFKD", text.casefold())
+            return "".join(
+                character
+                for character in decomposed
+                if not unicodedata.combining(character)
+            )
+
+        normalized_stopwords = {
+            normalize(word) for word in stopwords
+        }
+
         question_words = set(
-            re.findall(r"\w+", question.lower())
-        ) - stopwords
+            re.findall(r"\w+", normalize(question))
+        ) - normalized_stopwords
 
         ranked = []
 
@@ -121,9 +140,9 @@ class FridayAssistant:
             content_words = set(
                 re.findall(
                     r"\w+",
-                    memory["content"].lower()
+                    normalize(memory["content"])
                 )
-            ) - stopwords
+            ) - normalized_stopwords
 
             overlap = len(question_words & content_words)
 
