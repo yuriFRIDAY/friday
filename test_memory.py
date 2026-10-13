@@ -1,4 +1,3 @@
-```python
 import os
 import tempfile
 import unittest
@@ -162,4 +161,3 @@ class TestFridayPermissions(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
-```
