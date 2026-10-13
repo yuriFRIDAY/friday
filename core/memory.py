@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 import sqlite3
 
 
@@ -10,8 +11,17 @@ class FridayMemory:
     def connect(self):
         return sqlite3.connect(self.database)
 
+    @contextmanager
+    def _connection(self):
+        connection = self.connect()
+        try:
+            with connection:
+                yield connection
+        finally:
+            connection.close()
+
     def create_table(self):
-        with self.connect() as connection:
+        with self._connection() as connection:
             cursor = connection.cursor()
 
             cursor.execute("""
@@ -35,7 +45,7 @@ class FridayMemory:
                 """)
 
     def save(self, content, category="geral"):
-        with self.connect() as connection:
+        with self._connection() as connection:
             cursor = connection.execute(
                 """
                 INSERT INTO memories (content, category)
@@ -46,7 +56,7 @@ class FridayMemory:
             return cursor.lastrowid
 
     def get_all(self):
-        with self.connect() as connection:
+        with self._connection() as connection:
             cursor = connection.execute(
                 "SELECT content FROM memories ORDER BY id"
             )
@@ -55,7 +65,7 @@ class FridayMemory:
         return [memory[0] for memory in memories]
 
     def get_by_category(self, category):
-        with self.connect() as connection:
+        with self._connection() as connection:
             cursor = connection.execute(
                 """
                 SELECT content FROM memories
@@ -69,7 +79,7 @@ class FridayMemory:
         return [memory[0] for memory in memories]
 
     def get_details(self, category=None):
-        with self.connect() as connection:
+        with self._connection() as connection:
             if category is None:
                 cursor = connection.execute("""
                     SELECT id, content, category
@@ -99,7 +109,7 @@ class FridayMemory:
         ]
 
     def update(self, memory_id, content, category=None):
-        with self.connect() as connection:
+        with self._connection() as connection:
             if category is None:
                 cursor = connection.execute(
                     """
@@ -122,7 +132,7 @@ class FridayMemory:
             return cursor.rowcount > 0
 
     def delete(self, memory_id):
-        with self.connect() as connection:
+        with self._connection() as connection:
             cursor = connection.execute(
                 "DELETE FROM memories WHERE id = ?",
                 (memory_id,)
