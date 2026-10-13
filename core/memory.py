@@ -1,4 +1,3 @@
-
 import sqlite3
 
 
@@ -22,8 +21,6 @@ class FridayMemory:
                 )
             """)
 
-            # Migração compatível: adiciona a categoria
-            # somente se a coluna ainda não existir.
             cursor.execute("PRAGMA table_info(memories)")
             columns = {
                 column[1]
@@ -39,18 +36,18 @@ class FridayMemory:
 
     def save(self, content, category="geral"):
         with self.connect() as connection:
-            connection.execute(
+            cursor = connection.execute(
                 """
                 INSERT INTO memories (content, category)
                 VALUES (?, ?)
                 """,
                 (content, category)
             )
+            return cursor.lastrowid
 
     def get_all(self):
         with self.connect() as connection:
-            cursor = connection.cursor()
-            cursor.execute(
+            cursor = connection.execute(
                 "SELECT content FROM memories ORDER BY id"
             )
             memories = cursor.fetchall()
@@ -59,8 +56,7 @@ class FridayMemory:
 
     def get_by_category(self, category):
         with self.connect() as connection:
-            cursor = connection.cursor()
-            cursor.execute(
+            cursor = connection.execute(
                 """
                 SELECT content FROM memories
                 WHERE category = ?
@@ -71,3 +67,56 @@ class FridayMemory:
             memories = cursor.fetchall()
 
         return [memory[0] for memory in memories]
+
+    def get_details(self, category=None):
+        with self.connect() as connection:
+            if category is None:
+                cursor = connection.execute("""
+                    SELECT id, content, category
+                    FROM memories
+                    ORDER BY id
+                """)
+            else:
+                cursor = connection.execute(
+                    """
+                    SELECT id, content, category
+                    FROM memories
+                    WHERE category = ?
+                    ORDER BY id
+                    """,
+                    (category,)
+                )
+
+            memories = cursor.fetchall()
+
+        return [
+            {
+                "id": memory[0],
+                "content": memory[1],
+                "category": memory[2],
+            }
+            for memory in memories
+        ]
+
+    def update(self, memory_id, content, category=None):
+        with self.connect() as connection:
+            if category is None:
+                cursor = connection.execute(
+                    """
+                    UPDATE memories
+                    SET content = ?
+                    WHERE id = ?
+                    """,
+                    (content, memory_id)
+                )
+            else:
+                cursor = connection.execute(
+                    """
+                    UPDATE memories
+                    SET content = ?, category = ?
+                    WHERE id = ?
+                    """,
+                    (content, category, memory_id)
+                )
+
+            return cursor.rowcount > 0

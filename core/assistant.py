@@ -79,11 +79,39 @@ class FridayAssistant:
             if not provider.available():
                 return "A IA não está configurada."
 
-            # Recupera as informações salvas permanentemente.
-            memories = self.memory.get_all()
 
-            # Limita o contexto para evitar enviar todo o banco.
+            # Seleciona lembranças relevantes para a pergunta.
+            question = command.lower()
+
+            if any(term in question for term in (
+                "meu projeto",
+                "projeto tony stark",
+                "projeto friday",
+                "sobre o projeto",
+            )):
+                memories = self.memory.get_by_category("projeto")
+
+            elif any(term in question for term in (
+                "minhas preferências",
+                "minhas preferencias",
+                "o que eu prefiro",
+                "do que eu gosto",
+            )):
+                memories = self.memory.get_by_category("preferencia")
+
+            elif any(term in question for term in (
+                "meus estudos",
+                "o que estou estudando",
+                "o que estou aprendendo",
+            )):
+                memories = self.memory.get_by_category("estudos")
+
+            else:
+                memories = self.memory.get_all()
+
+            # Limita o contexto enviado à IA.
             recent_memories = memories[-20:]
+
 
             memory_context = ""
 
@@ -168,18 +196,56 @@ class FridayAssistant:
         if intention == "identity":
             return "Eu sou FRIDAY, seu assistente pessoal."
 
+
         if intention == "remember":
-            information = command.lower().replace(
+            information = command.replace(
                 "lembre que", "", 1
             ).strip()
 
-            if information:
-                self.memory.save(information)
-                self.audit.record("MEMORY_SAVED", information)
-                return "Informação armazenada na memória."
+            if not information:
+                return "Não recebi nenhuma informação para armazenar."
 
-            return "Não recebi nenhuma informação para armazenar."
+            text = information.lower()
 
+            if any(word in text for word in (
+                "projeto tony stark",
+                "meu projeto",
+                "projeto friday",
+                "projeto da friday",
+            )):
+                category = "projeto"
+
+            elif any(word in text for word in (
+                "prefiro",
+                "minha preferência",
+                "gosto de",
+                "não gosto de",
+            )):
+                category = "preferencia"
+
+            elif any(word in text for word in (
+                "estudo",
+                "estou aprendendo",
+                "estou estudando",
+                "quero aprender",
+            )):
+                category = "estudos"
+
+            else:
+                category = "geral"
+
+            self.memory.save(information, category)
+
+            self.audit.record(
+                "MEMORY_SAVED",
+                f"{category}: {information}"
+            )
+
+            return (
+                f"Informação armazenada na memória, "
+                f"categoria: {category}."
+            )
+            
         if intention == "recall":
             memories = self.memory.get_all()
 
