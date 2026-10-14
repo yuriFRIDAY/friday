@@ -131,7 +131,12 @@ class TestFridaySessionRoutes(unittest.TestCase):
     def setUp(self):
         self.now = [1000.0]
         self.store = SessionStore(clock=lambda: self.now[0])
-        self.auth = FridayAuth(password="test-password")
+        self.auth = FridayAuth(
+            password="test-password",
+            max_attempts=3,
+            lockout_seconds=30,
+            clock=lambda: self.now[0],
+        )
         self.patches = [
             patch.object(app, "SESSION_STORE", self.store),
             patch.object(app, "auth", self.auth),
@@ -236,6 +241,47 @@ class TestFridaySessionRoutes(unittest.TestCase):
 
         self.assertEqual(missing["status"], 403)
         self.assertEqual(foreign["status"], 403)
+
+    def test_login_returns_lockout_and_remaining_seconds(self):
+        failures = [
+            self.post("/login", {"password": "wrong"})
+            for _ in range(3)
+        ]
+
+        self.assertEqual(
+            [response["status"] for response in failures],
+            [401, 401, 429],
+        )
+        self.assertEqual(
+            failures[0]["body"],
+            {
+                "error": "Autenticação negada.",
+                "locked": False,
+                "remaining": 0,
+            },
+        )
+        self.assertEqual(
+            failures[-1]["body"],
+            {
+                "error": "Acesso temporariamente bloqueado.",
+                "locked": True,
+                "remaining": 30,
+            },
+        )
+
+        self.now[0] += 9
+        still_locked = self.post("/login", {"password": "wrong"})
+        self.assertEqual(still_locked["status"], 429)
+        self.assertEqual(still_locked["body"]["remaining"], 21)
+
+    def test_correct_password_can_recover_access_during_lockout(self):
+        for _ in range(3):
+            self.post("/login", {"password": "wrong"})
+
+        response = self.login()
+
+        self.assertEqual(response["status"], 200)
+        self.assertEqual(self.auth.remaining_lockout("127.0.0.1"), 0)
 
     def test_secure_cookie_tracks_forwarded_https(self):
         secure_origin = f"https://127.0.0.1:{self.port}"

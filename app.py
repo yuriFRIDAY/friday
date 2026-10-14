@@ -238,6 +238,11 @@ background:var(--green);border-radius:50%;margin:0 7px 1px 0}
 .login-copy{font-size:12px;color:#829bb7;line-height:1.7;margin:0 0 22px}
 .primary{width:100%;margin-top:12px;min-height:45px}
 #login .primary{letter-spacing:2px}
+.lockout-notice{
+  margin:13px 0 0;padding:11px 13px;border:1px solid #a84b5e;
+  border-radius:8px;background:#341720;color:#ffc3cd;
+  font-size:11px;line-height:1.6;text-align:center;
+}
 .assistant-content{display:flex;flex-direction:column;min-height:0;flex:1}
 .toolbar{
   display:flex;gap:8px;flex-wrap:wrap;padding:13px 17px;
@@ -456,6 +461,8 @@ footer span{color:#6489a9}
             autocomplete="current-password" required>
           <button class="primary" type="submit">INICIAR SESSÃO ↗</button>
         </form>
+        <p id="lockoutNotice" class="lockout-notice hidden" role="alert"
+          aria-live="assertive"></p>
       </section>
 
       <section id="assistant" class="hidden assistant-content">
@@ -535,6 +542,8 @@ let lastReply = '';
 let availableVoices = [];
 let currentUtterance = null;
 let speaking = false;
+let lockoutInterval = null;
+let lockoutEndsAt = 0;
 
 const SETTINGS_KEY = 'friday_voice_settings_v1';
 
@@ -767,14 +776,63 @@ async function request(url, data) {
   try {
     result = await response.json();
   } catch (error) {
-    throw new Error('Resposta inválida do servidor.');
+    const requestError = new Error('Resposta inválida do servidor.');
+    requestError.status = response.status;
+    requestError.remaining = 0;
+    throw requestError;
   }
 
   if (!response.ok) {
-    throw new Error(result.error || 'Falha na solicitação.');
+    const requestError = new Error(
+      (result && result.error) || 'Falha na solicitação.'
+    );
+    requestError.status = response.status;
+    requestError.remaining = result && result.remaining;
+    throw requestError;
   }
 
   return result;
+}
+
+function startLockout(remaining) {
+  const parsedSeconds = Number(remaining);
+  const seconds = Number.isFinite(parsedSeconds)
+    ? Math.max(0, Math.ceil(parsedSeconds))
+    : 0;
+  const notice = $('lockoutNotice');
+
+  window.clearInterval(lockoutInterval);
+  lockoutInterval = null;
+
+  if (seconds === 0) {
+    lockoutEndsAt = 0;
+    notice.classList.add('hidden');
+    return;
+  }
+
+  lockoutEndsAt = Date.now() + seconds * 1000;
+  notice.classList.remove('hidden');
+
+  const updateNotice = () => {
+    const secondsLeft = Math.max(
+      0,
+      Math.ceil((lockoutEndsAt - Date.now()) / 1000)
+    );
+
+    if (secondsLeft === 0) {
+      window.clearInterval(lockoutInterval);
+      lockoutInterval = null;
+      lockoutEndsAt = 0;
+      notice.textContent = 'Bloqueio encerrado. Você pode tentar novamente.';
+      return;
+    }
+
+    notice.textContent =
+      `Acesso temporariamente bloqueado. Tente novamente em ${secondsLeft} s.`;
+  };
+
+  updateNotice();
+  lockoutInterval = window.setInterval(updateNotice, 1000);
 }
 
 $('loginForm').addEventListener('submit', async event => {
@@ -793,7 +851,11 @@ $('loginForm').addEventListener('submit', async event => {
   } catch (error) {
     status(error.message);
     $('password').value = '';
-    $('password').focus();
+    if (error.status === 429) {
+      startLockout(error.remaining);
+    } else {
+      $('password').focus();
+    }
   }
 });
 
@@ -1163,16 +1225,25 @@ class FridayHandler(BaseHTTPRequestHandler):
 
         if path == "/login":
             password = data.get("password")
-            if (
-                not isinstance(password, str)
-                or not auth.authenticate(
-                    password,
-                    client_key=self.client_address[0],
-                )
-            ):
+            client_key = self.client_address[0]
+            authenticated = (
+                isinstance(password, str)
+                and auth.authenticate(password, client_key=client_key)
+            )
+            if not authenticated:
+                remaining = auth.remaining_lockout(client_key)
+                locked = remaining > 0
                 self.send_json(
-                    401,
-                    {"error": "Autenticação negada. Aguarde se houver bloqueio."}
+                    429 if locked else 401,
+                    {
+                        "error": (
+                            "Acesso temporariamente bloqueado."
+                            if locked
+                            else "Autenticação negada."
+                        ),
+                        "locked": locked,
+                        "remaining": remaining,
+                    },
                 )
                 return
 
@@ -1275,6 +1346,16 @@ if __name__ == "__main__":
         )
 
     port = int(os.environ.get("PORT", "5000"))
-    server = HTTPServer(("0.0.0.0", port), FridayHandler)
-    print(f"FRIDAY online na porta {port}.")
-    server.serve_forever()
+
+    class ReusableHTTPServer(HTTPServer):
+        allow_reuse_address = True  # ajuda em casos de TIME_WAIT
+
+    server = ReusableHTTPServer(("0.0.0.0", port), FridayHandler)
+
+    print(f"FRIDAY online em http://0.0.0.0:{port}")
+
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\nFRIDAY encerrada.")
+        server.server_close()
