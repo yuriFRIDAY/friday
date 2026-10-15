@@ -1,4 +1,3 @@
-
 class FridayContext:
     """Organiza a identidade e o contexto usado pela FRIDAY."""
 

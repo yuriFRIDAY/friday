@@ -36,7 +36,10 @@ class TestFridayMemory(unittest.TestCase):
         self.assertEqual(memories, ["Estudar Python"])
 
     def test_get_details_contains_id_content_and_category(self):
-        memory_id = self.memory.save("Aprender programação", "estudos")
+        memory_id = self.memory.save(
+            "Aprender programação",
+            "estudos"
+        )
 
         memories = self.memory.get_details()
 
@@ -46,10 +49,16 @@ class TestFridayMemory(unittest.TestCase):
             memories[0]["content"],
             "Aprender programação"
         )
-        self.assertEqual(memories[0]["category"], "estudos")
+        self.assertEqual(
+            memories[0]["category"],
+            "estudos"
+        )
 
     def test_update_memory(self):
-        memory_id = self.memory.save("Texto antigo", "geral")
+        memory_id = self.memory.save(
+            "Texto antigo",
+            "geral"
+        )
 
         updated = self.memory.update(
             memory_id,
@@ -63,7 +72,10 @@ class TestFridayMemory(unittest.TestCase):
         )
 
     def test_update_category(self):
-        memory_id = self.memory.save("Aprender Python", "geral")
+        memory_id = self.memory.save(
+            "Aprender Python",
+            "geral"
+        )
 
         updated = self.memory.update(
             memory_id,
@@ -93,6 +105,78 @@ class TestFridayMemory(unittest.TestCase):
     def test_delete_missing_id(self):
         self.assertFalse(
             self.memory.delete(999999)
+        )
+
+    def test_conflicting_memories_are_preserved(self):
+        self.memory.save(
+            "Meu codinome de teste é Fênix-27",
+            "geral"
+        )
+        self.memory.save(
+            "Meu codinome de teste é teste de segurança",
+            "geral"
+        )
+
+        memories = self.memory.get_all()
+
+        # As duas lembranças devem continuar armazenadas.
+        self.assertEqual(len(memories), 2)
+        self.assertIn(
+            "Meu codinome de teste é Fênix-27",
+            memories
+        )
+        self.assertIn(
+            "Meu codinome de teste é teste de segurança",
+            memories
+        )
+
+    def test_explicit_update_changes_only_selected_memory(self):
+        first_id = self.memory.save(
+            "Meu codinome de teste é Fênix-27",
+            "geral"
+        )
+        second_id = self.memory.save(
+            "Meu projeto favorito é Projeto Tony Stark",
+            "projeto"
+        )
+
+        updated = self.memory.update(
+            first_id,
+            "Meu codinome de teste é Aurora-27"
+        )
+
+        self.assertTrue(updated)
+        self.assertEqual(
+            self.memory.get_all(),
+            [
+                "Meu codinome de teste é Aurora-27",
+                "Meu projeto favorito é Projeto Tony Stark",
+            ]
+        )
+
+        # A segunda lembrança deve permanecer intacta.
+        memories = self.memory.get_details()
+        second_memory = next(
+            memory
+            for memory in memories
+            if memory["id"] == second_id
+        )
+
+        self.assertEqual(
+            second_memory["content"],
+            "Meu projeto favorito é Projeto Tony Stark"
+        )
+        self.assertEqual(
+            second_memory["category"],
+            "projeto"
+        )
+
+    def test_update_of_nonexistent_memory_returns_false(self):
+        self.assertFalse(
+            self.memory.update(
+                999999,
+                "Informação nova"
+            )
         )
 
 

@@ -1,0 +1,2 @@
+backups/friday_0_1_20261015_155512.tar.gz filter=lfs diff=lfs merge=lfs -text
+backups/friday_0_1_20261015_155559.tar.gz filter=lfs diff=lfs merge=lfs -text

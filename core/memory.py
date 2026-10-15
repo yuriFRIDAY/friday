@@ -137,6 +137,49 @@ class FridayMemory:
                 "DELETE FROM memories WHERE id = ?",
                 (memory_id,)
             )
-
             return cursor.rowcount > 0
-            
+
+    def delete_many(self, memory_ids):
+        if not isinstance(memory_ids, (list, tuple, set)):
+            raise TypeError(
+                "memory_ids deve ser uma lista de IDs"
+            )
+
+        if not memory_ids:
+            return False
+
+        ids = list(memory_ids)
+
+        if any(
+            isinstance(memory_id, bool)
+            or not isinstance(memory_id, int)
+            or memory_id <= 0
+            for memory_id in ids
+        ):
+            return False
+
+        ids = list(dict.fromkeys(ids))
+
+        with self._connection() as connection:
+            placeholders = ", ".join("?" for _ in ids)
+
+            cursor = connection.execute(
+                f"SELECT id FROM memories "
+                f"WHERE id IN ({placeholders})",
+                ids,
+            )
+
+            existing_ids = {
+                row[0] for row in cursor.fetchall()
+            }
+
+            if existing_ids != set(ids):
+                return False
+
+            connection.execute(
+                f"DELETE FROM memories "
+                f"WHERE id IN ({placeholders})",
+                ids,
+            )
+
+            return True
