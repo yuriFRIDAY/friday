@@ -1825,17 +1825,6 @@ class FridayHandler(BaseHTTPRequestHandler):
 
         allowed_origins.discard(None)
 
-        print(
-            "FRIDAY ORIGIN DEBUG:",
-            {
-                "origin_received": origin,
-                "origin_normalized": normalized_origin,
-                "configured_origins": sorted(allowed_origins),
-                "request_scheme": self.request_scheme(),
-                "host": self.headers.get("Host", ""),
-            },
-        )
-
         if not normalized_origin:
             return False
 
