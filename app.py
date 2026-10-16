@@ -1807,28 +1807,50 @@ class FridayHandler(BaseHTTPRequestHandler):
 
         return f"{parsed.scheme.lower()}://{parsed.netloc.lower()}"
 
+
     def valid_origin(self):
         origin = self.headers.get("Origin")
         normalized_origin = self.normalize_origin(origin)
-        if not normalized_origin:
-            return False
 
         configured_origins = os.getenv(
             "FRIDAY_ALLOWED_ORIGINS",
             "",
         ).strip()
+
+        allowed_origins = {
+            self.normalize_origin(value.strip())
+            for value in configured_origins.split(",")
+            if value.strip()
+        }
+
+        allowed_origins.discard(None)
+
+        print(
+            "FRIDAY ORIGIN DEBUG:",
+            {
+                "origin_received": origin,
+                "origin_normalized": normalized_origin,
+                "configured_origins": sorted(allowed_origins),
+                "request_scheme": self.request_scheme(),
+                "host": self.headers.get("Host", ""),
+            },
+        )
+
+        if not normalized_origin:
+            return False
+
         if configured_origins:
-            allowed_origins = {
-                self.normalize_origin(value.strip())
-                for value in configured_origins.split(",")
-            }
             return normalized_origin in allowed_origins
 
         host = self.headers.get("Host", "").strip()
         expected_origin = self.normalize_origin(
             f"{self.request_scheme()}://{host}"
         )
-        return bool(expected_origin and normalized_origin == expected_origin)
+
+        return bool(
+            expected_origin
+            and normalized_origin == expected_origin
+        )
 
     def read_json(self):
         try:

@@ -1,7 +1,24 @@
 import json
+import logging
 import os
+import time
+
 from urllib.request import Request, urlopen
 from urllib.error import URLError, HTTPError
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    handler.setFormatter(
+        logging.Formatter(
+            "%(asctime)s %(levelname)s %(name)s: %(message)s"
+        )
+    )
+    logger.addHandler(handler)
+
+logger.propagate = False
 
 
 class FridayAIProvider:
@@ -11,7 +28,7 @@ class FridayAIProvider:
         self.api_key = os.getenv("OPENROUTER_API_KEY", "")
         self.model = os.getenv(
             "OPENROUTER_MODEL",
-            "openrouter/free"
+            "openrouter/free",
         )
         self.base_url = "https://openrouter.ai/api/v1"
 
@@ -20,6 +37,9 @@ class FridayAIProvider:
 
     def generate(self, message, history=None):
         if not self.available():
+            logger.warning(
+                "IA indisponível: chave de API não configurada."
+            )
             return None
 
         system_prompt = """
@@ -84,11 +104,19 @@ COMPORTAMENTO:
             method="POST",
         )
 
+        started_at = time.monotonic()
+        outcome = "unknown"
+        status_code = None
+        actual_model = None
+
         try:
             with urlopen(request, timeout=60) as response:
+                status_code = response.status
                 result = json.loads(
                     response.read().decode("utf-8")
                 )
+
+            actual_model = result.get("model")
 
             choices = result.get("choices", [])
             if choices:
@@ -97,15 +125,78 @@ COMPORTAMENTO:
                 ).get("content")
 
                 if isinstance(content, str) and content.strip():
+                    outcome = "success"
                     return content.strip()
 
+            outcome = "empty_response"
+            logger.warning(
+                "OpenRouter retornou resposta vazia; "
+                "modelo_configurado=%s",
+                self.model,
+            )
             return None
 
-        except (
-            HTTPError,
-            URLError,
-            TimeoutError,
-            OSError,
-            ValueError,
-        ):
+        except HTTPError as error:
+            status_code = error.code
+            outcome = "http_error"
+
+            logger.warning(
+                "Falha HTTP no OpenRouter; "
+                "modelo_configurado=%s; status=%s",
+                self.model,
+                status_code,
+            )
             return None
+
+        except TimeoutError:
+            outcome = "timeout"
+            logger.warning(
+                "Timeout no OpenRouter; modelo_configurado=%s",
+                self.model,
+            )
+            return None
+
+        except URLError as error:
+            # Registra somente a categoria do erro,
+            # sem imprimir detalhes potencialmente sensíveis.
+            reason = getattr(error, "reason", None)
+            reason_type = type(reason).__name__
+
+            outcome = (
+                "timeout"
+                if isinstance(reason, TimeoutError)
+                else "connection_error"
+            )
+
+            logger.warning(
+                "Falha de conexão com OpenRouter; "
+                "modelo_configurado=%s; tipo=%s",
+                self.model,
+                reason_type,
+            )
+            return None
+
+        except (OSError, ValueError):
+            outcome = "response_error"
+            logger.warning(
+                "Falha ao processar resposta do OpenRouter; "
+                "modelo_configurado=%s",
+                self.model,
+            )
+            return None
+
+        finally:
+            elapsed_ms = round(
+                (time.monotonic() - started_at) * 1000
+            )
+
+            logger.info(
+                "AI_REQUEST provider=openrouter "
+                "model_configured=%s model_returned=%s "
+                "outcome=%s status=%s duration_ms=%s",
+                self.model,
+                actual_model or "unknown",
+                outcome,
+                status_code if status_code is not None else "unknown",
+                elapsed_ms,
+            )
