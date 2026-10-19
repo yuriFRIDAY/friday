@@ -1,17 +1,54 @@
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from http.cookies import CookieError, SimpleCookie
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, parse_qs, urlencode
+from urllib.request import Request, urlopen
+from urllib.error import HTTPError, URLError
+
 import json
 import os
+import secrets
+import time
 
 from core.assistant import FridayAssistant
 from core.auth import FridayAuth
 from core.sessions import SessionStore
 
-
 SESSION_COOKIE = "friday_session"
 MAX_BODY = 8192
 MAX_HISTORY_MESSAGES = 10
+# ========================================
+# GOOGLE CALENDAR — OAUTH
+# ========================================
+
+GOOGLE_OAUTH_AUTHORIZE_URL = (
+    "https://accounts.google.com/o/oauth2/v2/auth"
+)
+GOOGLE_OAUTH_TOKEN_URL = "https://oauth2.googleapis.com/token"
+
+GOOGLE_CALENDAR_SCOPE = (
+    "https://www.googleapis.com/auth/calendar.events.readonly"
+)
+
+OAUTH_STATE_TTL_SECONDS = 600
+OAUTH_PENDING_STATES = {}
+GOOGLE_TOKEN_STORE = {}
+
+# Estados temporários de autorização mantidos no servidor.
+OAUTH_PENDING_STATES = {}
+GOOGLE_TOKEN_STORE = {}
+
+GOOGLE_OAUTH_CLIENT_ID = os.getenv(
+    "GOOGLE_OAUTH_CLIENT_ID", ""
+).strip()
+
+GOOGLE_OAUTH_CLIENT_SECRET = os.getenv(
+    "GOOGLE_OAUTH_CLIENT_SECRET", ""
+).strip()
+
+GOOGLE_OAUTH_REDIRECT_URI = os.getenv(
+    "GOOGLE_OAUTH_REDIRECT_URI", ""
+).strip()
+
 SESSION_TTL_SECONDS = 1800
 COOKIE_SECURE_MODE = os.getenv(
     "FRIDAY_COOKIE_SECURE",
@@ -991,6 +1028,94 @@ HTML = r"""<!DOCTYPE html>
       transition: none !important;
     }
   }
+  .awareness-panel {
+    margin: 0 0 20px;
+    padding: 18px;
+    background: rgba(3, 12, 23, 0.62);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+  }
+
+  .awareness-panel h2 {
+    margin: 0 0 16px;
+    color: var(--cyan);
+    font-size: 10px;
+    letter-spacing: 0.14em;
+  }
+
+  .awareness-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 11px 0;
+    border-bottom: 1px solid rgba(104, 211, 255, 0.09);
+  }
+
+  .awareness-item span {
+    color: var(--muted);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+  }
+
+  .awareness-item strong,
+  .location-details strong {
+    color: var(--cyan-bright);
+    overflow-wrap: anywhere;
+  }
+
+  .awareness-item strong {
+    text-align: right;
+    font-size: 12px;
+  }
+
+  .location-details {
+    margin-top: 14px;
+    padding: 12px;
+    background: rgba(13, 28, 45, 0.76);
+    border-radius: 8px;
+    font-size: 12px;
+    line-height: 1.8;
+  }
+
+  .location-details p,
+  .awareness-note {
+    color: var(--muted);
+    font-size: 10px;
+    line-height: 1.7;
+  }
+
+  .awareness-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 14px;
+  }
+
+  .awareness-actions button {
+    flex: 1 1 140px;
+    font-size: 11px;
+  }
+
+  .awareness-note {
+    margin: 12px 0 0;
+  }
+
+  @media (max-width: 640px) {
+    .awareness-panel {
+      padding: 13px;
+    }
+
+    .awareness-item {
+      align-items: flex-start;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .awareness-item strong {
+      text-align: left;
+    }
+  }
 </style>
 </head>
 <body>
@@ -1045,6 +1170,45 @@ HTML = r"""<!DOCTYPE html>
       </div>
 
       <div id="status" role="status" aria-live="polite">Sistema aguardando autenticação.</div>
+      <section class="awareness-panel" aria-labelledby="awarenessTitle">
+        <h2 id="awarenessTitle">/// CONSCIÊNCIA SITUACIONAL</h2>
+
+        <div class="awareness-item">
+          <span>DATA</span>
+          <strong id="currentDate">Aguardando relógio...</strong>
+        </div>
+
+        <div class="awareness-item">
+          <span>HORÁRIO DE BRASÍLIA</span>
+          <strong id="currentTime">--:--:--</strong>
+        </div>
+
+        <div class="awareness-item">
+          <span>LOCALIZAÇÃO</span>
+          <strong id="locationStatus">Não solicitada</strong>
+        </div>
+
+        <div id="locationDetails" class="location-details hidden">
+          <div>Latitude: <strong id="latitude">—</strong></div>
+          <div>Longitude: <strong id="longitude">—</strong></div>
+          <p id="locationAccuracy"></p>
+        </div>
+
+        <div class="awareness-actions">
+          <button id="requestLocation" type="button">
+            Autorizar localização
+          </button>
+          <button id="clearLocation" type="button">
+            Ocultar localização
+          </button>
+        </div>
+
+        <p class="awareness-note">
+          O horário usa o fuso de Brasília. A localização só é solicitada
+          quando você pressiona o botão. As coordenadas ficam nesta interface
+          e não são enviadas à FRIDAY.
+        </p>
+      </section>
 
       <section id="login">
         <div class="login-symbol">/// ACESSO RESTRITO · STARK SYSTEMS</div>
@@ -1063,7 +1227,9 @@ HTML = r"""<!DOCTYPE html>
         <div class="toolbar">
           <button id="settingsToggle" type="button">⚙ Configurações de voz</button>
           <button id="stopSpeakTop" type="button">⏹ Parar voz</button>
+          <button id="calendarConnect" type="button">📅 Google Calendar</button>
         </div>
+
 
         <section id="settingsPanel" class="settings hidden">
           <h2>/// CONFIGURAÇÕES DE VOZ</h2>
@@ -1155,6 +1321,122 @@ let voiceSettings = {...defaultSettings};
 function status(text) {
   $('status').textContent = text;
 }
+// ========================================
+// CONSCIÊNCIA TEMPORAL E LOCALIZAÇÃO
+// ========================================
+
+let locationRequestInProgress = false;
+let currentCoordinates = null;
+let clockInterval = null;
+
+function updateFridayClock() {
+  const now = new Date();
+
+  $('currentDate').textContent = new Intl.DateTimeFormat('pt-BR', {
+    timeZone: 'America/Sao_Paulo',
+    weekday: 'long',
+    day: '2-digit',
+    month: 'long',
+    year: 'numeric'
+  }).format(now);
+
+  $('currentTime').textContent = new Intl.DateTimeFormat('pt-BR', {
+    timeZone: 'America/Sao_Paulo',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  }).format(now);
+}
+
+function clearFridayLocation(message = 'Localização ocultada') {
+  currentCoordinates = null;
+
+  $('latitude').textContent = '—';
+  $('longitude').textContent = '—';
+  $('locationAccuracy').textContent = '';
+  $('locationDetails').classList.add('hidden');
+  $('locationStatus').textContent = message;
+
+  locationRequestInProgress = false;
+  $('requestLocation').disabled = false;
+}
+
+function requestFridayLocation() {
+  if (locationRequestInProgress) return;
+
+  if (!('geolocation' in navigator)) {
+    $('locationStatus').textContent =
+      'Geolocalização não suportada neste navegador.';
+    return;
+  }
+
+  if (!window.isSecureContext) {
+    $('locationStatus').textContent =
+      'É necessária uma conexão segura HTTPS.';
+    return;
+  }
+
+  locationRequestInProgress = true;
+  $('requestLocation').disabled = true;
+  $('locationStatus').textContent = 'Aguardando autorização do dispositivo...';
+
+  navigator.geolocation.getCurrentPosition(
+    position => {
+      const latitude = position.coords.latitude;
+      const longitude = position.coords.longitude;
+      const accuracy = position.coords.accuracy;
+
+      currentCoordinates = {
+        latitude,
+        longitude,
+        accuracy
+      };
+
+      $('latitude').textContent = latitude.toFixed(6);
+      $('longitude').textContent = longitude.toFixed(6);
+      $('locationAccuracy').textContent =
+        `Precisão estimada: ${Math.round(accuracy)} metros. ` +
+        'Endereço e cidade não foram consultados.';
+
+      $('locationDetails').classList.remove('hidden');
+      $('locationStatus').textContent = 'Localização obtida neste dispositivo.';
+
+      locationRequestInProgress = false;
+      $('requestLocation').disabled = false;
+    },
+    error => {
+      const messages = {
+        1: 'Permissão de localização negada.',
+        2: 'A localização não está disponível.',
+        3: 'A solicitação de localização expirou.'
+      };
+
+      clearFridayLocation(
+        messages[error.code] || 'Não foi possível obter a localização.'
+      );
+    },
+    {
+      enableHighAccuracy: false,
+      timeout: 15000,
+      maximumAge: 60000
+    }
+  );
+}
+
+$('requestLocation').addEventListener('click', requestFridayLocation);
+
+$('clearLocation').addEventListener('click', () => {
+  clearFridayLocation();
+});
+
+updateFridayClock();
+
+if (clockInterval !== null) {
+  window.clearInterval(clockInterval);
+}
+
+clockInterval = window.setInterval(updateFridayClock, 1000);
 
 function loadSettings() {
   try {
@@ -1612,6 +1894,10 @@ function startVoice() {
 }
 
 $('voiceBtn').addEventListener('click', startVoice);
+$('calendarConnect').addEventListener('click', () => {
+  window.location.href = '/calendar/connect';
+});
+
 
 $('settingsToggle').addEventListener('click', () => {
   const panel = $('settingsPanel');
@@ -1723,6 +2009,7 @@ checkSession();
 """
 
 
+
 class FridayHandler(BaseHTTPRequestHandler):
     def send_json(self, status_code, data, cookie=None, clear_cookie=False):
         body = json.dumps(data, ensure_ascii=False).encode("utf-8")
@@ -1735,36 +2022,37 @@ class FridayHandler(BaseHTTPRequestHandler):
 
         secure = self.cookie_is_secure()
 
-        cookie_text = (
-            f"{SESSION_COOKIE}={cookie}; Path=/; HttpOnly; "
-            f"SameSite=Strict; Max-Age={SESSION_TTL_SECONDS}"
-        )
-
-        if secure:
-            cookie_text += "; Secure"
-
         if cookie:
-            self.send_header("Set-Cookie", cookie_text)
-        elif clear_cookie:
-            self.send_header(
-                "Set-Cookie",
-                f"{SESSION_COOKIE}=; Path=/; HttpOnly; "
-                "SameSite=Strict; Max-Age=0"
-                + ("; Secure" if secure else "")
+            cookie_text = (
+                f"{SESSION_COOKIE}={cookie}; Path=/; HttpOnly; "
+                f"SameSite=Lax; Max-Age={SESSION_TTL_SECONDS}"
             )
+            if secure:
+                cookie_text += "; Secure"
+            self.send_header("Set-Cookie", cookie_text)
+
+        elif clear_cookie:
+            cookie_text = (
+                f"{SESSION_COOKIE}=; Path=/; HttpOnly; "
+                "SameSite=Lax; Max-Age=0"
+            )
+            if secure:
+                cookie_text += "; Secure"
+            self.send_header("Set-Cookie", cookie_text)
 
         self.end_headers()
         self.wfile.write(body)
 
     def get_session(self):
-        cookie_header = self.headers.get("Cookie", "")
         cookie = SimpleCookie()
 
         try:
-            cookie.load(cookie_header)
+            cookie.load(self.headers.get("Cookie", ""))
             token = cookie.get(SESSION_COOKIE)
+
             if token and SESSION_STORE.get(token.value):
                 return token.value
+
         except (CookieError, TypeError, ValueError):
             pass
 
@@ -1772,10 +2060,13 @@ class FridayHandler(BaseHTTPRequestHandler):
 
     def request_scheme(self):
         forwarded = self.headers.get(
-            "X-Forwarded-Proto",
-            "",
+            "X-Forwarded-Proto", ""
         ).split(",", 1)[0].strip().lower()
-        return forwarded if forwarded in {"http", "https"} else "http"
+
+        if forwarded in {"http", "https"}:
+            return forwarded
+
+        return "http"
 
     def cookie_is_secure(self):
         if COOKIE_SECURE_MODE == "always":
@@ -1791,6 +2082,7 @@ class FridayHandler(BaseHTTPRequestHandler):
 
         try:
             parsed = urlsplit(origin)
+
             if (
                 parsed.scheme.lower() not in {"http", "https"}
                 or not parsed.netloc
@@ -1801,20 +2093,20 @@ class FridayHandler(BaseHTTPRequestHandler):
                 or parsed.fragment
             ):
                 return None
+
             parsed.port
+
         except ValueError:
             return None
 
         return f"{parsed.scheme.lower()}://{parsed.netloc.lower()}"
-
 
     def valid_origin(self):
         origin = self.headers.get("Origin")
         normalized_origin = self.normalize_origin(origin)
 
         configured_origins = os.getenv(
-            "FRIDAY_ALLOWED_ORIGINS",
-            "",
+            "FRIDAY_ALLOWED_ORIGINS", ""
         ).strip()
 
         allowed_origins = {
@@ -1822,7 +2114,6 @@ class FridayHandler(BaseHTTPRequestHandler):
             for value in configured_origins.split(",")
             if value.strip()
         }
-
         allowed_origins.discard(None)
 
         if not normalized_origin:
@@ -1837,8 +2128,7 @@ class FridayHandler(BaseHTTPRequestHandler):
         )
 
         return bool(
-            expected_origin
-            and normalized_origin == expected_origin
+            expected_origin and normalized_origin == expected_origin
         )
 
     def read_json(self):
@@ -1851,8 +2141,11 @@ class FridayHandler(BaseHTTPRequestHandler):
             return None
 
         try:
-            data = json.loads(self.rfile.read(length).decode("utf-8"))
+            data = json.loads(
+                self.rfile.read(length).decode("utf-8")
+            )
             return data if isinstance(data, dict) else None
+
         except (ValueError, UnicodeDecodeError):
             return None
 
@@ -1861,8 +2154,11 @@ class FridayHandler(BaseHTTPRequestHandler):
 
         if path == "/":
             body = HTML.encode("utf-8")
+
             self.send_response(200)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header(
+                "Content-Type", "text/html; charset=utf-8"
+            )
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
             self.send_header("X-Content-Type-Options", "nosniff")
@@ -1879,30 +2175,217 @@ class FridayHandler(BaseHTTPRequestHandler):
             )
             return
 
-        self.send_json(404, {"error": "Página não encontrada."})
+        if path == "/calendar/connect":
+            token = self.get_session()
 
+            if not token:
+                self.send_json(
+                    401,
+                    {
+                        "error": (
+                            "Entre na FRIDAY antes de conectar "
+                            "o calendário."
+                        )
+                    },
+                    clear_cookie=True,
+                )
+                return
+
+            if not (
+                GOOGLE_OAUTH_CLIENT_ID
+                and GOOGLE_OAUTH_REDIRECT_URI
+            ):
+                self.send_json(
+                    503,
+                    {
+                        "error": (
+                            "A integração com o Google ainda "
+                            "não está configurada."
+                        )
+                    },
+                )
+                return
+
+            state = secrets.token_urlsafe(32)
+            now = time.time()
+
+            # Remove estados expirados.
+            for old_state, details in list(
+                OAUTH_PENDING_STATES.items()
+            ):
+                if (
+                    now - details["created_at"]
+                    > OAUTH_STATE_TTL_SECONDS
+                ):
+                    OAUTH_PENDING_STATES.pop(old_state, None)
+
+            OAUTH_PENDING_STATES[state] = {
+                "session_token": token,
+                "created_at": now,
+            }
+
+            params = {
+                "client_id": GOOGLE_OAUTH_CLIENT_ID,
+                "redirect_uri": GOOGLE_OAUTH_REDIRECT_URI,
+                "response_type": "code",
+                "scope": GOOGLE_CALENDAR_SCOPE,
+                "state": state,
+                "access_type": "offline",
+                "prompt": "consent",
+            }
+
+            authorization_url = (
+                f"{GOOGLE_OAUTH_AUTHORIZE_URL}?"
+                f"{urlencode(params)}"
+            )
+
+            self.send_response(302)
+            self.send_header("Location", authorization_url)
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Referrer-Policy", "no-referrer")
+            self.end_headers()
+            return
+
+    def handle_google_callback(self):
+        query = parse_qs(urlsplit(self.path).query)
+        state = query.get("state", [""])[0]
+        code = query.get("code", [""])[0]
+        google_error = query.get("error", [""])[0]
+
+        if google_error:
+            self.send_json(
+                400,
+                {"error": "A autorização do Google foi cancelada ou negada."},
+            )
+            return
+
+        if not state or not code:
+            self.send_json(
+                400,
+                {"error": "Resposta de autorização incompleta."},
+            )
+            return
+
+        pending = OAUTH_PENDING_STATES.pop(state, None)
+
+        if not pending:
+            self.send_json(
+                400,
+                {"error": "Estado de autorização inválido ou já utilizado."},
+            )
+            return
+
+        if time.time() - pending["created_at"] > OAUTH_STATE_TTL_SECONDS:
+            self.send_json(
+                400,
+                {"error": "A autorização expirou. Tente novamente."},
+            )
+            return
+
+        session_token = self.get_session()
+
+        if (
+            not session_token
+            or session_token != pending["session_token"]
+            or not SESSION_STORE.get(session_token)
+        ):
+            self.send_json(
+                401,
+                {"error": "Sua sessão expirou. Entre novamente na FRIDAY."},
+                clear_cookie=True,
+            )
+            return
+
+        if not (
+            GOOGLE_OAUTH_CLIENT_ID
+            and GOOGLE_OAUTH_CLIENT_SECRET
+            and GOOGLE_OAUTH_REDIRECT_URI
+        ):
+            self.send_json(
+                503,
+                {"error": "A configuração OAuth do Google está incompleta."},
+            )
+            return
+
+        token_data = urlencode({
+            "code": code,
+            "client_id": GOOGLE_OAUTH_CLIENT_ID,
+            "client_secret": GOOGLE_OAUTH_CLIENT_SECRET,
+            "redirect_uri": GOOGLE_OAUTH_REDIRECT_URI,
+            "grant_type": "authorization_code",
+        }).encode("utf-8")
+
+        request = Request(
+            GOOGLE_OAUTH_TOKEN_URL,
+            data=token_data,
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Accept": "application/json",
+            },
+            method="POST",
+        )
+
+        try:
+            with urlopen(request, timeout=15) as response:
+                result = json.loads(response.read(65536).decode("utf-8"))
+
+            access_token = result.get("access_token")
+            if not isinstance(access_token, str) or not access_token:
+                raise ValueError("Resposta sem access token válido.")
+
+            # Guarda os tokens apenas na memória do servidor por enquanto.
+            # Não envie tokens ou segredos ao navegador.
+            GOOGLE_TOKEN_STORE[session_token] = {
+                "access_token": access_token,
+                "refresh_token": result.get("refresh_token"),
+                "expires_at": time.time() + int(result.get("expires_in", 3600)),
+                "scope": result.get("scope", ""),
+            }
+
+        except (HTTPError, URLError, TimeoutError, ValueError, json.JSONDecodeError):
+            print("FRIDAY WEB: falha na troca do código OAuth do Google.")
+            self.send_json(
+                502,
+                {"error": "Não foi possível concluir a autorização do Google."},
+            )
+            return
+
+        self.send_json(
+            200,
+            {"ok": True, "message": "Google Calendar autorizado pela FRIDAY."},
+        )
     def do_POST(self):
         path = urlsplit(self.path).path
 
         if not self.valid_origin():
-            self.send_json(403, {"error": "Origem não autorizada."})
+            self.send_json(
+                403, {"error": "Origem não autorizada."}
+            )
             return
 
         data = self.read_json()
+
         if data is None:
-            self.send_json(400, {"error": "Solicitação inválida."})
+            self.send_json(
+                400, {"error": "Solicitação inválida."}
+            )
             return
 
         if path == "/login":
             password = data.get("password")
             client_key = self.client_address[0]
+
             authenticated = (
                 isinstance(password, str)
-                and auth.authenticate(password, client_key=client_key)
+                and auth.authenticate(
+                    password, client_key=client_key
+                )
             )
+
             if not authenticated:
                 remaining = auth.remaining_lockout(client_key)
                 locked = remaining > 0
+
                 self.send_json(
                     429 if locked else 401,
                     {
@@ -1918,25 +2401,31 @@ class FridayHandler(BaseHTTPRequestHandler):
                 return
 
             token = SESSION_STORE.create()
-            self.send_json(200, {"ok": True}, cookie=token)
+            self.send_json(
+                200, {"ok": True}, cookie=token
+            )
             return
 
         token = self.get_session()
+
         if not token:
             self.send_json(
                 401,
                 {"error": "Sessão inválida. Entre novamente."},
-                clear_cookie=True
+                clear_cookie=True,
             )
             return
 
         if path == "/logout":
             SESSION_STORE.invalidate(token)
-            self.send_json(200, {"ok": True}, clear_cookie=True)
+            self.send_json(
+                200, {"ok": True}, clear_cookie=True
+            )
             return
 
         if path == "/chat":
             command = data.get("command")
+
             if (
                 not isinstance(command, str)
                 or not command.strip()
@@ -1944,12 +2433,11 @@ class FridayHandler(BaseHTTPRequestHandler):
             ):
                 self.send_json(
                     400,
-                    {"error": "Comando vazio ou muito longo."}
+                    {"error": "Comando vazio ou muito longo."},
                 )
                 return
 
             try:
-
                 clean_command = command.strip()
                 history = SESSION_STORE.get_history(token)
                 session = SESSION_STORE.get(token)
@@ -1957,12 +2445,16 @@ class FridayHandler(BaseHTTPRequestHandler):
                 if history is None or session is None:
                     self.send_json(
                         401,
-                        {"error": "Sessão inválida. Entre novamente."},
+                        {
+                            "error": (
+                                "Sessão inválida. Entre novamente."
+                            )
+                        },
                         clear_cookie=True,
                     )
                     return
 
-                normalized_command = clean_command.casefold().strip()
+                normalized_command = clean_command.casefold()
 
                 if session.pending_action is not None:
                     if normalized_command == "atualizar lembrança":
@@ -1975,13 +2467,6 @@ class FridayHandler(BaseHTTPRequestHandler):
                         intention = friday.interpret(clean_command)
                 else:
                     intention = friday.interpret(clean_command)
-                if history is None:
-                    self.send_json(
-                        401,
-                        {"error": "Sessão inválida. Entre novamente."},
-                        clear_cookie=True,
-                    )
-                    return
 
                 response = friday.execute(
                     intention,
@@ -1995,39 +2480,65 @@ class FridayHandler(BaseHTTPRequestHandler):
                     SESSION_STORE.invalidate(token)
                     self.send_json(
                         200,
-                        {"response": "FRIDAY encerrada.", "closed": True},
-                        clear_cookie=True
+                        {
+                            "response": "FRIDAY encerrada.",
+                            "closed": True,
+                        },
+                        clear_cookie=True,
                     )
                     return
 
                 if intention == "unknown":
                     from core.ai_provider import FridayAIProvider
+
                     provider = FridayAIProvider()
 
                     if (
                         provider.available()
-                        and response != "Não consegui obter uma resposta da IA agora."
+                        and response
+                        != "Não consegui obter uma resposta da IA agora."
                     ):
-                        history.extend([
-                            {"role": "user", "content": clean_command},
-                            {"role": "assistant", "content": str(response)},
-                        ])
+                        history.extend(
+                            [
+                                {
+                                    "role": "user",
+                                    "content": clean_command,
+                                },
+                                {
+                                    "role": "assistant",
+                                    "content": str(response),
+                                },
+                            ]
+                        )
                         history[:] = history[-MAX_HISTORY_MESSAGES:]
 
                 self.send_json(
                     200,
-                    {"response": str(response), "closed": False}
+                    {
+                        "response": str(response),
+                        "closed": False,
+                    },
                 )
 
             except Exception:
                 print("FRIDAY WEB: erro ao processar comando.")
                 self.send_json(
                     500,
-                    {"error": "Erro interno ao processar comando."}
+                    {
+                        "error": (
+                            "Erro interno ao processar comando."
+                        )
+                    },
                 )
             return
 
-        self.send_json(404, {"error": "Rota não encontrada."})
+        if path == "/oauth/google/callback":
+            self.handle_google_callback()
+            return
+        
+        self.send_json(
+            404, {"error": "Página não encontrada."}
+        )
 
     def log_message(self, format, *args):
         print("FRIDAY WEB:", format % args)
@@ -2042,9 +2553,11 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", "5000"))
 
     class ReusableHTTPServer(HTTPServer):
-        allow_reuse_address = True  # ajuda em casos de TIME_WAIT
+        allow_reuse_address = True
 
-    server = ReusableHTTPServer(("0.0.0.0", port), FridayHandler)
+    server = ReusableHTTPServer(
+        ("0.0.0.0", port), FridayHandler
+    )
 
     print(f"FRIDAY online em http://0.0.0.0:{port}")
 
