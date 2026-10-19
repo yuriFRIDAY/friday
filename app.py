@@ -2246,6 +2246,14 @@ class FridayHandler(BaseHTTPRequestHandler):
             self.end_headers()
             return
 
+        if path == "/oauth/google/callback":
+            self.handle_google_callback()
+            return
+
+        self.send_json(
+            404, {"error": "Página não encontrada."}
+        )
+
     def handle_google_callback(self):
         query = parse_qs(urlsplit(self.path).query)
         state = query.get("state", [""])[0]
@@ -2349,11 +2357,22 @@ class FridayHandler(BaseHTTPRequestHandler):
                 {"error": "Não foi possível concluir a autorização do Google."},
             )
             return
+        except Exception:
+            # Log traceback only — never log path, query, code, state, tokens or secrets.
+            import traceback
+            print("FRIDAY WEB: exceção não tratada no callback OAuth Google:")
+            traceback.print_exc()
+            self.send_json(
+                500,
+                {"error": "Erro interno na autorização do Google."},
+            )
+            return
 
         self.send_json(
             200,
             {"ok": True, "message": "Google Calendar autorizado pela FRIDAY."},
         )
+
     def do_POST(self):
         path = urlsplit(self.path).path
 
@@ -2532,10 +2551,6 @@ class FridayHandler(BaseHTTPRequestHandler):
                 )
             return
 
-        if path == "/oauth/google/callback":
-            self.handle_google_callback()
-            return
-        
         self.send_json(
             404, {"error": "Página não encontrada."}
         )
