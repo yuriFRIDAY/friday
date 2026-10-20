@@ -4,10 +4,13 @@ from urllib.parse import urlsplit, parse_qs, urlencode
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 
+import hashlib
+import hmac
 import json
 import os
 import secrets
 import time
+import fcntl
 
 from core.assistant import FridayAssistant
 from core.auth import FridayAuth
@@ -30,12 +33,356 @@ GOOGLE_CALENDAR_SCOPE = (
 )
 
 OAUTH_STATE_TTL_SECONDS = 600
-OAUTH_PENDING_STATES = {}
-GOOGLE_TOKEN_STORE = {}
+GOOGLE_OWNER_KEY = "owner"
+GOOGLE_TOKEN_FILE = os.getenv("FRIDAY_GOOGLE_TOKEN_FILE", "").strip() or os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    ".friday_google_tokens.json",
+)
+_TOKEN_MEMORY_ONLY = False
 
-# Estados temporários de autorização mantidos no servidor.
-OAUTH_PENDING_STATES = {}
-GOOGLE_TOKEN_STORE = {}
+
+class GoogleOAuthError(Exception):
+    def __init__(self, code):
+        super().__init__(code or "oauth_error")
+        self.code = code or "oauth_error"
+
+
+def _token_file_candidates():
+    candidates = []
+    for path in (GOOGLE_TOKEN_FILE, "/tmp/friday_google_tokens.json"):
+        if path and path not in candidates:
+            candidates.append(path)
+    return candidates
+
+
+def _load_google_token_store():
+    for path in _token_file_candidates():
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                data = json.load(handle)
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            continue
+
+        if not isinstance(data, dict):
+            continue
+
+        record = data.get(GOOGLE_OWNER_KEY)
+        if not isinstance(record, dict):
+            continue
+
+        access_token = record.get("access_token")
+        if not isinstance(access_token, str) or not access_token:
+            continue
+
+        refresh_token = record.get("refresh_token")
+        scope = record.get("scope")
+        try:
+            expires_at = float(record.get("expires_at") or 0)
+        except (TypeError, ValueError):
+            expires_at = 0
+
+        return {
+            GOOGLE_OWNER_KEY: {
+                "access_token": access_token,
+                "refresh_token": refresh_token if isinstance(refresh_token, str) and refresh_token else None,
+                "expires_at": expires_at,
+                "scope": scope if isinstance(scope, str) else "",
+            }
+        }
+    return {}
+
+
+def _persist_google_token_store():
+    global _TOKEN_MEMORY_ONLY
+    record = GOOGLE_TOKEN_STORE.get(GOOGLE_OWNER_KEY)
+    payload = {}
+    if isinstance(record, dict):
+        payload[GOOGLE_OWNER_KEY] = {
+            "access_token": record.get("access_token"),
+            "refresh_token": record.get("refresh_token"),
+            "expires_at": record.get("expires_at"),
+            "scope": record.get("scope") or "",
+        }
+
+    for path in _token_file_candidates():
+        lock_path = path + ".lock"
+        try:
+            directory = os.path.dirname(path) or "."
+            os.makedirs(directory, exist_ok=True)
+            with open(lock_path, "a", encoding="utf-8") as lock_handle:
+                fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
+                try:
+                    temporary = path + ".tmp"
+                    with open(temporary, "w", encoding="utf-8") as handle:
+                        json.dump(payload, handle)
+                        handle.write("\n")
+                    try:
+                        os.chmod(temporary, 0o600)
+                    except OSError:
+                        pass
+                    os.replace(temporary, path)
+                    try:
+                        os.chmod(path, 0o600)
+                    except OSError:
+                        pass
+                finally:
+                    fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
+            _TOKEN_MEMORY_ONLY = False
+            return True
+        except OSError:
+            continue
+
+    _TOKEN_MEMORY_ONLY = True
+    print("FRIDAY WEB: não foi possível gravar os tokens do calendário em disco.")
+    return False
+
+
+GOOGLE_TOKEN_STORE = _load_google_token_store()
+
+
+def _owner_calendar_record():
+    if not _TOKEN_MEMORY_ONLY:
+        loaded = _load_google_token_store()
+        memory = GOOGLE_TOKEN_STORE.get(GOOGLE_OWNER_KEY)
+        disk_record = loaded.get(GOOGLE_OWNER_KEY) if loaded else None
+        if disk_record or not isinstance(memory, dict):
+            GOOGLE_TOKEN_STORE.clear()
+            GOOGLE_TOKEN_STORE.update(loaded)
+    record = GOOGLE_TOKEN_STORE.get(GOOGLE_OWNER_KEY)
+    return record if isinstance(record, dict) else None
+
+
+def _forget_owner_calendar_tokens():
+    GOOGLE_TOKEN_STORE.pop(GOOGLE_OWNER_KEY, None)
+    _persist_google_token_store()
+
+
+def _oauth_state_secret():
+    raw = os.getenv("FRIDAY_PASSWORD", "").strip() or GOOGLE_OAUTH_CLIENT_SECRET
+    if not raw:
+        raise RuntimeError("Segredo ausente para assinar o estado OAuth.")
+    return raw.encode("utf-8")
+
+
+def _make_oauth_state(session_token):
+    expiry = int(time.time()) + OAUTH_STATE_TTL_SECONDS
+    nonce = secrets.token_urlsafe(16)
+    binding = hashlib.sha256(session_token.encode("utf-8")).hexdigest()
+    payload = f"v1.{expiry}.{binding}.{nonce}"
+    signature = hmac.new(
+        _oauth_state_secret(),
+        payload.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+    return f"{payload}.{signature}"
+
+
+def _session_matches_oauth_state(state, session_token):
+    if not isinstance(state, str) or not isinstance(session_token, str):
+        return False
+    parts = state.split(".")
+    if len(parts) != 5 or parts[0] != "v1":
+        return False
+    payload = ".".join(parts[:4])
+    signature = parts[4]
+    expected = hmac.new(
+        _oauth_state_secret(),
+        payload.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+    if not hmac.compare_digest(signature, expected):
+        return False
+    try:
+        expiry = int(parts[1])
+    except ValueError:
+        return False
+    if expiry < int(time.time()):
+        return False
+    binding = hashlib.sha256(session_token.encode("utf-8")).hexdigest()
+    return hmac.compare_digest(parts[2], binding)
+
+
+def _sign(payload):
+    return hmac.new(
+        _oauth_state_secret(),
+        payload.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def _make_session_cookie():
+    expiry = int(time.time()) + SESSION_TTL_SECONDS
+    nonce = secrets.token_urlsafe(32)
+    payload = f"s1.{expiry}.{nonce}"
+    token = f"{payload}.{_sign(payload)}"
+    _restore_session(token)
+    return token
+
+
+def _signed_session_is_valid(token):
+    if not isinstance(token, str):
+        return False
+    parts = token.split(".")
+    if len(parts) != 4 or parts[0] != "s1":
+        return False
+    payload = ".".join(parts[:3])
+    if not hmac.compare_digest(parts[3], _sign(payload)):
+        return False
+    try:
+        expiry = int(parts[1])
+    except ValueError:
+        return False
+    return expiry >= int(time.time())
+
+
+def _read_session_cookie(header_value):
+    cookie = SimpleCookie()
+    try:
+        cookie.load(header_value or "")
+    except (CookieError, TypeError, ValueError):
+        return None
+    morsel = cookie.get(SESSION_COOKIE)
+    if morsel is None or not morsel.value:
+        return None
+    return morsel.value
+
+
+def _restore_session(session_token):
+    if SESSION_STORE.get(session_token) is not None:
+        return True
+    try:
+        from core.sessions import Session
+
+        SESSION_STORE._sessions[session_token] = Session(
+            token=session_token,
+            expires_at=SESSION_STORE._clock() + SESSION_STORE.ttl_seconds,
+        )
+    except Exception:
+        return False
+    return SESSION_STORE.get(session_token) is not None
+
+
+def _calendar_is_connected():
+    record = _owner_calendar_record()
+    if not record:
+        return False
+
+    refresh_token = record.get("refresh_token")
+    if isinstance(refresh_token, str) and refresh_token:
+        return True
+
+    access_token = record.get("access_token")
+    try:
+        expires_at = float(record.get("expires_at") or 0)
+    except (TypeError, ValueError):
+        expires_at = 0
+
+    return (
+        isinstance(access_token, str)
+        and bool(access_token)
+        and time.time() < expires_at - 30
+    )
+
+
+def _save_owner_calendar_tokens(access_token, refresh_token, expires_in, scope):
+    previous = _owner_calendar_record() or {}
+    if isinstance(refresh_token, str) and refresh_token:
+        kept_refresh = refresh_token
+    else:
+        kept_refresh = previous.get("refresh_token")
+
+    try:
+        lifetime = int(expires_in)
+    except (TypeError, ValueError):
+        lifetime = 3600
+
+    GOOGLE_TOKEN_STORE[GOOGLE_OWNER_KEY] = {
+        "access_token": access_token,
+        "refresh_token": kept_refresh if isinstance(kept_refresh, str) and kept_refresh else None,
+        "expires_at": time.time() + max(60, lifetime),
+        "scope": scope if isinstance(scope, str) else "",
+    }
+    _persist_google_token_store()
+
+
+def _google_error_code(exc):
+    if not isinstance(exc, HTTPError):
+        return ""
+    try:
+        raw = exc.read(4096)
+        data = json.loads(raw.decode("utf-8", "replace"))
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        return ""
+    code = data.get("error") if isinstance(data, dict) else ""
+    if code in {
+        "redirect_uri_mismatch",
+        "invalid_client",
+        "invalid_grant",
+        "invalid_request",
+        "unauthorized_client",
+    }:
+        return code
+    return ""
+
+
+def _exchange_google_token(form, clear_on_invalid_grant=False):
+    request = Request(
+        GOOGLE_OAUTH_TOKEN_URL,
+        data=urlencode(form).encode("utf-8"),
+        headers={
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Accept": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urlopen(request, timeout=15) as response:
+            result = json.loads(response.read(65536).decode("utf-8"))
+    except HTTPError as exc:
+        code = _google_error_code(exc)
+        if clear_on_invalid_grant and code == "invalid_grant":
+            _forget_owner_calendar_tokens()
+        raise GoogleOAuthError(code or "token_exchange") from None
+
+    access_token = result.get("access_token")
+    if not isinstance(access_token, str) or not access_token:
+        raise GoogleOAuthError("token_exchange")
+
+    _save_owner_calendar_tokens(
+        access_token,
+        result.get("refresh_token"),
+        result.get("expires_in", 3600),
+        result.get("scope", ""),
+    )
+    return access_token
+
+
+def _usable_calendar_access_token():
+    record = _owner_calendar_record()
+    if not record:
+        return None
+
+    access_token = record.get("access_token")
+    try:
+        expires_at = float(record.get("expires_at") or 0)
+    except (TypeError, ValueError):
+        expires_at = 0
+
+    if isinstance(access_token, str) and access_token and time.time() < expires_at - 60:
+        return access_token
+
+    refresh_token = record.get("refresh_token")
+    if not isinstance(refresh_token, str) or not refresh_token:
+        return None
+    if not (GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET):
+        return None
+
+    return _exchange_google_token({
+        "client_id": GOOGLE_OAUTH_CLIENT_ID,
+        "client_secret": GOOGLE_OAUTH_CLIENT_SECRET,
+        "refresh_token": refresh_token,
+        "grant_type": "refresh_token",
+    }, clear_on_invalid_grant=True)
 
 GOOGLE_OAUTH_CLIENT_ID = os.getenv(
     "GOOGLE_OAUTH_CLIENT_ID", ""
@@ -1894,7 +2241,19 @@ function startVoice() {
 }
 
 $('voiceBtn').addEventListener('click', startVoice);
-$('calendarConnect').addEventListener('click', () => {
+$('calendarConnect').addEventListener('click', async () => {
+  try {
+    const response = await fetch('/calendar/status', {
+      credentials: 'same-origin',
+      cache: 'no-store'
+    });
+    const data = await response.json();
+    if (response.ok && data.connected) {
+      $('calendarConnect').textContent = '📅 Calendário conectado';
+      status('Google Calendar já está conectado. A autorização existente será reutilizada.');
+      return;
+    }
+  } catch (error) {}
   window.location.href = '/calendar/connect';
 });
 
@@ -1984,11 +2343,43 @@ async function checkSession() {
     });
     const data = await response.json();
 
+    const calendarState = new URLSearchParams(location.search).get('calendar');
+    const calendarMessages = {
+      connected: 'Google Calendar autorizado e salvo. Os próximos acessos reutilizam esta conexão.',
+      nosession: 'Entre na FRIDAY antes de conectar o calendário.',
+      denied: 'A autorização do Google foi cancelada.',
+      old: 'Essa tentativa expirou. Clique em Google Calendar outra vez.',
+      state: 'A sessão não confere com o retorno do Google. Entre de novo e repita a conexão.',
+      config: 'OAuth incompleto. Confira o client id, o secret e a redirect URI.',
+      redirect: 'A redirect URI do servidor não é a mesma cadastrada no Google Cloud.',
+      client: 'O Google recusou o cliente OAuth. Confira o client id e o secret.',
+      token: 'O Google não concluiu o acesso. Clique em Google Calendar e autorize de novo.',
+      incomplete: 'A resposta de autorização veio incompleta.'
+    };
+
     if (data.authenticated) {
       $('login').classList.add('hidden');
       $('assistant').classList.remove('hidden');
       status('Sessão ativa. FRIDAY online.');
       addMessage('FRIDAY', 'Bem-vindo de volta, comandante.');
+      if (calendarState === 'connected') {
+        $('calendarConnect').textContent = '📅 Calendário conectado';
+      }
+      try {
+        const calendar = await fetch('/calendar/status', {
+          credentials: 'same-origin',
+          cache: 'no-store'
+        });
+        const calendarData = await calendar.json();
+        if (calendar.ok && calendarData.connected) {
+          $('calendarConnect').textContent = '📅 Calendário conectado';
+        }
+      } catch (error) {}
+    }
+
+    if (calendarMessages[calendarState]) {
+      status(calendarMessages[calendarState]);
+      history.replaceState({}, '', location.pathname);
     }
   } catch (error) {
     status('Não foi possível verificar a sessão.');
@@ -2043,20 +2434,22 @@ class FridayHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def redirect_to(self, location):
+        self.send_response(302)
+        self.send_header("Location", location)
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.end_headers()
+
     def get_session(self):
-        cookie = SimpleCookie()
-
-        try:
-            cookie.load(self.headers.get("Cookie", ""))
-            token = cookie.get(SESSION_COOKIE)
-
-            if token and SESSION_STORE.get(token.value):
-                return token.value
-
-        except (CookieError, TypeError, ValueError):
-            pass
-
-        return None
+        token = _read_session_cookie(self.headers.get("Cookie", ""))
+        if not token:
+            return None
+        if not _signed_session_is_valid(token) and SESSION_STORE.get(token) is None:
+            return None
+        if SESSION_STORE.get(token) is None and not _restore_session(token):
+            return None
+        return token
 
     def request_scheme(self):
         forwarded = self.headers.get(
@@ -2175,54 +2568,46 @@ class FridayHandler(BaseHTTPRequestHandler):
             )
             return
 
+        if path == "/calendar/status":
+            token = self.get_session()
+            if not token:
+                self.send_json(
+                    401,
+                    {"error": "Sessão inválida. Entre novamente.", "connected": False},
+                    clear_cookie=True,
+                )
+                return
+            self.send_json(200, {"connected": _calendar_is_connected()})
+            return
+
+        if path == "/calendar/events":
+            self.handle_calendar_events()
+            return
+
         if path == "/calendar/connect":
             token = self.get_session()
 
             if not token:
-                self.send_json(
-                    401,
-                    {
-                        "error": (
-                            "Entre na FRIDAY antes de conectar "
-                            "o calendário."
-                        )
-                    },
-                    clear_cookie=True,
-                )
+                self.redirect_to("/?calendar=nosession")
+                return
+
+            if _calendar_is_connected():
+                self.redirect_to("/?calendar=connected")
                 return
 
             if not (
                 GOOGLE_OAUTH_CLIENT_ID
+                and GOOGLE_OAUTH_CLIENT_SECRET
                 and GOOGLE_OAUTH_REDIRECT_URI
             ):
-                self.send_json(
-                    503,
-                    {
-                        "error": (
-                            "A integração com o Google ainda "
-                            "não está configurada."
-                        )
-                    },
-                )
+                self.redirect_to("/?calendar=config")
                 return
 
-            state = secrets.token_urlsafe(32)
-            now = time.time()
-
-            # Remove estados expirados.
-            for old_state, details in list(
-                OAUTH_PENDING_STATES.items()
-            ):
-                if (
-                    now - details["created_at"]
-                    > OAUTH_STATE_TTL_SECONDS
-                ):
-                    OAUTH_PENDING_STATES.pop(old_state, None)
-
-            OAUTH_PENDING_STATES[state] = {
-                "session_token": token,
-                "created_at": now,
-            }
+            try:
+                state = _make_oauth_state(token)
+            except RuntimeError:
+                self.redirect_to("/?calendar=config")
+                return
 
             params = {
                 "client_id": GOOGLE_OAUTH_CLIENT_ID,
@@ -2231,6 +2616,7 @@ class FridayHandler(BaseHTTPRequestHandler):
                 "scope": GOOGLE_CALENDAR_SCOPE,
                 "state": state,
                 "access_type": "offline",
+                "include_granted_scopes": "true",
                 "prompt": "consent",
             }
 
@@ -2239,11 +2625,7 @@ class FridayHandler(BaseHTTPRequestHandler):
                 f"{urlencode(params)}"
             )
 
-            self.send_response(302)
-            self.send_header("Location", authorization_url)
-            self.send_header("Cache-Control", "no-store")
-            self.send_header("Referrer-Policy", "no-referrer")
-            self.end_headers()
+            self.redirect_to(authorization_url)
             return
 
         if path == "/oauth/google/callback":
@@ -2261,47 +2643,33 @@ class FridayHandler(BaseHTTPRequestHandler):
         google_error = query.get("error", [""])[0]
 
         if google_error:
-            self.send_json(
-                400,
-                {"error": "A autorização do Google foi cancelada ou negada."},
-            )
+            self.redirect_to("/?calendar=denied")
             return
 
         if not state or not code:
-            self.send_json(
-                400,
-                {"error": "Resposta de autorização incompleta."},
-            )
+            self.redirect_to("/?calendar=incomplete")
             return
 
-        pending = OAUTH_PENDING_STATES.pop(state, None)
-
-        if not pending:
-            self.send_json(
-                400,
-                {"error": "Estado de autorização inválido ou já utilizado."},
-            )
-            return
-
-        if time.time() - pending["created_at"] > OAUTH_STATE_TTL_SECONDS:
-            self.send_json(
-                400,
-                {"error": "A autorização expirou. Tente novamente."},
-            )
-            return
-
-        session_token = self.get_session()
-
-        if (
-            not session_token
-            or session_token != pending["session_token"]
-            or not SESSION_STORE.get(session_token)
+        session_token = _read_session_cookie(self.headers.get("Cookie", ""))
+        if not session_token or not (
+            _signed_session_is_valid(session_token) or SESSION_STORE.get(session_token)
         ):
-            self.send_json(
-                401,
-                {"error": "Sua sessão expirou. Entre novamente na FRIDAY."},
-                clear_cookie=True,
-            )
+            self.redirect_to("/?calendar=nosession")
+            return
+
+        if not isinstance(state, str) or not state.startswith("v1."):
+            self.redirect_to("/?calendar=old")
+            return
+
+        if not _session_matches_oauth_state(state, session_token):
+            if _calendar_is_connected():
+                self.redirect_to("/?calendar=connected")
+                return
+            self.redirect_to("/?calendar=state")
+            return
+
+        if not _restore_session(session_token):
+            self.redirect_to("/?calendar=nosession")
             return
 
         if not (
@@ -2309,69 +2677,132 @@ class FridayHandler(BaseHTTPRequestHandler):
             and GOOGLE_OAUTH_CLIENT_SECRET
             and GOOGLE_OAUTH_REDIRECT_URI
         ):
+            self.redirect_to("/?calendar=config")
+            return
+
+        oauth_error = None
+        for attempt in range(3):
+            try:
+                _exchange_google_token({
+                    "code": code,
+                    "client_id": GOOGLE_OAUTH_CLIENT_ID,
+                    "client_secret": GOOGLE_OAUTH_CLIENT_SECRET,
+                    "redirect_uri": GOOGLE_OAUTH_REDIRECT_URI,
+                    "grant_type": "authorization_code",
+                })
+                oauth_error = None
+                break
+            except GoogleOAuthError as exc:
+                oauth_error = exc
+                if _calendar_is_connected():
+                    self.redirect_to("/?calendar=connected")
+                    return
+                if attempt < 2 and exc.code == "invalid_grant":
+                    time.sleep(0.4)
+                    continue
+                break
+            except (URLError, TimeoutError, ValueError, json.JSONDecodeError):
+                print("FRIDAY WEB: falha na troca do código OAuth do Google.")
+                self.redirect_to("/?calendar=token")
+                return
+            except Exception:
+                import traceback
+                print("FRIDAY WEB: exceção não tratada no callback OAuth Google:")
+                traceback.print_exc()
+                self.redirect_to("/?calendar=token")
+                return
+
+        if oauth_error is not None:
+            print("FRIDAY WEB: falha na troca do código OAuth do Google.")
+            reason = {
+                "redirect_uri_mismatch": "redirect",
+                "invalid_client": "client",
+                "unauthorized_client": "client",
+            }.get(oauth_error.code, "token")
+            if _calendar_is_connected():
+                reason = "connected"
+            self.redirect_to("/?calendar=" + reason)
+            return
+
+        self.redirect_to("/?calendar=connected")
+
+    def handle_calendar_events(self):
+        token = self.get_session()
+        if not token:
             self.send_json(
-                503,
-                {"error": "A configuração OAuth do Google está incompleta."},
+                401,
+                {"error": "Sessão inválida. Entre novamente."},
+                clear_cookie=True,
             )
             return
 
-        token_data = urlencode({
-            "code": code,
-            "client_id": GOOGLE_OAUTH_CLIENT_ID,
-            "client_secret": GOOGLE_OAUTH_CLIENT_SECRET,
-            "redirect_uri": GOOGLE_OAUTH_REDIRECT_URI,
-            "grant_type": "authorization_code",
-        }).encode("utf-8")
+        if not _calendar_is_connected():
+            self.send_json(
+                409,
+                {"error": "Google Calendar ainda não está conectado."},
+            )
+            return
 
+        try:
+            access_token = _usable_calendar_access_token()
+        except GoogleOAuthError:
+            print("FRIDAY WEB: falha ao renovar o acesso do Google Calendar.")
+            self.send_json(
+                409,
+                {"error": "A conexão do Google Calendar expirou. Conecte novamente."},
+            )
+            return
+        except (URLError, TimeoutError, ValueError, json.JSONDecodeError):
+            print("FRIDAY WEB: falha ao renovar o acesso do Google Calendar.")
+            self.send_json(
+                502,
+                {"error": "Não foi possível renovar a conexão do Google Calendar."},
+            )
+            return
+
+        if not access_token:
+            self.send_json(
+                409,
+                {"error": "A conexão do Google Calendar expirou. Conecte novamente."},
+            )
+            return
+
+        query = urlencode({
+            "maxResults": "10",
+            "singleEvents": "true",
+            "orderBy": "startTime",
+            "timeMin": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        })
         request = Request(
-            GOOGLE_OAUTH_TOKEN_URL,
-            data=token_data,
-            headers={
-                "Content-Type": "application/x-www-form-urlencoded",
-                "Accept": "application/json",
-            },
-            method="POST",
+            "https://www.googleapis.com/calendar/v3/calendars/primary/events?" + query,
+            headers={"Accept": "application/json", "Authorization": "Bearer " + access_token},
+            method="GET",
         )
 
         try:
             with urlopen(request, timeout=15) as response:
-                result = json.loads(response.read(65536).decode("utf-8"))
-
-            access_token = result.get("access_token")
-            if not isinstance(access_token, str) or not access_token:
-                raise ValueError("Resposta sem access token válido.")
-
-            # Guarda os tokens apenas na memória do servidor por enquanto.
-            # Não envie tokens ou segredos ao navegador.
-            GOOGLE_TOKEN_STORE[session_token] = {
-                "access_token": access_token,
-                "refresh_token": result.get("refresh_token"),
-                "expires_at": time.time() + int(result.get("expires_in", 3600)),
-                "scope": result.get("scope", ""),
-            }
-
+                result = json.loads(response.read(262144).decode("utf-8"))
         except (HTTPError, URLError, TimeoutError, ValueError, json.JSONDecodeError):
-            print("FRIDAY WEB: falha na troca do código OAuth do Google.")
+            print("FRIDAY WEB: falha ao consultar eventos do Google Calendar.")
             self.send_json(
                 502,
-                {"error": "Não foi possível concluir a autorização do Google."},
-            )
-            return
-        except Exception:
-            # Log traceback only — never log path, query, code, state, tokens or secrets.
-            import traceback
-            print("FRIDAY WEB: exceção não tratada no callback OAuth Google:")
-            traceback.print_exc()
-            self.send_json(
-                500,
-                {"error": "Erro interno na autorização do Google."},
+                {"error": "Não foi possível consultar os eventos do calendário."},
             )
             return
 
-        self.send_json(
-            200,
-            {"ok": True, "message": "Google Calendar autorizado pela FRIDAY."},
-        )
+        events = []
+        for item in (result.get("items") or [])[:10]:
+            if not isinstance(item, dict):
+                continue
+            start = item.get("start") if isinstance(item.get("start"), dict) else {}
+            end = item.get("end") if isinstance(item.get("end"), dict) else {}
+            events.append({
+                "summary": item.get("summary") or "(sem título)",
+                "start": start.get("dateTime") or start.get("date") or "",
+                "end": end.get("dateTime") or end.get("date") or "",
+            })
+
+        self.send_json(200, {"ok": True, "events": events})
 
     def do_POST(self):
         path = urlsplit(self.path).path
@@ -2419,7 +2850,7 @@ class FridayHandler(BaseHTTPRequestHandler):
                 )
                 return
 
-            token = SESSION_STORE.create()
+            token = _make_session_cookie()
             self.send_json(
                 200, {"ok": True}, cookie=token
             )
@@ -2556,7 +2987,17 @@ class FridayHandler(BaseHTTPRequestHandler):
         )
 
     def log_message(self, format, *args):
-        print("FRIDAY WEB:", format % args)
+        safe_args = []
+        for arg in args:
+            if isinstance(arg, str) and "?" in arg:
+                head, _, tail = arg.partition("?")
+                http_bits = tail.partition(" HTTP/")
+                arg = head + (" HTTP/" + http_bits[2] if http_bits[1] else "")
+            safe_args.append(arg)
+        try:
+            print("FRIDAY WEB:", format % tuple(safe_args))
+        except Exception:
+            print("FRIDAY WEB: requisição")
 
 
 if __name__ == "__main__":
