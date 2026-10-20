@@ -23,13 +23,14 @@ MAX_HISTORY_MESSAGES = 10
 # GOOGLE CALENDAR — OAUTH
 # ========================================
 
+
 GOOGLE_OAUTH_AUTHORIZE_URL = (
     "https://accounts.google.com/o/oauth2/v2/auth"
 )
 GOOGLE_OAUTH_TOKEN_URL = "https://oauth2.googleapis.com/token"
 
 GOOGLE_CALENDAR_SCOPE = (
-    "https://www.googleapis.com/auth/calendar.events.readonly"
+    "https://www.googleapis.com/auth/calendar.events"
 )
 
 OAUTH_STATE_TTL_SECONDS = 600
