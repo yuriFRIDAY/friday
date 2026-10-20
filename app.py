@@ -1901,11 +1901,16 @@ async function checkCalendarConnection() {
     if (response.ok && data.connected) {
       $('calendarConnect').textContent = '📅 Calendário conectado';
       loadCalendarEvents();
-      return True;
+      return true;
     }
   } catch (error) {}
-  return False;
+  return false;
 }
+
+// Ao clicar no botão, ele força o redirecionamento direto para a rota OAuth de autorização:
+$('calendarConnect').addEventListener('click', () => {
+  window.location.href = '/calendar/connect';
+});
 
 $('calendarConnect').addEventListener('click', async () => {
   const connected = await checkCalendarConnection();
