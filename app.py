@@ -19,19 +19,14 @@ from core.sessions import SessionStore
 SESSION_COOKIE = "friday_session"
 MAX_BODY = 8192
 MAX_HISTORY_MESSAGES = 10
+
 # ========================================
 # GOOGLE CALENDAR — OAUTH
 # ========================================
 
-
-GOOGLE_OAUTH_AUTHORIZE_URL = (
-    "https://accounts.google.com/o/oauth2/v2/auth"
-)
+GOOGLE_OAUTH_AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_OAUTH_TOKEN_URL = "https://oauth2.googleapis.com/token"
-
-GOOGLE_CALENDAR_SCOPE = (
-    "https://www.googleapis.com/auth/calendar.events"
-)
+GOOGLE_CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.events"
 
 OAUTH_STATE_TTL_SECONDS = 600
 GOOGLE_OWNER_KEY = "owner"
@@ -385,27 +380,16 @@ def _usable_calendar_access_token():
         "grant_type": "refresh_token",
     }, clear_on_invalid_grant=True)
 
-GOOGLE_OAUTH_CLIENT_ID = os.getenv(
-    "GOOGLE_OAUTH_CLIENT_ID", ""
-).strip()
 
-GOOGLE_OAUTH_CLIENT_SECRET = os.getenv(
-    "GOOGLE_OAUTH_CLIENT_SECRET", ""
-).strip()
-
-GOOGLE_OAUTH_REDIRECT_URI = os.getenv(
-    "GOOGLE_OAUTH_REDIRECT_URI", ""
-).strip()
+GOOGLE_OAUTH_CLIENT_ID = os.getenv("GOOGLE_OAUTH_CLIENT_ID", "").strip()
+GOOGLE_OAUTH_CLIENT_SECRET = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET", "").strip()
+GOOGLE_OAUTH_REDIRECT_URI = os.getenv("GOOGLE_OAUTH_REDIRECT_URI", "").strip()
 
 SESSION_TTL_SECONDS = 1800
-COOKIE_SECURE_MODE = os.getenv(
-    "FRIDAY_COOKIE_SECURE",
-    "auto",
-).strip().lower()
+COOKIE_SECURE_MODE = os.getenv("FRIDAY_COOKIE_SECURE", "auto").strip().lower()
+
 if COOKIE_SECURE_MODE not in {"auto", "always", "never"}:
-    raise RuntimeError(
-        "FRIDAY_COOKIE_SECURE deve ser auto, always ou never."
-    )
+    raise RuntimeError("FRIDAY_COOKIE_SECURE deve ser auto, always ou never.")
 
 auth = FridayAuth()
 SESSION_STORE = SessionStore(ttl_seconds=SESSION_TTL_SECONDS)
@@ -536,8 +520,6 @@ HTML = r"""<!DOCTYPE html>
     display: none !important;
   }
 
-  /* Estrutura geral */
-
   .shell {
     position: relative;
     z-index: 1;
@@ -635,8 +617,6 @@ HTML = r"""<!DOCTYPE html>
     opacity: 0.55;
     pointer-events: none;
   }
-
-  /* Painel lateral */
 
   .sidebar {
     display: flex;
@@ -797,8 +777,6 @@ HTML = r"""<!DOCTYPE html>
     letter-spacing: 0.13em;
   }
 
-  /* Área principal */
-
   .main-panel {
     display: flex;
     flex-direction: column;
@@ -842,8 +820,6 @@ HTML = r"""<!DOCTYPE html>
     font-size: 11px;
     line-height: 1.6;
   }
-
-  /* Autenticação */
 
   #login {
     width: min(100%, 440px);
@@ -898,8 +874,6 @@ HTML = r"""<!DOCTYPE html>
     font-size: 12px;
     line-height: 1.7;
   }
-
-  /* Ferramentas de voz */
 
   .toolbar {
     display: flex;
@@ -980,8 +954,6 @@ HTML = r"""<!DOCTYPE html>
     color: var(--cyan);
     font-size: 11px;
   }
-
-  /* Histórico da conversa */
 
   .chat-label {
     display: flex;
@@ -1064,8 +1036,6 @@ HTML = r"""<!DOCTYPE html>
     border-color: rgba(104, 211, 255, 0.18);
   }
 
-  /* Compositor de comandos */
-
   .composer {
     margin-top: 18px;
     padding: 17px;
@@ -1127,255 +1097,6 @@ HTML = r"""<!DOCTYPE html>
     color: #a0c9dc;
   }
 
-  /* Responsividade */
-
-  @media (min-width: 1100px) {
-    .sidebar {
-      min-height: 610px;
-    }
-
-    .main-panel {
-      min-height: 610px;
-    }
-  }
-
-  @media (max-width: 850px) {
-    .shell {
-      padding: 18px;
-    }
-
-    .layout {
-      grid-template-columns: minmax(205px, 0.7fr) minmax(0, 1.5fr);
-      gap: 13px;
-    }
-
-    .sidebar {
-      padding: 22px 15px;
-    }
-
-    .main-panel {
-      padding: 19px;
-    }
-
-    .reactor-wrap {
-      transform: scale(0.85);
-      margin: 0 0 12px;
-    }
-  }
-
-  @media (max-width: 640px) {
-    .shell {
-      padding: 14px 12px 12px;
-    }
-
-    .topbar {
-      min-height: 55px;
-      margin-bottom: 14px;
-      padding-bottom: 14px;
-    }
-
-    .brand-mark {
-      width: 35px;
-      height: 35px;
-      font-size: 22px;
-    }
-
-    .brand-name {
-      font-size: 11px;
-    }
-
-    .brand-sub {
-      font-size: 8px;
-    }
-
-    .system-chip {
-      font-size: 8px;
-      letter-spacing: 0.06em;
-    }
-
-    .layout {
-      grid-template-columns: minmax(0, 1fr);
-      gap: 13px;
-    }
-
-    .sidebar {
-      display: grid;
-      grid-template-columns: 86px minmax(0, 1fr);
-      align-items: center;
-      justify-items: start;
-      column-gap: 14px;
-      padding: 16px;
-    }
-
-    .reactor-wrap {
-      grid-column: 1;
-      grid-row: 1 / span 4;
-      width: 86px;
-      height: 86px;
-      margin: 0;
-      transform: none;
-    }
-
-    .reactor {
-      width: 65px;
-      height: 65px;
-    }
-
-    .reactor::before {
-      inset: 6px;
-    }
-
-    .reactor::after {
-      inset: -6px;
-    }
-
-    .reactor-inner {
-      width: 39px;
-      height: 39px;
-      font-size: 19px;
-    }
-
-    .system-title {
-      align-self: end;
-      font-size: 22px;
-      letter-spacing: 0.18em;
-    }
-
-    .system-sub {
-      align-self: start;
-      margin-top: 5px;
-      font-size: 8px;
-      text-align: left;
-      line-height: 1.6;
-    }
-
-    .system-state {
-      margin: 7px 0 0;
-      padding: 6px 8px;
-      font-size: 8px;
-    }
-
-    .mini-heading,
-    .metric,
-    .sidebar-note {
-      display: none;
-    }
-
-    .main-panel {
-      min-height: 0;
-      padding: 16px 13px;
-    }
-
-    .main-header {
-      padding-bottom: 14px;
-    }
-
-    .heading {
-      font-size: 12px;
-    }
-
-    .heading-sub {
-      font-size: 10px;
-    }
-
-    .live-label {
-      padding: 7px;
-      font-size: 8px;
-    }
-
-    #status {
-      margin: 12px 0;
-      font-size: 10px;
-    }
-
-    #login {
-      padding: 22px 0;
-    }
-
-    .login-title {
-      font-size: 27px;
-    }
-
-    #messages {
-      min-height: 240px;
-      max-height: 42vh;
-      padding: 12px;
-    }
-
-    .msg {
-      max-width: 96%;
-      padding: 11px;
-      font-size: 12px;
-    }
-
-    .composer {
-      padding: 12px;
-    }
-
-    .controls {
-      grid-template-columns: minmax(0, 1fr) auto;
-      gap: 7px;
-    }
-
-    #command {
-      padding: 12px 10px;
-    }
-
-    .controls button {
-      padding: 9px;
-      font-size: 11px;
-    }
-
-    .toolbar button {
-      flex: 1;
-    }
-
-    .settings {
-      padding: 13px;
-    }
-
-    .setting-buttons button {
-      flex: 1 1 40%;
-    }
-
-    footer {
-      flex-wrap: wrap;
-      font-size: 8px;
-    }
-  }
-
-  @media (prefers-reduced-motion: no-preference) {
-    .reactor-inner {
-      animation: reactor-breathe 4s ease-in-out infinite;
-    }
-
-    .orbit {
-      animation: orbit-turn 24s linear infinite;
-    }
-
-    @keyframes reactor-breathe {
-      0%, 100% {
-        box-shadow: 0 0 12px rgba(115, 237, 255, 0.15),
-          inset 0 0 12px rgba(115, 237, 255, 0.08);
-      }
-      50% {
-        box-shadow: 0 0 25px rgba(115, 237, 255, 0.3),
-          inset 0 0 18px rgba(115, 237, 255, 0.16);
-      }
-    }
-
-    @keyframes orbit-turn {
-      to { transform: rotate(360deg); }
-    }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    *, *::before, *::after {
-      animation: none !important;
-      scroll-behavior: auto !important;
-      transition: none !important;
-    }
-  }
   .awareness-panel {
     margin: 0 0 20px;
     padding: 18px;
@@ -1385,7 +1106,7 @@ HTML = r"""<!DOCTYPE html>
   }
 
   .awareness-panel h2 {
-    margin: 0 0 16px;
+    margin: 0;
     color: var(--cyan);
     font-size: 10px;
     letter-spacing: 0.14em;
@@ -1406,63 +1127,95 @@ HTML = r"""<!DOCTYPE html>
     letter-spacing: 0.08em;
   }
 
-  .awareness-item strong,
-  .location-details strong {
+  .awareness-item strong {
     color: var(--cyan-bright);
+    font-size: 12px;
     overflow-wrap: anywhere;
   }
 
-  .awareness-item strong {
-    text-align: right;
-    font-size: 12px;
-  }
-
-  .location-details {
-    margin-top: 14px;
-    padding: 12px;
-    background: rgba(13, 28, 45, 0.76);
-    border-radius: 8px;
-    font-size: 12px;
-    line-height: 1.8;
-  }
-
-  .location-details p,
   .awareness-note {
+    margin: 12px 0 0;
     color: var(--muted);
     font-size: 10px;
     line-height: 1.7;
   }
 
-  .awareness-actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    margin-top: 14px;
+  @media (min-width: 1100px) {
+    .sidebar, .main-panel {
+      min-height: 610px;
+    }
   }
 
-  .awareness-actions button {
-    flex: 1 1 140px;
-    font-size: 11px;
-  }
-
-  .awareness-note {
-    margin: 12px 0 0;
+  @media (max-width: 850px) {
+    .shell { padding: 18px; }
+    .layout { grid-template-columns: minmax(205px, 0.7fr) minmax(0, 1.5fr); gap: 13px; }
+    .sidebar { padding: 22px 15px; }
+    .main-panel { padding: 19px; }
+    .reactor-wrap { transform: scale(0.85); margin: 0 0 12px; }
   }
 
   @media (max-width: 640px) {
-    .awareness-panel {
-      padding: 13px;
+    .shell { padding: 14px 12px 12px; }
+    .topbar { min-height: 55px; margin-bottom: 14px; padding-bottom: 14px; }
+    .brand-mark { width: 35px; height: 35px; font-size: 22px; }
+    .brand-name { font-size: 11px; }
+    .brand-sub { font-size: 8px; }
+    .system-chip { font-size: 8px; letter-spacing: 0.06em; }
+    .layout { grid-template-columns: minmax(0, 1fr); gap: 13px; }
+    .sidebar {
+      display: grid;
+      grid-template-columns: 86px minmax(0, 1fr);
+      align-items: center;
+      justify-items: start;
+      column-gap: 14px;
+      padding: 16px;
     }
+    .reactor-wrap {
+      grid-column: 1;
+      grid-row: 1 / span 4;
+      width: 86px;
+      height: 86px;
+      margin: 0;
+      transform: none;
+    }
+    .reactor { width: 65px; height: 65px; }
+    .reactor::before { inset: 6px; }
+    .reactor::after { inset: -6px; }
+    .reactor-inner { width: 39px; height: 39px; font-size: 19px; }
+    .system-title { align-self: end; font-size: 22px; letter-spacing: 0.18em; }
+    .system-sub { align-self: start; margin-top: 5px; font-size: 8px; text-align: left; line-height: 1.6; }
+    .system-state { margin: 7px 0 0; padding: 6px 8px; font-size: 8px; }
+    .mini-heading, .metric, .sidebar-note { display: none; }
+    .main-panel { min-height: 0; padding: 16px 13px; }
+    .main-header { padding-bottom: 14px; }
+    .heading { font-size: 12px; }
+    .heading-sub { font-size: 10px; }
+    .live-label { padding: 7px; font-size: 8px; }
+    #status { margin: 12px 0; font-size: 10px; }
+    #login { padding: 22px 0; }
+    .login-title { font-size: 27px; }
+    #messages { min-height: 240px; max-height: 42vh; padding: 12px; }
+    .msg { max-width: 96%; padding: 11px; font-size: 12px; }
+    .composer { padding: 12px; }
+    .controls { grid-template-columns: minmax(0, 1fr) auto; gap: 7px; }
+    #command { padding: 12px 10px; }
+    .controls button { padding: 9px; font-size: 11px; }
+    .toolbar button { flex: 1; }
+    .settings { padding: 13px; }
+    .setting-buttons button { flex: 1 1 40%; }
+    footer { flex-wrap: wrap; font-size: 8px; }
+    .awareness-panel { padding: 13px; }
+    .awareness-item { align-items: flex-start; flex-direction: column; gap: 6px; }
+  }
 
-    .awareness-item {
-      align-items: flex-start;
-      flex-direction: column;
-      gap: 6px;
+  @media (prefers-reduced-motion: no-preference) {
+    .reactor-inner { animation: reactor-breathe 4s ease-in-out infinite; }
+    .orbit { animation: orbit-turn 24s linear infinite; }
+    @keyframes reactor-breathe {
+      0%, 100% { box-shadow: 0 0 12px rgba(115, 237, 255, 0.15), inset 0 0 12px rgba(115, 237, 255, 0.08); }
+      50% { box-shadow: 0 0 25px rgba(115, 237, 255, 0.3), inset 0 0 18px rgba(115, 237, 255, 0.16); }
     }
-
-    .awareness-item strong {
-      text-align: left;
-    }
+    @keyframes orbit-turn { to { transform: rotate(360deg); } }
   }
 </style>
 </head>
@@ -1524,12 +1277,10 @@ HTML = r"""<!DOCTYPE html>
         <h2 class="login-title">Autenticação</h2>
         <p class="login-copy">Identifique-se para iniciar uma sessão segura com a FRIDAY.</p>
         <form id="loginForm">
-          <input id="password" type="password" placeholder="Senha de acesso"
-            autocomplete="current-password" required>
+          <input id="password" type="password" placeholder="Senha de acesso" autocomplete="current-password" required>
           <button class="primary" type="submit">INICIAR SESSÃO ↗</button>
         </form>
-        <p id="lockoutNotice" class="lockout-notice hidden" role="alert"
-          aria-live="assertive"></p>
+        <p id="lockoutNotice" class="lockout-notice hidden" role="alert" aria-live="assertive"></p>
       </section>
 
       <section id="assistant" class="hidden assistant-content">
@@ -1539,6 +1290,15 @@ HTML = r"""<!DOCTYPE html>
           <button id="calendarConnect" type="button">📅 Google Calendar</button>
         </div>
 
+        <section id="calendarPanel" class="awareness-panel hidden">
+          <div class="toggle-row" style="margin-bottom: 12px;">
+            <h2>/// PRÓXIMOS COMPROMISSOS</h2>
+            <button id="refreshCalendarBtn" type="button" style="font-size: 9px; padding: 4px 8px;">🔄 Atualizar</button>
+          </div>
+          <div id="calendarEventsList">
+            <p class="awareness-note">Carregando eventos...</p>
+          </div>
+        </section>
 
         <section id="settingsPanel" class="settings hidden">
           <h2>/// CONFIGURAÇÕES DE VOZ</h2>
@@ -1587,9 +1347,7 @@ HTML = r"""<!DOCTYPE html>
           <div class="composer-title">/// NOVO COMANDO</div>
           <form id="chatForm">
             <div class="controls">
-              <input id="command" maxlength="2000"
-                placeholder="Comandante, qual é a próxima ordem?"
-                autocomplete="off" required>
+              <input id="command" maxlength="2000" placeholder="Comandante, qual é a próxima ordem?" autocomplete="off" required>
               <button id="voiceBtn" type="button">🎙 Falar</button>
             </div>
             <button class="primary" id="sendBtn" type="submit">TRANSMITIR COMANDO ↗</button>
@@ -1630,122 +1388,67 @@ let voiceSettings = {...defaultSettings};
 function status(text) {
   $('status').textContent = text;
 }
+
 // ========================================
-// CONSCIÊNCIA TEMPORAL E LOCALIZAÇÃO
+// GOOGLE CALENDAR & FORMATAR DATAS
 // ========================================
 
-let locationRequestInProgress = false;
-let currentCoordinates = null;
-let clockInterval = null;
+function formatEventDate(dateStr) {
+  if (!dateStr) return 'Horário não definido';
+  const date = new Date(dateStr);
+  if (isNaN(date.getTime())) return dateStr;
 
-function updateFridayClock() {
-  const now = new Date();
-
-  $('currentDate').textContent = new Intl.DateTimeFormat('pt-BR', {
-    timeZone: 'America/Sao_Paulo',
-    weekday: 'long',
-    day: '2-digit',
-    month: 'long',
-    year: 'numeric'
-  }).format(now);
-
-  $('currentTime').textContent = new Intl.DateTimeFormat('pt-BR', {
-    timeZone: 'America/Sao_Paulo',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false
-  }).format(now);
+  return new Intl.DateTimeFormat('pt-BR', {
+    day: '2-digit', 
+    month: '2-digit', 
+    hour: '2-digit', 
+    minute: '2-digit'
+  }).format(date);
 }
 
-function clearFridayLocation(message = 'Localização ocultada') {
-  currentCoordinates = null;
+async function loadCalendarEvents() {
+  const panel = $('calendarPanel');
+  const container = $('calendarEventsList');
+  if (!panel || !container) return;
 
-  $('latitude').textContent = '—';
-  $('longitude').textContent = '—';
-  $('locationAccuracy').textContent = '';
-  $('locationDetails').classList.add('hidden');
-  $('locationStatus').textContent = message;
+  panel.classList.remove('hidden');
+  container.innerHTML = '<p class="awareness-note">Consultando agenda...</p>';
 
-  locationRequestInProgress = false;
-  $('requestLocation').disabled = false;
-}
+  try {
+    const response = await fetch('/calendar/events', {
+      credentials: 'same-origin',
+      cache: 'no-store'
+    });
+    const data = await response.json();
 
-function requestFridayLocation() {
-  if (locationRequestInProgress) return;
-
-  if (!('geolocation' in navigator)) {
-    $('locationStatus').textContent =
-      'Geolocalização não suportada neste navegador.';
-    return;
-  }
-
-  if (!window.isSecureContext) {
-    $('locationStatus').textContent =
-      'É necessária uma conexão segura HTTPS.';
-    return;
-  }
-
-  locationRequestInProgress = true;
-  $('requestLocation').disabled = true;
-  $('locationStatus').textContent = 'Aguardando autorização do dispositivo...';
-
-  navigator.geolocation.getCurrentPosition(
-    position => {
-      const latitude = position.coords.latitude;
-      const longitude = position.coords.longitude;
-      const accuracy = position.coords.accuracy;
-
-      currentCoordinates = {
-        latitude,
-        longitude,
-        accuracy
-      };
-
-      $('latitude').textContent = latitude.toFixed(6);
-      $('longitude').textContent = longitude.toFixed(6);
-      $('locationAccuracy').textContent =
-        `Precisão estimada: ${Math.round(accuracy)} metros. ` +
-        'Endereço e cidade não foram consultados.';
-
-      $('locationDetails').classList.remove('hidden');
-      $('locationStatus').textContent = 'Localização obtida neste dispositivo.';
-
-      locationRequestInProgress = false;
-      $('requestLocation').disabled = false;
-    },
-    error => {
-      const messages = {
-        1: 'Permissão de localização negada.',
-        2: 'A localização não está disponível.',
-        3: 'A solicitação de localização expirou.'
-      };
-
-      clearFridayLocation(
-        messages[error.code] || 'Não foi possível obter a localização.'
-      );
-    },
-    {
-      enableHighAccuracy: false,
-      timeout: 15000,
-      maximumAge: 60000
+    if (!response.ok) {
+      container.innerHTML = `<p class="awareness-note" style="color: #ff8a8a;">${data.error || 'Não foi possível carregar os eventos.'}</p>`;
+      return;
     }
-  );
+
+    if (!data.events || data.events.length === 0) {
+      container.innerHTML = '<p class="awareness-note">Nenhum próximo compromisso encontrado no Google Calendar.</p>';
+      return;
+    }
+
+    container.replaceChildren();
+    data.events.forEach(evt => {
+      const item = document.createElement('div');
+      item.className = 'awareness-item';
+
+      const title = document.createElement('strong');
+      title.textContent = evt.summary;
+
+      const timeSpan = document.createElement('span');
+      timeSpan.textContent = formatEventDate(evt.start);
+
+      item.append(title, timeSpan);
+      container.appendChild(item);
+    });
+  } catch (error) {
+    container.innerHTML = '<p class="awareness-note" style="color: #ff8a8a;">Erro ao conectar com o servidor.</p>';
+  }
 }
-
-$('requestLocation').addEventListener('click', requestFridayLocation);
-
-$('clearLocation').addEventListener('click', () => {
-  clearFridayLocation();
-});
-
-updateFridayClock();
-
-if (clockInterval !== null) {
-  window.clearInterval(clockInterval);
-}
-
-clockInterval = window.setInterval(updateFridayClock, 1000);
 
 function loadSettings() {
   try {
@@ -1858,11 +1561,9 @@ function getSelectedVoice() {
 }
 
 function stopVoice() {
-
-speechRunId++;
-speechQueue = [];
-currentUtterance = null;
-
+  speechRunId++;
+  speechQueue = [];
+  currentUtterance = null;
 
   if (recognition && listening) {
     try {
@@ -1874,7 +1575,6 @@ currentUtterance = null;
     window.speechSynthesis.cancel();
   }
 
-  currentUtterance = null;
   speaking = false;
 }
 
@@ -1889,8 +1589,7 @@ function cleanSpeechText(text) {
 }
 
 function speakText(text, force = false) {
-  if (!('speechSynthesis' in window) ||
-      typeof SpeechSynthesisUtterance === 'undefined') {
+  if (!('speechSynthesis' in window) || typeof SpeechSynthesisUtterance === 'undefined') {
     status('Áudio indisponível neste navegador.');
     return;
   }
@@ -1902,15 +1601,12 @@ function speakText(text, force = false) {
 
   const synth = window.speechSynthesis;
 
-  // Invalida qualquer reprodução anterior.
   speechRunId++;
   const runId = speechRunId;
   speechQueue = [];
   synth.cancel();
 
-  // Divide o texto em blocos para melhorar a reprodução longa.
   const sentences = cleanText.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [cleanText];
-
   let chunk = '';
 
   for (const sentence of sentences) {
@@ -1922,16 +1618,13 @@ function speakText(text, force = false) {
       chunk = '';
     }
 
-    // Divide frases excepcionalmente longas sem perder palavras.
     if (part.length > 220) {
       const words = part.split(/\s+/);
-
       for (const word of words) {
         if (chunk && chunk.length + word.length + 1 > 220) {
           speechQueue.push(chunk);
           chunk = '';
         }
-
         chunk += (chunk ? ' ' : '') + word;
       }
     } else {
@@ -1978,9 +1671,7 @@ function speakText(text, force = false) {
 
     utterance.onerror = event => {
       if (runId !== speechRunId) return;
-
-      if (event.error === 'canceled' ||
-          event.error === 'interrupted') return;
+      if (event.error === 'canceled' || event.error === 'interrupted') return;
 
       speechQueue = [];
       currentUtterance = null;
@@ -2011,7 +1702,7 @@ function addMessage(who, text) {
 
   item.append(label, content);
   $('messages').appendChild(item);
-  $('messages').scrollTop = $('messages').scrollHeight;
+  $('messages').scrollTop =$('messages').scrollHeight;
 }
 
 async function request(url, data) {
@@ -2093,11 +1784,11 @@ $('loginForm').addEventListener('submit', async event => {
   try {
     await request('/login', {password});
     $('password').value = '';
-    $('login').classList.add('hidden');
-    $('assistant').classList.remove('hidden');
+    $('login').classList.add('hidden');$('assistant').classList.remove('hidden');
     status('Autenticada. FRIDAY online.');
     addMessage('FRIDAY', 'Aguardando suas ordens, comandante.');
     $('command').focus();
+    checkCalendarConnection();
   } catch (error) {
     status(error.message);
     $('password').value = '';
@@ -2144,15 +1835,13 @@ $('chatForm').addEventListener('submit', async event => {
     $('sendBtn').disabled = false;
     $('voiceBtn').disabled = false;
 
-    if (!$('assistant').classList.contains('hidden')) {
-      $('command').focus();
+    if (!$('assistant').classList.contains('hidden')) {$('command').focus();
     }
   }
 });
 
 function startVoice() {
-  const SpeechRecognition =
-    window.SpeechRecognition || window.webkitSpeechRecognition;
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
   if (!SpeechRecognition) {
     status('Reconhecimento indisponível. Tente outro navegador compatível.');
@@ -2173,8 +1862,7 @@ function startVoice() {
 
   recognition.onstart = () => {
     listening = true;
-    $('voiceBtn').classList.add('listening');
-    $('voiceBtn').textContent = '⏹ Parar';
+    $('voiceBtn').classList.add('listening');$('voiceBtn').textContent = '⏹ Parar';
     status('Estou ouvindo, comandante...');
   };
 
@@ -2191,8 +1879,7 @@ function startVoice() {
 
   recognition.onend = () => {
     listening = false;
-    $('voiceBtn').classList.remove('listening');
-    $('voiceBtn').textContent = '🎙 Falar';
+    $('voiceBtn').classList.remove('listening');$('voiceBtn').textContent = '🎙 Falar';
   };
 
   try {
@@ -2203,7 +1890,8 @@ function startVoice() {
 }
 
 $('voiceBtn').addEventListener('click', startVoice);
-$('calendarConnect').addEventListener('click', async () => {
+
+async function checkCalendarConnection() {
   try {
     const response = await fetch('/calendar/status', {
       credentials: 'same-origin',
@@ -2212,13 +1900,25 @@ $('calendarConnect').addEventListener('click', async () => {
     const data = await response.json();
     if (response.ok && data.connected) {
       $('calendarConnect').textContent = '📅 Calendário conectado';
-      status('Google Calendar já está conectado. A autorização existente será reutilizada.');
-      return;
+      loadCalendarEvents();
+      return True;
     }
   } catch (error) {}
+  return False;
+}
+
+$('calendarConnect').addEventListener('click', async () => {
+  const connected = await checkCalendarConnection();
+  if (connected) {
+    status('Google Calendar já está conectado. A carregar compromissos...');
+    return;
+  }
   window.location.href = '/calendar/connect';
 });
 
+$('refreshCalendarBtn').addEventListener('click', () => {
+  loadCalendarEvents();
+});
 
 $('settingsToggle').addEventListener('click', () => {
   const panel = $('settingsPanel');
@@ -2232,8 +1932,7 @@ $('settingsToggle').addEventListener('click', () => {
   if (!panel.classList.contains('hidden')) loadVoices();
 });
 
-$('speechRate').addEventListener('input', () => {
-  $('rateValue').textContent =
+$('speechRate').addEventListener('input', () => {$('rateValue').textContent =
     Number($('speechRate').value).toFixed(2).replace('.', ',') + '×';
 });
 
@@ -2248,8 +1947,7 @@ $('autoSpeak').addEventListener('change', () => {
 });
 
 $('speechRate').addEventListener('change', () => saveSettings(false));
-$('voiceStyle').addEventListener('change', () => saveSettings(false));
-$('voiceSelect').addEventListener('change', () => saveSettings(false));
+$('voiceStyle').addEventListener('change', () => saveSettings(false));$('voiceSelect').addEventListener('change', () => saveSettings(false));
 
 $('saveSettingsBtn').addEventListener('click', () => saveSettings(true));
 
@@ -2279,11 +1977,9 @@ $('stopSpeakTop').addEventListener('click', () => {
 
 function showLogin() {
   stopVoice();
-  $('assistant').classList.add('hidden');
-  $('login').classList.remove('hidden');
-  $('messages').replaceChildren();
-  $('settingsPanel').classList.add('hidden');
-  $('settingsToggle').textContent = '⚙ Configurações de voz';
+  $('assistant').classList.add('hidden');$('login').classList.remove('hidden');
+  $('messages').replaceChildren();$('settingsPanel').classList.add('hidden');
+  $('calendarPanel').classList.add('hidden');$('settingsToggle').textContent = '⚙ Configurações de voz';
   status('Sistema aguardando autenticação');
 }
 
@@ -2291,9 +1987,7 @@ $('logout').addEventListener('click', async () => {
   stopVoice();
   try {
     await request('/logout', {});
-  } catch (error) {
-    // Encerra a interface mesmo se a conexão falhar.
-  }
+  } catch (error) {}
   showLogin();
 });
 
@@ -2320,23 +2014,10 @@ async function checkSession() {
     };
 
     if (data.authenticated) {
-      $('login').classList.add('hidden');
-      $('assistant').classList.remove('hidden');
+      $('login').classList.add('hidden');$('assistant').classList.remove('hidden');
       status('Sessão ativa. FRIDAY online.');
       addMessage('FRIDAY', 'Bem-vindo de volta, comandante.');
-      if (calendarState === 'connected') {
-        $('calendarConnect').textContent = '📅 Calendário conectado';
-      }
-      try {
-        const calendar = await fetch('/calendar/status', {
-          credentials: 'same-origin',
-          cache: 'no-store'
-        });
-        const calendarData = await calendar.json();
-        if (calendar.ok && calendarData.connected) {
-          $('calendarConnect').textContent = '📅 Calendário conectado';
-        }
-      } catch (error) {}
+      checkCalendarConnection();
     }
 
     if (calendarMessages[calendarState]) {
@@ -2360,7 +2041,6 @@ checkSession();
 </body>
 </html>
 """
-
 
 
 class FridayHandler(BaseHTTPRequestHandler):
@@ -2414,13 +2094,9 @@ class FridayHandler(BaseHTTPRequestHandler):
         return token
 
     def request_scheme(self):
-        forwarded = self.headers.get(
-            "X-Forwarded-Proto", ""
-        ).split(",", 1)[0].strip().lower()
-
+        forwarded = self.headers.get("X-Forwarded-Proto", "").split(",", 1)[0].strip().lower()
         if forwarded in {"http", "https"}:
             return forwarded
-
         return "http"
 
     def cookie_is_secure(self):
@@ -2434,10 +2110,8 @@ class FridayHandler(BaseHTTPRequestHandler):
     def normalize_origin(origin):
         if not isinstance(origin, str):
             return None
-
         try:
             parsed = urlsplit(origin)
-
             if (
                 parsed.scheme.lower() not in {"http", "https"}
                 or not parsed.netloc
@@ -2448,21 +2122,15 @@ class FridayHandler(BaseHTTPRequestHandler):
                 or parsed.fragment
             ):
                 return None
-
             parsed.port
-
         except ValueError:
             return None
-
         return f"{parsed.scheme.lower()}://{parsed.netloc.lower()}"
 
     def valid_origin(self):
         origin = self.headers.get("Origin")
         normalized_origin = self.normalize_origin(origin)
-
-        configured_origins = os.getenv(
-            "FRIDAY_ALLOWED_ORIGINS", ""
-        ).strip()
+        configured_origins = os.getenv("FRIDAY_ALLOWED_ORIGINS", "").strip()
 
         allowed_origins = {
             self.normalize_origin(value.strip())
@@ -2478,13 +2146,8 @@ class FridayHandler(BaseHTTPRequestHandler):
             return normalized_origin in allowed_origins
 
         host = self.headers.get("Host", "").strip()
-        expected_origin = self.normalize_origin(
-            f"{self.request_scheme()}://{host}"
-        )
-
-        return bool(
-            expected_origin and normalized_origin == expected_origin
-        )
+        expected_origin = self.normalize_origin(f"{self.request_scheme()}://{host}")
+        return bool(expected_origin and normalized_origin == expected_origin)
 
     def read_json(self):
         try:
@@ -2496,11 +2159,8 @@ class FridayHandler(BaseHTTPRequestHandler):
             return None
 
         try:
-            data = json.loads(
-                self.rfile.read(length).decode("utf-8")
-            )
+            data = json.loads(self.rfile.read(length).decode("utf-8"))
             return data if isinstance(data, dict) else None
-
         except (ValueError, UnicodeDecodeError):
             return None
 
@@ -2509,11 +2169,8 @@ class FridayHandler(BaseHTTPRequestHandler):
 
         if path == "/":
             body = HTML.encode("utf-8")
-
             self.send_response(200)
-            self.send_header(
-                "Content-Type", "text/html; charset=utf-8"
-            )
+            self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
             self.send_header("X-Content-Type-Options", "nosniff")
@@ -2582,11 +2239,7 @@ class FridayHandler(BaseHTTPRequestHandler):
                 "prompt": "consent",
             }
 
-            authorization_url = (
-                f"{GOOGLE_OAUTH_AUTHORIZE_URL}?"
-                f"{urlencode(params)}"
-            )
-
+            authorization_url = f"{GOOGLE_OAUTH_AUTHORIZE_URL}?{urlencode(params)}"
             self.redirect_to(authorization_url)
             return
 
@@ -2594,9 +2247,7 @@ class FridayHandler(BaseHTTPRequestHandler):
             self.handle_google_callback()
             return
 
-        self.send_json(
-            404, {"error": "Página não encontrada."}
-        )
+        self.send_json(404, {"error": "Página não encontrada."})
 
     def handle_google_callback(self):
         query = parse_qs(urlsplit(self.path).query)
@@ -2770,17 +2421,13 @@ class FridayHandler(BaseHTTPRequestHandler):
         path = urlsplit(self.path).path
 
         if not self.valid_origin():
-            self.send_json(
-                403, {"error": "Origem não autorizada."}
-            )
+            self.send_json(403, {"error": "Origem não autorizada."})
             return
 
         data = self.read_json()
 
         if data is None:
-            self.send_json(
-                400, {"error": "Solicitação inválida."}
-            )
+            self.send_json(400, {"error": "Solicitação inválida."})
             return
 
         if path == "/login":
@@ -2789,9 +2436,7 @@ class FridayHandler(BaseHTTPRequestHandler):
 
             authenticated = (
                 isinstance(password, str)
-                and auth.authenticate(
-                    password, client_key=client_key
-                )
+                and auth.authenticate(password, client_key=client_key)
             )
 
             if not authenticated:
@@ -2813,9 +2458,7 @@ class FridayHandler(BaseHTTPRequestHandler):
                 return
 
             token = _make_session_cookie()
-            self.send_json(
-                200, {"ok": True}, cookie=token
-            )
+            self.send_json(200, {"ok": True}, cookie=token)
             return
 
         token = self.get_session()
@@ -2830,9 +2473,7 @@ class FridayHandler(BaseHTTPRequestHandler):
 
         if path == "/logout":
             SESSION_STORE.invalidate(token)
-            self.send_json(
-                200, {"ok": True}, clear_cookie=True
-            )
+            self.send_json(200, {"ok": True}, clear_cookie=True)
             return
 
         if path == "/chat":
@@ -2843,10 +2484,7 @@ class FridayHandler(BaseHTTPRequestHandler):
                 or not command.strip()
                 or len(command) > 2000
             ):
-                self.send_json(
-                    400,
-                    {"error": "Comando vazio ou muito longo."},
-                )
+                self.send_json(400, {"error": "Comando vazio ou muito longo."})
                 return
 
             try:
@@ -2857,11 +2495,7 @@ class FridayHandler(BaseHTTPRequestHandler):
                 if history is None or session is None:
                     self.send_json(
                         401,
-                        {
-                            "error": (
-                                "Sessão inválida. Entre novamente."
-                            )
-                        },
+                        {"error": "Sessão inválida. Entre novamente."},
                         clear_cookie=True,
                     )
                     return
@@ -2892,10 +2526,7 @@ class FridayHandler(BaseHTTPRequestHandler):
                     SESSION_STORE.invalidate(token)
                     self.send_json(
                         200,
-                        {
-                            "response": "FRIDAY encerrada.",
-                            "closed": True,
-                        },
+                        {"response": "FRIDAY encerrada.", "closed": True},
                         clear_cookie=True,
                     )
                     return
@@ -2907,46 +2538,28 @@ class FridayHandler(BaseHTTPRequestHandler):
 
                     if (
                         provider.available()
-                        and response
-                        != "Não consegui obter uma resposta da IA agora."
+                        and response != "Não consegui obter uma resposta da IA agora."
                     ):
-                        history.extend(
-                            [
-                                {
-                                    "role": "user",
-                                    "content": clean_command,
-                                },
-                                {
-                                    "role": "assistant",
-                                    "content": str(response),
-                                },
-                            ]
-                        )
+                        history.extend([
+                            {"role": "user", "content": clean_command},
+                            {"role": "assistant", "content": str(response)},
+                        ])
                         history[:] = history[-MAX_HISTORY_MESSAGES:]
 
                 self.send_json(
                     200,
-                    {
-                        "response": str(response),
-                        "closed": False,
-                    },
+                    {"response": str(response), "closed": False},
                 )
 
             except Exception:
                 print("FRIDAY WEB: erro ao processar comando.")
                 self.send_json(
                     500,
-                    {
-                        "error": (
-                            "Erro interno ao processar comando."
-                        )
-                    },
+                    {"error": "Erro interno ao processar comando."},
                 )
             return
 
-        self.send_json(
-            404, {"error": "Página não encontrada."}
-        )
+        self.send_json(404, {"error": "Página não encontrada."})
 
     def log_message(self, format, *args):
         safe_args = []
@@ -2964,19 +2577,14 @@ class FridayHandler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     if not os.getenv("FRIDAY_PASSWORD"):
-        raise RuntimeError(
-            "Configure o segredo FRIDAY_PASSWORD no Replit."
-        )
+        raise RuntimeError("Configure o segredo FRIDAY_PASSWORD no Replit.")
 
     port = int(os.environ.get("PORT", "5000"))
 
     class ReusableHTTPServer(HTTPServer):
         allow_reuse_address = True
 
-    server = ReusableHTTPServer(
-        ("0.0.0.0", port), FridayHandler
-    )
-
+    server = ReusableHTTPServer(("0.0.0.0", port), FridayHandler)
     print(f"FRIDAY online em http://0.0.0.0:{port}")
 
     try:
