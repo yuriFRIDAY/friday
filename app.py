@@ -1518,48 +1518,9 @@ HTML = r"""<!DOCTYPE html>
       </div>
 
       <div id="status" role="status" aria-live="polite">Sistema aguardando autenticação.</div>
-      <section class="awareness-panel" aria-labelledby="awarenessTitle">
-        <h2 id="awarenessTitle">/// CONSCIÊNCIA SITUACIONAL</h2>
-
-        <div class="awareness-item">
-          <span>DATA</span>
-          <strong id="currentDate">Aguardando relógio...</strong>
-        </div>
-
-        <div class="awareness-item">
-          <span>HORÁRIO DE BRASÍLIA</span>
-          <strong id="currentTime">--:--:--</strong>
-        </div>
-
-        <div class="awareness-item">
-          <span>LOCALIZAÇÃO</span>
-          <strong id="locationStatus">Não solicitada</strong>
-        </div>
-
-        <div id="locationDetails" class="location-details hidden">
-          <div>Latitude: <strong id="latitude">—</strong></div>
-          <div>Longitude: <strong id="longitude">—</strong></div>
-          <p id="locationAccuracy"></p>
-        </div>
-
-        <div class="awareness-actions">
-          <button id="requestLocation" type="button">
-            Autorizar localização
-          </button>
-          <button id="clearLocation" type="button">
-            Ocultar localização
-          </button>
-        </div>
-
-        <p class="awareness-note">
-          O horário usa o fuso de Brasília. A localização só é solicitada
-          quando você pressiona o botão. As coordenadas ficam nesta interface
-          e não são enviadas à FRIDAY.
-        </p>
-      </section>
 
       <section id="login">
-        <div class="login-symbol">/// ACESSO RESTRITO · STARK SYSTEMS</div>
+        <div class="login-symbol"> ACESSO RESTRITO · STARK SYSTEMS</div>
         <h2 class="login-title">Autenticação</h2>
         <p class="login-copy">Identifique-se para iniciar uma sessão segura com a FRIDAY.</p>
         <form id="loginForm">
