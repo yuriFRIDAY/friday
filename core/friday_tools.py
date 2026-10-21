@@ -6,8 +6,9 @@ import shutil
 import time
 import urllib.parse
 import smtplib
+import re
 from email.mime.text import MIMEText
-from datetime import datetime, timezone, timedelta
+from datetime import datetime
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 
@@ -28,14 +29,14 @@ def _handler_get_current_time():
 
 def _handler_get_weather(city="São Paulo"):
     city_encoded = urllib.parse.quote(city)
-    url = f"https://wttr.in/{city_encoded}?format=j1"
+    url = f"https://wttr.in/{city_encoded}?format=j1&lang=pt"
     try:
         req = Request(url, headers={"User-Agent": "FRIDAY/1.0"})
         with urlopen(req, timeout=10) as response:
             data = json.loads(response.read().decode("utf-8"))
         current = data["current_condition"][0]
         temp = current["temp_C"]
-        desc = current["lang_pt"][0]["value"] if "lang_pt" in current else current["weatherDesc"][0]["value"]
+        desc = current["lang_pt"][0]["value"] if "lang_pt" in current and current["lang_pt"] else current["weatherDesc"][0]["value"]
         return f"A temperatura em {city} é de {temp}°C com {desc}."
     except Exception as e:
         return {"error": f"Não foi possível obter o clima: {str(e)}"}
@@ -140,6 +141,69 @@ def _handler_recall_memory(key):
         return value if value else {"error": f"Nenhuma memória encontrada para: {key}"}
     except Exception as e:
         return {"error": f"Falha ao recuperar memória: {str(e)}"}
+
+def _handler_play_music(query):
+    query_encoded = urllib.parse.quote(query)
+
+    # TENTATIVA 1: API Piped (altamente confiável para achar vídeos)
+    try:
+        piped_url = f"https://pipedapi.kavin.rocks/search?q={query_encoded}&filter=videos"
+        req = Request(piped_url, headers={"User-Agent": "Mozilla/5.0"})
+        with urlopen(req, timeout=10) as response:
+            data = json.loads(response.read().decode("utf-8"))
+
+        items = data.get("items", [])
+        if items and "url" in items[0]:
+            video_id = items[0]["url"].split("v=")[-1]
+            embed_url = f"https://www.youtube.com/embed/{video_id}?autoplay=1"
+            return {"ok": True, "action": "play_music", "url": embed_url, "query": query}
+    except Exception as e:
+        print(f"FRIDAY WEB: erro na API Piped: {e}")
+
+    # TENTATIVA 2 (Fallback): Raspar o YouTube diretamente
+    try:
+        url = f"https://www.youtube.com/results?search_query={query_encoded}"
+        req = Request(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+        with urlopen(req, timeout=10) as response:
+            html = response.read().decode("utf-8")
+
+        match = re.search(r'"videoId":"([a-zA-Z0-9_-]{11})"', html)
+        if match:
+            video_id = match.group(1)
+            embed_url = f"https://www.youtube.com/embed/{video_id}?autoplay=1"
+            return {"ok": True, "action": "play_music", "url": embed_url, "query": query}
+    except Exception as e:
+        print(f"FRIDAY WEB: erro ao raspar YouTube: {e}")
+
+    return {"error": "Não consegui encontrar o vídeo no YouTube."}
+
+def _handler_get_morning_briefing(city="Criciúma"):
+    briefing = []
+
+    clima = _handler_get_weather(city)
+    if isinstance(clima, str):
+        briefing.append(clima)
+    elif isinstance(clima, dict) and "error" in clima:
+        briefing.append("Não consegui obter a previsão do tempo agora.")
+
+    agenda = _handler_get_calendar_events("today")
+    if isinstance(agenda, dict) and "events" in agenda:
+        evts = agenda["events"]
+        if evts:
+            briefing.append(f"Você tem {len(evts)} compromissos hoje. O primeiro é: {evts[0]['summary']} às {evts[0]['start'].split()[-1]}.")
+        else:
+            briefing.append("Sua agenda está livre hoje.")
+    else:
+        briefing.append("Não consegui acessar a sua agenda neste momento.")
+
+    news = _handler_search_web("últimas notícias do mundo hoje", max_results=1)
+    if isinstance(news, dict) and "results" in news and news["results"]:
+        snippet = news["results"][0].get("snippet", "")
+        if len(snippet) > 150:
+            snippet = snippet[:147].rsplit(' ', 1)[0] + "..."
+        briefing.append(f"Nas notícias: {snippet}")
+
+    return " ".join(briefing)
 
 def _handler_get_calendar_events(range_value="upcoming"):
     ctx = _CALENDAR_CONTEXT.get("access_token_provider")
@@ -258,12 +322,12 @@ TOOL_REGISTRY = {
         "requires_confirmation": True, "allowed_roles": ["owner"], "handler": _handler_send_email,
     },
     "save_memory": {
-        "description": "Salva uma informação importante de longo prazo sobre o usuário (ex: preferências, nomes, fatos).",
+        "description": "Salva uma informação importante de longo prazo sobre o usuário.",
         "parameters": {
             "type": "object",
             "properties": {
-                "key": {"type": "string", "description": "A chave/assunto da memória (ex: 'nome_do_usuario')."},
-                "value": {"type": "string", "description": "O valor a ser salvo (ex: 'Tony Stark')."}
+                "key": {"type": "string", "description": "A chave/assunto da memória."},
+                "value": {"type": "string", "description": "O valor a ser salvo."}
             },
             "required": ["key", "value"], "additionalProperties": False,
         },
@@ -277,6 +341,24 @@ TOOL_REGISTRY = {
             "required": ["key"], "additionalProperties": False,
         },
         "requires_confirmation": False, "allowed_roles": ["owner"], "handler": _handler_recall_memory,
+    },
+    "play_music": {
+        "description": "Abre o YouTube para tocar uma música ou playlist.",
+        "parameters": {
+            "type": "object",
+            "properties": {"query": {"type": "string", "description": "Nome da música ou artista."}},
+            "required": ["query"], "additionalProperties": False,
+        },
+        "requires_confirmation": False, "allowed_roles": ["owner"], "handler": _handler_play_music,
+    },
+    "get_morning_briefing": {
+        "description": "Gera um resumo matinal completo com clima, agenda do dia e notícias.",
+        "parameters": {
+            "type": "object",
+            "properties": {"city": {"type": "string", "description": "Cidade para o clima."}},
+            "required": ["city"], "additionalProperties": False,
+        },
+        "requires_confirmation": False, "allowed_roles": ["owner"], "handler": _handler_get_morning_briefing,
     },
     "get_calendar_events": {
         "description": "Consulta os próximos compromissos ou os eventos de hoje na agenda.",

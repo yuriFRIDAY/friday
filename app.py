@@ -474,6 +474,7 @@ def _db_recall_memory(key):
         return row[0] if row else None
 
 set_memory_context(save_func=_db_save_memory, recall_func=_db_recall_memory)
+# ----------------------------------
 
 # ========================================
 # LEITURA DO ARQUIVO HTML
@@ -802,28 +803,22 @@ class FridayHandler(BaseHTTPRequestHandler):
         if normalized in {"confirmar", "confirmo", "sim", "pode executar"}:
             tool_name, tool_args = pending
             session.pending_tool = None
-            result = execute_tool(
-                tool_name, tool_args, user_role="owner", session=session, confirmed=True
-            )
+            result = execute_tool(tool_name, tool_args, user_role="owner", session=session, confirmed=True)
 
             if result.get("ok"):
                 payload = result.get("result")
 
-                # --- NOVO: Verifica se a ferramenta retornou um erro interno ---
                 if isinstance(payload, dict) and "error" in payload:
                     return True, payload["error"]
 
                 if tool_name == "create_calendar_event" and isinstance(payload, dict):
-                    return True, (
-                        f"Evento criado, comandante: '{payload.get('summary')}' "
-                        f"de {payload.get('start')} até {payload.get('end')}."
-                    )
+                    return True, f"Evento criado, comandante: '{payload.get('summary')}' de {payload.get('start')} até {payload.get('end')}."
                 if tool_name == "send_email":
                     return True, str(payload)
 
                 return True, f"Ferramenta '{tool_name}' executada com sucesso."
             return True, result.get("error", "Não foi possível executar a ferramenta.")
-            
+
         if normalized in {"cancelar", "cancela", "não", "nao", "abortar"}:
             session.pending_tool = None
             return True, "Operação cancelada, comandante."
@@ -879,6 +874,31 @@ class FridayHandler(BaseHTTPRequestHandler):
     def _handle_chat_with_tools(self, clean_command, history, session):
         normalized = clean_command.casefold()
 
+        # --- ATALHO DIRETO PARA O BRIEFING ---
+        if "briefing" in normalized or "resumo matinal" in normalized:
+            from core.friday_tools import execute_tool
+            exec_res = execute_tool("get_morning_briefing", {"city": "Criciúma"}, user_role="owner")
+            if exec_res.get("ok"):
+                return str(exec_res.get("result"))
+            else:
+                return "Não consegui acessar os dados para o briefing matinal, comandante."
+
+        # --- ATALHO DIRETO PARA MÚSICA ---
+        if "toque" in normalized or "música" in normalized or "musica" in normalized or "play" in normalized:
+            query = clean_command
+            for word in ["FRIDAY,", "FRIDAY", "toque", "a música", "a musica", "música", "musica", "coloque", "play"]:
+                query = query.replace(word, "").strip()
+
+            if query:
+                from core.friday_tools import execute_tool
+                exec_res = execute_tool("play_music", {"query": query}, user_role="owner")
+                if exec_res.get("ok"):
+                    url = exec_res.get("result", {}).get("url", "")
+                    return f"[PLAY_MUSIC:{url}] Tocando {query} no YouTube, comandante."
+                else:
+                    return exec_res.get("error", "Não consegui tocar a música.")
+            return "Qual música deseja ouvir, comandante?"
+
         pending_handled, pending_reply = self._handle_pending_tool_confirmation(session, clean_command, normalized)
         if pending_handled:
             return pending_reply
@@ -905,7 +925,6 @@ class FridayHandler(BaseHTTPRequestHandler):
             return str(response)
 
         from core.ai_provider import FridayAIProvider
-
         provider = FridayAIProvider()
         if not provider.available():
             return str(response)
@@ -950,6 +969,8 @@ class FridayHandler(BaseHTTPRequestHandler):
                 final_text = None
 
             if not final_text:
+                if tool_name == "get_morning_briefing" and isinstance(tool_result, str):
+                    return tool_result
                 if tool_name == "get_calendar_events" and isinstance(tool_result, dict):
                     events = tool_result.get("events", [])
                     label = tool_result.get("range", "próximos dias")
@@ -961,8 +982,6 @@ class FridayHandler(BaseHTTPRequestHandler):
                     return "\n".join(lines)
                 if tool_name == "get_current_time" and isinstance(tool_result, str):
                     return f"Agora são {tool_result}, comandante."
-
-                # PESQUISA WEB
                 if tool_name == "search_web" and isinstance(tool_result, dict):
                     results = tool_result.get("results", [])
                     if not results:
@@ -971,8 +990,12 @@ class FridayHandler(BaseHTTPRequestHandler):
                     for res in results[:3]:
                         lines.append(f"- {res.get('title')}: {res.get('snippet')}")
                     return "\n".join(lines)
+                if tool_name == "play_music" and isinstance(tool_result, dict):
+                    return f"[PLAY_MUSIC:{tool_result.get('url', '')}] Tocando {tool_result.get('query', '')} no YouTube, comandante."
 
                 return "Ferramenta executada, comandante."
+
+            return str(final_text)
 
         ai_text = ai_result.get("text") if isinstance(ai_result, dict) else None
         if ai_text:
@@ -1007,7 +1030,6 @@ class FridayHandler(BaseHTTPRequestHandler):
             if not authenticated:
                 remaining = auth.remaining_lockout(client_key)
                 locked = remaining > 0
-
                 self.send_json(
                     429 if locked else 401,
                     {

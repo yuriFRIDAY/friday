@@ -29,7 +29,6 @@
       *::after {
         box-sizing: border-box;
       }
-
       html {
         min-height: 100%;
         background: var(--bg);
@@ -92,7 +91,6 @@
         background: rgba(19, 67, 99, 0.9);
         border-color: rgba(115, 237, 255, 0.65);
       }
-
       button:active:not(:disabled) {
         transform: translateY(1px);
       }
@@ -390,7 +388,6 @@
         font-size: 10px;
         line-height: 1.9;
       }
-
       .sidebar-note span {
         color: #a9dced;
         font-size: 9px;
@@ -507,7 +504,6 @@
         border: 1px solid var(--line);
         border-radius: 12px;
       }
-
       .settings h2 {
         margin: 0 0 19px;
         color: var(--cyan);
@@ -644,7 +640,6 @@
         border: 1px solid var(--line);
         border-radius: 12px;
       }
-
       .composer-title {
         margin-bottom: 12px;
         color: #94b4c9;
@@ -690,7 +685,6 @@
         font-size: 9px;
         letter-spacing: 0.1em;
       }
-
       footer span {
         color: #a0c9dc;
       }
@@ -702,14 +696,12 @@
         border: 1px solid var(--line);
         border-radius: 12px;
       }
-
       .awareness-panel h2 {
         margin: 0;
         color: var(--cyan);
         font-size: 10px;
         letter-spacing: 0.14em;
       }
-
       .awareness-item {
         display: flex;
         align-items: center;
@@ -718,7 +710,6 @@
         padding: 11px 0;
         border-bottom: 1px solid rgba(104, 211, 255, 0.09);
       }
-
       .awareness-item span {
         color: var(--muted);
         font-size: 10px;
@@ -742,7 +733,6 @@
           min-height: 610px;
         }
       }
-
       @media (max-width: 850px) {
         .shell {
           padding: 18px;
@@ -762,7 +752,6 @@
           margin: 0 0 12px;
         }
       }
-
       @media (max-width: 640px) {
         .shell {
           padding: 14px 12px 12px;
@@ -917,7 +906,6 @@
           gap: 6px;
         }
       }
-
       @media (prefers-reduced-motion: no-preference) {
         .reactor-inner {
           animation: reactor-breathe 4s ease-in-out infinite;
@@ -975,20 +963,20 @@
 
           <div class="mini-heading">SISTEMA</div>
           <div class="metric">
-            <span class="metric-label">Interface</span>
-            <span class="metric-value">ONLINE</span>
+            <span class="metric-label">Interface</span
+            ><span class="metric-value">ONLINE</span>
           </div>
           <div class="metric">
-            <span class="metric-label">Canal de voz</span>
-            <span class="metric-value">BROWSER</span>
+            <span class="metric-label">Canal de voz</span
+            ><span class="metric-value">BROWSER</span>
           </div>
           <div class="metric">
-            <span class="metric-label">Assistente</span>
-            <span class="metric-value">FRIDAY AI</span>
+            <span class="metric-label">Assistente</span
+            ><span class="metric-value">FRIDAY AI</span>
           </div>
           <div class="metric">
-            <span class="metric-label">Agenda</span>
-            <span class="metric-value">INTEGRADA</span>
+            <span class="metric-label">Agenda</span
+            ><span class="metric-value">INTEGRADA</span>
           </div>
           <div class="sidebar-note">
             <span>PROJETO TONY STARK</span><br />
@@ -1044,6 +1032,21 @@
                 📅 Google Calendar
               </button>
             </div>
+
+            <!-- NOVO: PLAYER DE MÚSICA (Oculto por padrão) -->
+            <iframe
+              id="musicPlayer"
+              class="hidden"
+              style="
+                width: 100%;
+                height: 200px;
+                border: 1px solid var(--line);
+                border-radius: 12px;
+                margin-bottom: 20px;
+              "
+              allow="autoplay; encrypted-media"
+              allowfullscreen
+            ></iframe>
 
             <section id="calendarPanel" class="awareness-panel hidden">
               <div class="toggle-row" style="margin-bottom: 12px">
@@ -1189,6 +1192,42 @@
 
       let voiceSettings = { ...defaultSettings };
 
+      // ========================================
+      // SINTETIZADOR DE EFEITOS SONOROS (UI)
+      // ========================================
+      let audioCtx = null;
+      function playTone(freq, type, duration) {
+        try {
+          if (!audioCtx)
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+          if (audioCtx.state === "suspended") audioCtx.resume();
+
+          const oscillator = audioCtx.createOscillator();
+          const gainNode = audioCtx.createGain();
+          oscillator.type = type;
+          oscillator.frequency.setValueAtTime(freq, audioCtx.currentTime);
+          gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
+          gainNode.gain.exponentialRampToValueAtTime(
+            0.00001,
+            audioCtx.currentTime + duration,
+          );
+          oscillator.connect(gainNode);
+          gainNode.connect(audioCtx.destination);
+          oscillator.start();
+          oscillator.stop(audioCtx.currentTime + duration);
+        } catch (e) {}
+      }
+      function soundBoot() {
+        playTone(400, "sine", 0.1);
+        setTimeout(() => playTone(800, "sine", 0.2), 100);
+      }
+      function soundListen() {
+        playTone(600, "triangle", 0.15);
+      }
+      function soundError() {
+        playTone(200, "sawtooth", 0.3);
+      }
+
       function status(text) {
         $("status").textContent = text;
       }
@@ -1196,7 +1235,6 @@
       // ========================================
       // GOOGLE CALENDAR & FORMATAR DATAS
       // ========================================
-
       function formatEventDate(dateStr) {
         if (!dateStr) return "Horário não definido";
         const date = new Date(dateStr);
@@ -1272,7 +1310,6 @@
           1.2,
           Math.max(0.75, Number(voiceSettings.rate) || 0.95),
         );
-
         if (!["natural", "formal", "cinematic"].includes(voiceSettings.style)) {
           voiceSettings.style = "natural";
         }
@@ -1292,15 +1329,13 @@
 
         try {
           localStorage.setItem(SETTINGS_KEY, JSON.stringify(voiceSettings));
-          if (showNotice) {
+          if (showNotice)
             $("settingsNotice").textContent =
               "Preferências salvas neste navegador.";
-          }
         } catch (error) {
-          if (showNotice) {
+          if (showNotice)
             $("settingsNotice").textContent =
               "Não foi possível salvar. As opções valem nesta sessão.";
-          }
         }
 
         $("rateValue").textContent =
@@ -1345,28 +1380,25 @@
         );
         select.value = found ? previous : "";
 
-        if (portugueseVoices.length) {
+        if (portugueseVoices.length)
           $("voiceInfo").textContent =
             portugueseVoices.length + " voz(es) em português disponível(is).";
-        } else if (availableVoices.length) {
+        else if (availableVoices.length)
           $("voiceInfo").textContent =
             "Nenhuma voz em português foi identificada. Confira as opções.";
-        } else {
+        else
           $("voiceInfo").textContent =
             "O navegador ainda não disponibilizou vozes.";
-        }
       }
 
       function getSelectedVoice() {
         const selectedURI = $("voiceSelect").value;
-
         if (selectedURI) {
           const selected = availableVoices.find(
             (voice) => voice.voiceURI === selectedURI,
           );
           if (selected) return selected;
         }
-
         return (
           availableVoices.find(
             (voice) => voice.lang.toLowerCase() === "pt-br",
@@ -1381,6 +1413,11 @@
       function stopVoice() {
         speechRunId++;
         speechQueue = [];
+
+        if (currentUtterance instanceof Audio) {
+          currentUtterance.pause();
+          currentUtterance.currentTime = 0;
+        }
         currentUtterance = null;
 
         if (recognition && listening) {
@@ -1406,109 +1443,97 @@
           .trim();
       }
 
-      function speakText(text, force = false) {
-        if (
-          !("speechSynthesis" in window) ||
-          typeof SpeechSynthesisUtterance === "undefined"
-        ) {
-          status("Áudio indisponível neste navegador.");
-          return;
-        }
-
+      // ========================================
+      // NOVO MOTOR DE VOZ (Cloud TTS + Fallback)
+      // ========================================
+      async function speakText(text, force = false) {
         if (!force && !voiceSettings.autoSpeak) return;
-
         const cleanText = cleanSpeechText(text);
         if (!cleanText) return;
 
-        const synth = window.speechSynthesis;
-
+        // Limpa falas anteriores
         speechRunId++;
         const runId = speechRunId;
-        speechQueue = [];
-        synth.cancel();
+        if ("speechSynthesis" in window) window.speechSynthesis.cancel();
 
-        const sentences = cleanText.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [
-          cleanText,
-        ];
-        let chunk = "";
+        status("FRIDAY está falando...");
 
-        for (const sentence of sentences) {
-          const part = sentence.trim();
-          if (!part) continue;
+        // 1. TENTA USAR TTS EM NUVEM (StreamElements)
+        try {
+          const voiceName = "Brian"; // Brian é uma voz masculina britânica, boa para JARVIS
+          const url = `https://api.streamelements.com/kappa/v2/speech?voice=${voiceName}&text=${encodeURIComponent(cleanText)}`;
+          const audio = new Audio(url);
 
-          if (chunk && chunk.length + part.length + 1 > 220) {
-            speechQueue.push(chunk);
-            chunk = "";
-          }
-
-          if (part.length > 220) {
-            const words = part.split(/\s+/);
-            for (const word of words) {
-              if (chunk && chunk.length + word.length + 1 > 220) {
-                speechQueue.push(chunk);
-                chunk = "";
-              }
-              chunk += (chunk ? " " : "") + word;
+          audio.onplay = () => {
+            if (runId === speechRunId) {
+              speaking = true;
+              soundListen(); // <-- ADICIONADO: Som de clique na Cloud TTS
             }
-          } else {
-            chunk += (chunk ? " " : "") + part;
-          }
+          };
+          audio.onended = () => {
+            if (runId === speechRunId) {
+              speaking = false;
+              status("Sistema online.");
+            }
+          };
+          audio.onerror = () => {
+            // Se a StreamElements falhar, cai no TTS do navegador (Fallback)
+            browserSpeak(cleanText, runId);
+          };
+
+          currentUtterance = audio;
+          audio.play();
+          return;
+        } catch (e) {
+          // Se der qualquer erro, usa o do navegador
         }
 
-        if (chunk) speechQueue.push(chunk);
+        // 2. FALLBACK: TTS NATIVO DO NAVEGADOR
+        browserSpeak(cleanText, runId);
+      }
+
+      function browserSpeak(text, runId) {
+        if (!("speechSynthesis" in window)) return;
+        const synth = window.speechSynthesis;
+        const sentences = text.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [text];
+        let chunk = "";
+        const queue = [];
+        for (const sentence of sentences) {
+          const part = sentence.trim();
+          if (chunk && chunk.length + part.length + 1 > 220) {
+            queue.push(chunk);
+            chunk = "";
+          }
+          chunk += (chunk ? " " : "") + part;
+        }
+        if (chunk) queue.push(chunk);
 
         const selectedVoice = getSelectedVoice();
-
         function speakNext() {
           if (runId !== speechRunId) return;
-
-          if (!speechQueue.length) {
-            currentUtterance = null;
+          if (!queue.length) {
             speaking = false;
             status("Sistema online.");
             return;
           }
-
-          const nextText = speechQueue.shift();
+          const nextText = queue.shift();
           const utterance = new SpeechSynthesisUtterance(nextText);
-
-          currentUtterance = utterance;
           utterance.lang = selectedVoice?.lang || "pt-BR";
           utterance.rate = Number(voiceSettings.rate) || 0.95;
-          utterance.pitch =
-            voiceSettings.style === "cinematic"
-              ? 0.82
-              : voiceSettings.style === "formal"
-                ? 0.95
-                : 1.0;
-
+          utterance.pitch = voiceSettings.style === "cinematic" ? 0.82 : 0.95;
           if (selectedVoice) utterance.voice = selectedVoice;
 
           utterance.onstart = () => {
-            if (runId !== speechRunId) return;
-            speaking = true;
-            status("FRIDAY está falando...");
+            if (runId === speechRunId) {
+              speaking = true;
+              soundListen(); // <-- ADICIONADO: Som de clique na Fallback TTS
+            }
           };
-
           utterance.onend = () => {
-            if (runId !== speechRunId) return;
-            speakNext();
+            if (runId === speechRunId) speakNext();
           };
-
-          utterance.onerror = (event) => {
-            if (runId !== speechRunId) return;
-            if (event.error === "canceled" || event.error === "interrupted")
-              return;
-
-            speechQueue = [];
-            currentUtterance = null;
-            speaking = false;
-            status("Não foi possível reproduzir a voz.");
-          };
-
           synth.speak(utterance);
         }
-
         speakNext();
       }
 
@@ -1520,13 +1545,10 @@
       function addMessage(who, text) {
         const item = document.createElement("div");
         item.className = "msg " + (who === "Você" ? "user" : "bot");
-
         const label = document.createElement("strong");
         label.textContent = who === "Você" ? "COMANDANTE" : "FRIDAY";
-
         const content = document.createElement("span");
         content.textContent = text;
-
         item.append(label, content);
         $("messages").appendChild(item);
         $("messages").scrollTop = $("messages").scrollHeight;
@@ -1558,7 +1580,6 @@
           requestError.remaining = result && result.remaining;
           throw requestError;
         }
-
         return result;
       }
 
@@ -1586,7 +1607,6 @@
             0,
             Math.ceil((lockoutEndsAt - Date.now()) / 1000),
           );
-
           if (secondsLeft === 0) {
             window.clearInterval(lockoutInterval);
             lockoutInterval = null;
@@ -1595,7 +1615,6 @@
               "Bloqueio encerrado. Você pode tentar novamente.";
             return;
           }
-
           notice.textContent = `Acesso temporariamente bloqueado. Tente novamente em ${secondsLeft} s.`;
         };
 
@@ -1603,6 +1622,9 @@
         lockoutInterval = window.setInterval(updateNotice, 1000);
       }
 
+      // ========================================
+      // EVENTOS DE LOGIN
+      // ========================================
       $("loginForm").addEventListener("submit", async (event) => {
         event.preventDefault();
         const password = $("password").value;
@@ -1614,20 +1636,23 @@
           $("login").classList.add("hidden");
           $("assistant").classList.remove("hidden");
           status("Autenticada. FRIDAY online.");
+
+          soundBoot(); // <-- ADICIONADO: Som de inicialização
+
           addMessage("FRIDAY", "Aguardando suas ordens, comandante.");
           $("command").focus();
           checkCalendarConnection();
         } catch (error) {
           status(error.message);
           $("password").value = "";
-          if (error.status === 429) {
-            startLockout(error.remaining);
-          } else {
-            $("password").focus();
-          }
+          if (error.status === 429) startLockout(error.remaining);
+          else $("password").focus();
         }
       });
 
+      // ========================================
+      // EVENTOS DE CHAT (Processar Mensagem)
+      // ========================================
       $("chatForm").addEventListener("submit", async (event) => {
         event.preventDefault();
         const command = $("command").value.trim();
@@ -1646,6 +1671,25 @@
           addMessage("FRIDAY", reply);
           lastReply = reply;
 
+          // --- LÓGICA DO PLAYER DE MÚSICA ---
+          if (reply.includes("[PLAY_MUSIC:")) {
+            const match = reply.match(/\[PLAY_MUSIC:(.*?)\]/);
+            if (match && match[1]) {
+              const videoUrl = match[1];
+              const player = $("musicPlayer");
+              player.src = videoUrl; // A URL já vem pronta do Python
+              player.classList.remove("hidden");
+
+              // Remove a tag técnica da mensagem exibida no chat
+              const cleanReply = reply.replace(/\[PLAY_MUSIC:.*?\]/, "").trim();
+              const msgElements = $("messages").querySelectorAll(".bot span");
+              if (msgElements.length > 0) {
+                msgElements[msgElements.length - 1].textContent = cleanReply;
+              }
+            }
+          }
+          // ----------------------------------
+
           if (result.closed) {
             showLogin();
             return;
@@ -1655,20 +1699,18 @@
         } catch (error) {
           addMessage("FRIDAY", error.message);
           status("Verifique a conexão ou autenticação.");
-
-          if (error.message.toLowerCase().includes("sessão")) {
-            showLogin();
-          }
+          if (error.message.toLowerCase().includes("sessão")) showLogin();
         } finally {
           $("sendBtn").disabled = false;
           $("voiceBtn").disabled = false;
-
-          if (!$("assistant").classList.contains("hidden")) {
+          if (!$("assistant").classList.contains("hidden"))
             $("command").focus();
-          }
         }
       });
 
+      // ========================================
+      // RECONHECIMENTO DE VOZ (Microfone)
+      // ========================================
       function startVoice() {
         const SpeechRecognition =
           window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -1695,6 +1737,9 @@
         recognition.onstart = () => {
           listening = true;
           $("voiceBtn").classList.add("listening");
+
+          soundListen(); // <-- ADICIONADO: Som ao ativar microfone
+
           $("voiceBtn").textContent = "⏹ Parar";
           status("Estou ouvindo, comandante...");
         };
@@ -1744,7 +1789,6 @@
       $("calendarConnect").addEventListener("click", () => {
         window.location.href = "/calendar/connect";
       });
-
       $("refreshCalendarTodayBtn").addEventListener("click", () =>
         loadCalendarEvents("today"),
       );
@@ -1755,11 +1799,9 @@
       $("settingsToggle").addEventListener("click", () => {
         const panel = $("settingsPanel");
         panel.classList.toggle("hidden");
-
         $("settingsToggle").textContent = panel.classList.contains("hidden")
           ? "⚙ Configurações de voz"
           : "✖ Fechar configurações";
-
         if (!panel.classList.contains("hidden")) loadVoices();
       });
 
@@ -1773,15 +1815,12 @@
         if (!$("autoSpeak").checked) {
           stopVoice();
           status("Leitura automática desativada.");
-        } else {
-          status("Leitura automática ativada.");
-        }
+        } else status("Leitura automática ativada.");
       });
 
       $("speechRate").addEventListener("change", () => saveSettings(false));
       $("voiceStyle").addEventListener("change", () => saveSettings(false));
       $("voiceSelect").addEventListener("change", () => saveSettings(false));
-
       $("saveSettingsBtn").addEventListener("click", () => saveSettings(true));
 
       $("testVoiceBtn").addEventListener("click", () => {
@@ -1806,7 +1845,6 @@
         stopVoice();
         status("Fala interrompida.");
       });
-
       $("stopSpeakTop").addEventListener("click", () => {
         stopVoice();
         status("Fala interrompida.");
@@ -1819,6 +1857,8 @@
         $("messages").replaceChildren();
         $("settingsPanel").classList.add("hidden");
         $("calendarPanel").classList.add("hidden");
+        $("musicPlayer").classList.add("hidden"); // Para o player de música
+        $("musicPlayer").src = ""; // Limpa o iframe
         $("settingsToggle").textContent = "⚙ Configurações de voz";
         status("Sistema aguardando autenticação");
       }
@@ -1865,7 +1905,29 @@
             $("login").classList.add("hidden");
             $("assistant").classList.remove("hidden");
             status("Sessão ativa. FRIDAY online.");
-            addMessage("FRIDAY", "Bem-vindo de volta, comandante.");
+            $("messages").replaceChildren();
+            addMessage(
+              "FRIDAY",
+              "Bom dia, comandante. Iniciando varredura de sistemas...",
+            );
+            status("Gerando resumo matinal...");
+            request("/chat", {
+              command:
+                "Gere o meu briefing matinal para a cidade de Criciúma usando a ferramenta get_morning_briefing",
+            })
+              .then((res) => {
+                addMessage("FRIDAY", res.response);
+                speakResponse(res.response);
+              })
+              .catch(() => {
+                addMessage(
+                  "FRIDAY",
+                  "Bem-vindo de volta, comandante. Pronto para suas ordens.",
+                );
+                speakResponse(
+                  "Bem-vindo de volta, comandante. Pronto para suas ordens.",
+                );
+              });
             checkCalendarConnection();
           }
 
@@ -1890,7 +1952,6 @@
       // ========================================
       setInterval(
         async () => {
-          // Só roda se o usuário estiver logado
           if ($("assistant").classList.contains("hidden")) return;
 
           try {
@@ -1909,26 +1970,20 @@
               const evtTime = new Date(evt.start);
               const diffMins = (evtTime - now) / 1000 / 60;
 
-              // Se o evento começar entre 1 e 15 minutos a partir de agora
               if (diffMins > 0 && diffMins <= 15) {
                 const alertKey = `alerted_${evt.summary}_${evt.start}`;
-
-                // Só alerta se ainda não avisou sobre este evento
                 if (!localStorage.getItem(alertKey)) {
                   localStorage.setItem(alertKey, "true");
                   const msg = `Comandante, seu compromisso "${evt.summary}" começa em ${Math.round(diffMins)} minutos.`;
-
                   addMessage("FRIDAY", msg);
-                  speakText(msg, true); // Fala o alerta em voz alta
+                  speakText(msg, true);
                 }
               }
             });
-          } catch (e) {
-            // Falha silenciosa na verificação de fundo
-          }
+          } catch (e) {}
         },
         5 * 60 * 1000,
-      ); // Roda a cada 5 minutos (5 * 60 * 1000 ms)
+      );
 
       checkSession();
     </script>
