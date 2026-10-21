@@ -3,7 +3,7 @@ modules = ["nodejs-24", "python-base-3.13"]
 [deployment]
 router = "application"
 deploymentTarget = "autoscale"
-run = ["python", "app.py"]
+run = "poetry run python app.py"
 
 [deployment.postBuild]
 args = ["pnpm", "store", "prune"]

@@ -11,10 +11,18 @@ import os
 import secrets
 import time
 import fcntl
+import sqlite3
 
 from core.assistant import FridayAssistant
 from core.auth import FridayAuth
 from core.sessions import SessionStore
+from core.friday_tools import (
+    TOOL_REGISTRY,
+    execute_tool,
+    public_tool_specs,
+    set_calendar_context,
+    set_memory_context,
+)
 
 SESSION_COOKIE = "friday_session"
 MAX_BODY = 8192
@@ -36,12 +44,10 @@ GOOGLE_TOKEN_FILE = os.getenv("FRIDAY_GOOGLE_TOKEN_FILE", "").strip() or os.path
 )
 _TOKEN_MEMORY_ONLY = False
 
-
 class GoogleOAuthError(Exception):
     def __init__(self, code):
         super().__init__(code or "oauth_error")
         self.code = code or "oauth_error"
-
 
 def _token_file_candidates():
     candidates = []
@@ -49,7 +55,6 @@ def _token_file_candidates():
         if path and path not in candidates:
             candidates.append(path)
     return candidates
-
 
 def _load_google_token_store():
     for path in _token_file_candidates():
@@ -86,7 +91,6 @@ def _load_google_token_store():
             }
         }
     return {}
-
 
 def _persist_google_token_store():
     global _TOKEN_MEMORY_ONLY
@@ -132,9 +136,7 @@ def _persist_google_token_store():
     print("FRIDAY WEB: não foi possível gravar os tokens do calendário em disco.")
     return False
 
-
 GOOGLE_TOKEN_STORE = _load_google_token_store()
-
 
 def _owner_calendar_record():
     if not _TOKEN_MEMORY_ONLY:
@@ -147,18 +149,15 @@ def _owner_calendar_record():
     record = GOOGLE_TOKEN_STORE.get(GOOGLE_OWNER_KEY)
     return record if isinstance(record, dict) else None
 
-
 def _forget_owner_calendar_tokens():
     GOOGLE_TOKEN_STORE.pop(GOOGLE_OWNER_KEY, None)
     _persist_google_token_store()
-
 
 def _oauth_state_secret():
     raw = os.getenv("FRIDAY_PASSWORD", "").strip() or GOOGLE_OAUTH_CLIENT_SECRET
     if not raw:
         raise RuntimeError("Segredo ausente para assinar o estado OAuth.")
     return raw.encode("utf-8")
-
 
 def _make_oauth_state(session_token):
     expiry = int(time.time()) + OAUTH_STATE_TTL_SECONDS
@@ -171,7 +170,6 @@ def _make_oauth_state(session_token):
         hashlib.sha256,
     ).hexdigest()
     return f"{payload}.{signature}"
-
 
 def _session_matches_oauth_state(state, session_token):
     if not isinstance(state, str) or not isinstance(session_token, str):
@@ -197,14 +195,12 @@ def _session_matches_oauth_state(state, session_token):
     binding = hashlib.sha256(session_token.encode("utf-8")).hexdigest()
     return hmac.compare_digest(parts[2], binding)
 
-
 def _sign(payload):
     return hmac.new(
         _oauth_state_secret(),
         payload.encode("utf-8"),
         hashlib.sha256,
     ).hexdigest()
-
 
 def _make_session_cookie():
     expiry = int(time.time()) + SESSION_TTL_SECONDS
@@ -213,7 +209,6 @@ def _make_session_cookie():
     token = f"{payload}.{_sign(payload)}"
     _restore_session(token)
     return token
-
 
 def _signed_session_is_valid(token):
     if not isinstance(token, str):
@@ -230,7 +225,6 @@ def _signed_session_is_valid(token):
         return False
     return expiry >= int(time.time())
 
-
 def _read_session_cookie(header_value):
     cookie = SimpleCookie()
     try:
@@ -241,7 +235,6 @@ def _read_session_cookie(header_value):
     if morsel is None or not morsel.value:
         return None
     return morsel.value
-
 
 def _restore_session(session_token):
     if SESSION_STORE.get(session_token) is not None:
@@ -256,7 +249,6 @@ def _restore_session(session_token):
     except Exception:
         return False
     return SESSION_STORE.get(session_token) is not None
-
 
 def _calendar_is_connected():
     record = _owner_calendar_record()
@@ -279,7 +271,6 @@ def _calendar_is_connected():
         and time.time() < expires_at - 30
     )
 
-
 def _save_owner_calendar_tokens(access_token, refresh_token, expires_in, scope):
     previous = _owner_calendar_record() or {}
     if isinstance(refresh_token, str) and refresh_token:
@@ -300,7 +291,6 @@ def _save_owner_calendar_tokens(access_token, refresh_token, expires_in, scope):
     }
     _persist_google_token_store()
 
-
 def _google_error_code(exc):
     if not isinstance(exc, HTTPError):
         return ""
@@ -319,7 +309,6 @@ def _google_error_code(exc):
     }:
         return code
     return ""
-
 
 def _exchange_google_token(form, clear_on_invalid_grant=False):
     request = Request(
@@ -352,7 +341,6 @@ def _exchange_google_token(form, clear_on_invalid_grant=False):
     )
     return access_token
 
-
 def _usable_calendar_access_token():
     record = _owner_calendar_record()
     if not record:
@@ -381,6 +369,83 @@ def _usable_calendar_access_token():
     }, clear_on_invalid_grant=True)
 
 
+# ========================================
+# CONSULTA DE EVENTOS (usada pelas ferramentas)
+# ========================================
+
+def _calendar_events_query(access_token, time_min=None, time_max=None, max_results=10):
+    params = {
+        "maxResults": str(max_results),
+        "singleEvents": "true",
+        "orderBy": "startTime",
+    }
+    if time_min:
+        params["timeMin"] = time_min
+    else:
+        params["timeMin"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    if time_max:
+        params["timeMax"] = time_max
+
+    query = urlencode(params)
+    request = Request(
+        "https://www.googleapis.com/calendar/v3/calendars/primary/events?" + query,
+        headers={"Accept": "application/json", "Authorization": "Bearer " + access_token},
+        method="GET",
+    )
+    try:
+        with urlopen(request, timeout=15) as response:
+            result = json.loads(response.read(262144).decode("utf-8"))
+    except (HTTPError, URLError, TimeoutError, ValueError, json.JSONDecodeError):
+        return None
+
+    events = []
+    for item in (result.get("items") or [])[:max_results]:
+        if not isinstance(item, dict):
+            continue
+        start = item.get("start") if isinstance(item.get("start"), dict) else {}
+        end = item.get("end") if isinstance(item.get("end"), dict) else {}
+        events.append({
+            "summary": item.get("summary") or "(sem título)",
+            "start": start.get("dateTime") or start.get("date") or "",
+            "end": end.get("dateTime") or end.get("date") or "",
+        })
+    return events
+
+def _calendar_today_events(access_token):
+    now = time.localtime()
+    start_of_day = time.strftime("%Y-%m-%dT00:00:00", now)
+    end_of_day = time.strftime("%Y-%m-%dT23:59:59", now)
+    return _calendar_events_query(
+        access_token,
+        time_min=start_of_day + "Z",
+        time_max=end_of_day + "Z",
+        max_results=20,
+    )
+
+def _calendar_create_event(access_token, payload):
+    request = Request(
+        "https://www.googleapis.com/calendar/v3/calendars/primary/events",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json; charset=utf-8",
+            "Accept": "application/json",
+            "Authorization": "Bearer " + access_token,
+        },
+        method="POST",
+    )
+    try:
+        with urlopen(request, timeout=15) as response:
+            return json.loads(response.read(262144).decode("utf-8"))
+    except (HTTPError, URLError, TimeoutError, ValueError, json.JSONDecodeError):
+        return None
+
+set_calendar_context(
+    access_token_provider=_usable_calendar_access_token,
+    events_query=_calendar_events_query,
+    today_events=_calendar_today_events,
+    create_event=_calendar_create_event,
+)
+
 GOOGLE_OAUTH_CLIENT_ID = os.getenv("GOOGLE_OAUTH_CLIENT_ID", "").strip()
 GOOGLE_OAUTH_CLIENT_SECRET = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET", "").strip()
 GOOGLE_OAUTH_REDIRECT_URI = os.getenv("GOOGLE_OAUTH_REDIRECT_URI", "").strip()
@@ -395,1663 +460,37 @@ auth = FridayAuth()
 SESSION_STORE = SessionStore(ttl_seconds=SESSION_TTL_SECONDS)
 friday = FridayAssistant()
 
-HTML = r"""<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#050914">
-<title>FRIDAY | Stark Systems</title>
-<style>
-  :root {
-    color-scheme: dark;
-    --bg: #050a13;
-    --panel: rgba(10, 19, 32, 0.94);
-    --panel-soft: rgba(13, 28, 45, 0.76);
-    --cyan: #73edff;
-    --cyan-bright: #c2f9ff;
-    --blue: #258aff;
-    --text: #e8f5ff;
-    --muted: #829bb1;
-    --line: rgba(104, 211, 255, 0.17);
-    --glow: 0 0 32px rgba(25, 125, 220, 0.08);
-    --radius: 16px;
-  }
-
-  *,
-  *::before,
-  *::after {
-    box-sizing: border-box;
-  }
-
-  html {
-    min-height: 100%;
-    background: var(--bg);
-    scroll-behavior: smooth;
-  }
-
-  body {
-    margin: 0;
-    min-height: 100vh;
-    color: var(--text);
-    background:
-      radial-gradient(ellipse at 50% 0%,
-        rgba(22, 98, 160, 0.16), transparent 48%),
-      linear-gradient(145deg, #050a13, #081321 55%, #040811);
-    font-family: Inter, "Segoe UI", Arial, sans-serif;
-    font-size: 14px;
-    -webkit-font-smoothing: antialiased;
-  }
-
-  body::before {
-    content: "";
-    position: fixed;
-    inset: 0;
-    z-index: 0;
-    pointer-events: none;
-    opacity: 0.13;
-    background-image:
-      linear-gradient(rgba(93, 190, 238, 0.08) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(93, 190, 238, 0.08) 1px, transparent 1px);
-    background-size: 42px 42px;
-    mask-image: linear-gradient(to bottom, #000, transparent 85%);
-  }
-
-  button, input, textarea, select {
-    font: inherit;
-  }
-
-  button {
-    min-height: 40px;
-    padding: 10px 14px;
-    color: var(--cyan-bright);
-    background: rgba(13, 43, 67, 0.78);
-    border: 1px solid rgba(104, 211, 255, 0.25);
-    border-radius: 9px;
-    cursor: pointer;
-    transition: background 180ms ease, border-color 180ms ease,
-      transform 180ms ease;
-    -webkit-tap-highlight-color: transparent;
-  }
-
-  button:hover:not(:disabled) {
-    background: rgba(19, 67, 99, 0.9);
-    border-color: rgba(115, 237, 255, 0.65);
-  }
-
-  button:active:not(:disabled) {
-    transform: translateY(1px);
-  }
-
-  button:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-  button:focus-visible,
-  input:focus-visible,
-  textarea:focus-visible,
-  select:focus-visible {
-    outline: 2px solid var(--cyan);
-    outline-offset: 3px;
-  }
-
-  input, textarea, select {
-    width: 100%;
-    min-width: 0;
-    padding: 13px 14px;
-    color: var(--text);
-    background: rgba(3, 10, 19, 0.86);
-    border: 1px solid var(--line);
-    border-radius: 9px;
-  }
-
-  input::placeholder, textarea::placeholder {
-    color: #728ba1;
-  }
-
-  input:focus, textarea:focus, select:focus {
-    outline: none;
-    border-color: rgba(115, 237, 255, 0.65);
-    box-shadow: 0 0 0 3px rgba(115, 237, 255, 0.06);
-  }
-
-  .hidden {
-    display: none !important;
-  }
-
-  .shell {
-    position: relative;
-    z-index: 1;
-    width: min(1440px, 100%);
-    min-height: 100vh;
-    margin: 0 auto;
-    padding: 24px 32px 16px;
-  }
-
-  .topbar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 16px;
-    min-height: 66px;
-    margin-bottom: 24px;
-    padding: 0 4px 18px;
-    border-bottom: 1px solid var(--line);
-  }
-
-  .brand {
-    display: flex;
-    align-items: center;
-    gap: 13px;
-  }
-
-  .brand-mark {
-    display: grid;
-    place-items: center;
-    width: 42px;
-    height: 42px;
-    color: var(--cyan);
-    font-size: 27px;
-    border: 1px solid rgba(115, 237, 255, 0.35);
-    border-radius: 50%;
-    box-shadow: inset 0 0 15px rgba(37, 138, 255, 0.12);
-  }
-
-  .brand-name {
-    font-size: 13px;
-    font-weight: 700;
-    letter-spacing: 0.2em;
-  }
-
-  .brand-sub {
-    margin-top: 5px;
-    color: var(--muted);
-    font-size: 9px;
-    letter-spacing: 0.17em;
-  }
-
-  .system-chip, .live-label {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    color: #a8c4d8;
-    font-size: 10px;
-    letter-spacing: 0.13em;
-  }
-
-  .status-dot {
-    display: inline-block;
-    flex: 0 0 auto;
-    width: 7px;
-    height: 7px;
-    background: #62e8c0;
-    border-radius: 50%;
-    box-shadow: 0 0 10px rgba(98, 232, 192, 0.55);
-  }
-
-  .layout {
-    display: grid;
-    grid-template-columns: minmax(245px, 0.76fr) minmax(0, 1.8fr);
-    align-items: stretch;
-    gap: 20px;
-  }
-
-  .panel {
-    position: relative;
-    min-width: 0;
-    background: var(--panel);
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
-    box-shadow: var(--glow);
-  }
-
-  .panel::before {
-    content: "";
-    position: absolute;
-    top: 0;
-    left: 22px;
-    right: 22px;
-    height: 1px;
-    background: linear-gradient(90deg, transparent, #65dfff, transparent);
-    opacity: 0.55;
-    pointer-events: none;
-  }
-
-  .sidebar {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    padding: 28px 22px 22px;
-  }
-
-  .reactor-wrap {
-    position: relative;
-    display: grid;
-    place-items: center;
-    width: 166px;
-    height: 166px;
-    margin: 8px 0 23px;
-  }
-
-  .reactor {
-    position: relative;
-    display: grid;
-    place-items: center;
-    width: 116px;
-    height: 116px;
-    border: 1px solid rgba(115, 237, 255, 0.64);
-    border-radius: 50%;
-    box-shadow: 0 0 24px rgba(37, 138, 255, 0.12),
-      inset 0 0 22px rgba(37, 138, 255, 0.1);
-  }
-
-  .reactor::before, .reactor::after {
-    content: "";
-    position: absolute;
-    inset: 9px;
-    border: 1px solid rgba(115, 237, 255, 0.25);
-    border-radius: 50%;
-  }
-
-  .reactor::after {
-    inset: -10px;
-    border-color: rgba(37, 138, 255, 0.3);
-    border-style: dashed;
-  }
-
-  .reactor-inner {
-    display: grid;
-    place-items: center;
-    width: 66px;
-    height: 66px;
-    color: #d8fbff;
-    font-size: 30px;
-    background: radial-gradient(circle, #286a94, #0c2741 65%, #071320);
-    border: 1px solid var(--cyan);
-    border-radius: 50%;
-    box-shadow: 0 0 20px rgba(115, 237, 255, 0.2),
-      inset 0 0 18px rgba(115, 237, 255, 0.16);
-  }
-
-  .orbit {
-    position: absolute;
-    inset: 0;
-    border: 1px solid rgba(115, 237, 255, 0.14);
-    border-radius: 50%;
-  }
-
-  .orbit::before, .orbit::after {
-    content: "";
-    position: absolute;
-    background: var(--cyan);
-    border-radius: 50%;
-    box-shadow: 0 0 10px rgba(115, 237, 255, 0.6);
-  }
-
-  .orbit::before {
-    width: 5px;
-    height: 5px;
-    top: 18px;
-    left: 27px;
-  }
-
-  .orbit::after {
-    width: 4px;
-    height: 4px;
-    right: 18px;
-    bottom: 37px;
-  }
-
-  .system-title {
-    margin: 0;
-    color: var(--cyan-bright);
-    font-size: 26px;
-    font-weight: 500;
-    letter-spacing: 0.25em;
-  }
-
-  .system-sub {
-    margin-top: 9px;
-    color: var(--muted);
-    font-size: 9px;
-    letter-spacing: 0.12em;
-    text-align: center;
-  }
-
-  .system-state {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin: 19px 0 28px;
-    padding: 9px 12px;
-    color: #9fead8;
-    background: rgba(52, 181, 145, 0.07);
-    border: 1px solid rgba(98, 232, 192, 0.16);
-    border-radius: 30px;
-    font-size: 9px;
-    letter-spacing: 0.1em;
-  }
-
-  .mini-heading {
-    width: 100%;
-    margin-bottom: 9px;
-    color: #7593aa;
-    font-size: 9px;
-    letter-spacing: 0.2em;
-  }
-
-  .metric {
-    display: flex;
-    justify-content: space-between;
-    gap: 10px;
-    width: 100%;
-    padding: 13px 0;
-    border-bottom: 1px solid rgba(104, 211, 255, 0.09);
-    font-size: 11px;
-  }
-
-  .metric-label {
-    color: var(--muted);
-  }
-
-  .metric-value {
-    color: #b9e8fa;
-    font-size: 9px;
-    letter-spacing: 0.08em;
-    text-align: right;
-  }
-
-  .sidebar-note {
-    width: 100%;
-    margin-top: auto;
-    padding-top: 24px;
-    color: var(--muted);
-    font-size: 10px;
-    line-height: 1.9;
-  }
-
-  .sidebar-note span {
-    color: #a9dced;
-    font-size: 9px;
-    letter-spacing: 0.13em;
-  }
-
-  .main-panel {
-    display: flex;
-    flex-direction: column;
-    padding: 26px;
-  }
-
-  .main-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 14px;
-    padding-bottom: 20px;
-    border-bottom: 1px solid var(--line);
-  }
-
-  .heading {
-    font-size: 14px;
-    font-weight: 600;
-    letter-spacing: 0.15em;
-  }
-
-  .heading-sub {
-    margin-top: 7px;
-    color: var(--muted);
-    font-size: 11px;
-  }
-
-  .live-label {
-    padding: 8px 10px;
-    border: 1px solid var(--line);
-    border-radius: 6px;
-    white-space: nowrap;
-  }
-
-  #status {
-    margin: 16px 0;
-    padding: 10px 12px;
-    color: #9bb8cc;
-    background: rgba(3, 12, 23, 0.55);
-    border-left: 2px solid rgba(115, 237, 255, 0.65);
-    font-size: 11px;
-    line-height: 1.6;
-  }
-
-  #login {
-    width: min(100%, 440px);
-    margin: auto;
-    padding: 34px 0 38px;
-  }
-
-  .login-symbol {
-    color: var(--cyan);
-    font-size: 9px;
-    letter-spacing: 0.14em;
-    line-height: 1.8;
-  }
-
-  .login-title {
-    margin: 18px 0 10px;
-    font-size: clamp(25px, 3vw, 34px);
-    font-weight: 500;
-    letter-spacing: 0.04em;
-  }
-
-  .login-copy {
-    margin: 0 0 25px;
-    color: var(--muted);
-    font-size: 13px;
-    line-height: 1.8;
-  }
-
-  #loginForm {
-    display: grid;
-    gap: 12px;
-  }
-
-  .primary {
-    width: 100%;
-    min-height: 47px;
-    color: #04111c;
-    background: linear-gradient(100deg, #66dfff, #9cefff);
-    border: 1px solid #a5f3ff;
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 0.13em;
-  }
-
-  .primary:hover:not(:disabled) {
-    background: #c0f6ff;
-    box-shadow: 0 0 20px rgba(115, 237, 255, 0.12);
-  }
-
-  .lockout-notice {
-    color: #ffb9b9;
-    font-size: 12px;
-    line-height: 1.7;
-  }
-
-  .toolbar {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 9px;
-    margin-bottom: 17px;
-  }
-
-  .toolbar button, .setting-buttons button {
-    font-size: 10px;
-  }
-
-  .settings {
-    margin-bottom: 22px;
-    padding: 19px;
-    background: rgba(3, 11, 21, 0.75);
-    border: 1px solid var(--line);
-    border-radius: 12px;
-  }
-
-  .settings h2 {
-    margin: 0 0 19px;
-    color: var(--cyan);
-    font-size: 10px;
-    letter-spacing: 0.14em;
-  }
-
-  .setting {
-    margin-bottom: 19px;
-  }
-
-  .setting label {
-    display: block;
-    margin-bottom: 9px;
-    color: #d5e7f2;
-    font-size: 12px;
-  }
-
-  .setting small {
-    display: block;
-    margin-top: 8px;
-    color: var(--muted);
-    font-size: 10px;
-    line-height: 1.7;
-  }
-
-  .toggle-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-  }
-
-  .toggle-row label {
-    margin: 0;
-  }
-
-  input[type="checkbox"] {
-    width: 18px;
-    height: 18px;
-    accent-color: var(--cyan);
-  }
-
-  input[type="range"] {
-    padding: 0;
-    accent-color: var(--cyan);
-  }
-
-  .setting-buttons {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    margin: 18px 0;
-  }
-
-  #settingsNotice {
-    margin-top: 10px;
-    color: var(--cyan);
-    font-size: 11px;
-  }
-
-  .chat-label {
-    display: flex;
-    justify-content: space-between;
-    gap: 12px;
-    margin: 6px 0 12px;
-    color: #9ab6c9;
-    font-size: 9px;
-    letter-spacing: 0.12em;
-  }
-
-  #messages {
-    display: flex;
-    flex-direction: column;
-    gap: 13px;
-    min-height: 280px;
-    max-height: 46vh;
-    overflow-y: auto;
-    padding: 17px;
-    background: rgba(3, 10, 19, 0.62);
-    border: 1px solid var(--line);
-    border-radius: 12px;
-    scrollbar-color: #235e82 transparent;
-    scrollbar-width: thin;
-  }
-
-  #messages:empty::before {
-    content: "CANAL DISPONÍVEL — AGUARDANDO COMUNICAÇÃO";
-    display: block;
-    margin: auto;
-    color: #526f84;
-    font-size: 10px;
-    letter-spacing: 0.1em;
-    line-height: 1.9;
-    text-align: center;
-  }
-
-  #messages::-webkit-scrollbar {
-    width: 5px;
-  }
-
-  #messages::-webkit-scrollbar-thumb {
-    background: #235e82;
-    border-radius: 8px;
-  }
-
-  .msg {
-    display: flex;
-    flex-direction: column;
-    gap: 7px;
-    max-width: 90%;
-    padding: 13px 15px;
-    border: 1px solid var(--line);
-    border-radius: 10px;
-    font-size: 13px;
-    line-height: 1.8;
-    overflow-wrap: anywhere;
-    white-space: pre-wrap;
-  }
-
-  .msg strong {
-    color: var(--cyan);
-    font-size: 9px;
-    letter-spacing: 0.14em;
-  }
-
-  .user {
-    align-self: flex-end;
-    background: rgba(18, 67, 105, 0.30);
-    border-color: rgba(57, 151, 226, 0.27);
-  }
-
-  .user strong {
-    color: #8ecbff;
-  }
-
-  .bot {
-    align-self: flex-start;
-    background: rgba(12, 35, 52, 0.48);
-    border-color: rgba(104, 211, 255, 0.18);
-  }
-
-  .composer {
-    margin-top: 18px;
-    padding: 17px;
-    background: rgba(8, 20, 33, 0.68);
-    border: 1px solid var(--line);
-    border-radius: 12px;
-  }
-
-  .composer-title {
-    margin-bottom: 12px;
-    color: #94b4c9;
-    font-size: 9px;
-    letter-spacing: 0.16em;
-  }
-
-  #chatForm {
-    display: grid;
-    gap: 11px;
-  }
-
-  .controls {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 9px;
-  }
-
-  #command {
-    min-height: 46px;
-  }
-
-  #voiceBtn.listening {
-    color: #fff;
-    background: rgba(150, 45, 60, 0.8);
-    border-color: rgba(255, 130, 150, 0.55);
-  }
-
-  #logout {
-    align-self: flex-start;
-    margin-top: 15px;
-    color: #b2c2d0;
-    background: transparent;
-    border-color: rgba(140, 170, 190, 0.18);
-    box-shadow: none;
-    font-size: 10px;
-  }
-
-  footer {
-    display: flex;
-    justify-content: space-between;
-    gap: 10px;
-    margin-top: 22px;
-    padding: 16px 4px 0;
-    color: #637d91;
-    font-size: 9px;
-    letter-spacing: 0.1em;
-  }
-
-  footer span {
-    color: #a0c9dc;
-  }
-
-  .awareness-panel {
-    margin: 0 0 20px;
-    padding: 18px;
-    background: rgba(3, 12, 23, 0.62);
-    border: 1px solid var(--line);
-    border-radius: 12px;
-  }
-
-  .awareness-panel h2 {
-    margin: 0;
-    color: var(--cyan);
-    font-size: 10px;
-    letter-spacing: 0.14em;
-  }
-
-  .awareness-item {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    padding: 11px 0;
-    border-bottom: 1px solid rgba(104, 211, 255, 0.09);
-  }
-
-  .awareness-item span {
-    color: var(--muted);
-    font-size: 10px;
-    letter-spacing: 0.08em;
-  }
-
-  .awareness-item strong {
-    color: var(--cyan-bright);
-    font-size: 12px;
-    overflow-wrap: anywhere;
-  }
-
-  .awareness-note {
-    margin: 12px 0 0;
-    color: var(--muted);
-    font-size: 10px;
-    line-height: 1.7;
-  }
-
-  @media (min-width: 1100px) {
-    .sidebar, .main-panel {
-      min-height: 610px;
-    }
-  }
-
-  @media (max-width: 850px) {
-    .shell { padding: 18px; }
-    .layout { grid-template-columns: minmax(205px, 0.7fr) minmax(0, 1.5fr); gap: 13px; }
-    .sidebar { padding: 22px 15px; }
-    .main-panel { padding: 19px; }
-    .reactor-wrap { transform: scale(0.85); margin: 0 0 12px; }
-  }
-
-  @media (max-width: 640px) {
-    .shell { padding: 14px 12px 12px; }
-    .topbar { min-height: 55px; margin-bottom: 14px; padding-bottom: 14px; }
-    .brand-mark { width: 35px; height: 35px; font-size: 22px; }
-    .brand-name { font-size: 11px; }
-    .brand-sub { font-size: 8px; }
-    .system-chip { font-size: 8px; letter-spacing: 0.06em; }
-    .layout { grid-template-columns: minmax(0, 1fr); gap: 13px; }
-    .sidebar {
-      display: grid;
-      grid-template-columns: 86px minmax(0, 1fr);
-      align-items: center;
-      justify-items: start;
-      column-gap: 14px;
-      padding: 16px;
-    }
-    .reactor-wrap {
-      grid-column: 1;
-      grid-row: 1 / span 4;
-      width: 86px;
-      height: 86px;
-      margin: 0;
-      transform: none;
-    }
-    .reactor { width: 65px; height: 65px; }
-    .reactor::before { inset: 6px; }
-    .reactor::after { inset: -6px; }
-    .reactor-inner { width: 39px; height: 39px; font-size: 19px; }
-    .system-title { align-self: end; font-size: 22px; letter-spacing: 0.18em; }
-    .system-sub { align-self: start; margin-top: 5px; font-size: 8px; text-align: left; line-height: 1.6; }
-    .system-state { margin: 7px 0 0; padding: 6px 8px; font-size: 8px; }
-    .mini-heading, .metric, .sidebar-note { display: none; }
-    .main-panel { min-height: 0; padding: 16px 13px; }
-    .main-header { padding-bottom: 14px; }
-    .heading { font-size: 12px; }
-    .heading-sub { font-size: 10px; }
-    .live-label { padding: 7px; font-size: 8px; }
-    #status { margin: 12px 0; font-size: 10px; }
-    #login { padding: 22px 0; }
-    .login-title { font-size: 27px; }
-    #messages { min-height: 240px; max-height: 42vh; padding: 12px; }
-    .msg { max-width: 96%; padding: 11px; font-size: 12px; }
-    .composer { padding: 12px; }
-    .controls { grid-template-columns: minmax(0, 1fr) auto; gap: 7px; }
-    #command { padding: 12px 10px; }
-    .controls button { padding: 9px; font-size: 11px; }
-    .toolbar button { flex: 1; }
-    .settings { padding: 13px; }
-    .setting-buttons button { flex: 1 1 40%; }
-    footer { flex-wrap: wrap; font-size: 8px; }
-    .awareness-panel { padding: 13px; }
-    .awareness-item { align-items: flex-start; flex-direction: column; gap: 6px; }
-  }
-
-  @media (prefers-reduced-motion: no-preference) {
-    .reactor-inner { animation: reactor-breathe 4s ease-in-out infinite; }
-    .orbit { animation: orbit-turn 24s linear infinite; }
-    @keyframes reactor-breathe {
-      0%, 100% { box-shadow: 0 0 12px rgba(115, 237, 255, 0.15), inset 0 0 12px rgba(115, 237, 255, 0.08); }
-      50% { box-shadow: 0 0 25px rgba(115, 237, 255, 0.3), inset 0 0 18px rgba(115, 237, 255, 0.16); }
-    }
-    @keyframes orbit-turn { to { transform: rotate(360deg); } }
-  }
-</style>
-</head>
-<body>
-<div class="shell">
-  <div class="topbar">
-    <div class="brand">
-      <div class="brand-mark">✦</div>
-      <div>
-        <div class="brand-name">STARK SYSTEMS</div>
-        <div class="brand-sub">PERSONAL INTELLIGENCE</div>
-      </div>
-    </div>
-    <div class="system-chip"><span class="status-dot"></span> INTERFACE V2.0</div>
-  </div>
-
-  <div class="layout">
-    <aside class="panel sidebar">
-      <div class="reactor-wrap" aria-label="Núcleo visual da FRIDAY">
-        <div class="orbit"></div>
-        <div class="reactor"><div class="reactor-inner">✦</div></div>
-      </div>
-      <h1 class="system-title">FRIDAY</h1>
-      <div class="system-sub">STARK INTELLIGENCE SYSTEM</div>
-      <div class="system-state"><span class="status-dot"></span> <span>INTERFACE PRONTA</span></div>
-
-      <div class="mini-heading">SISTEMA</div>
-      <div class="metric">
-        <span class="metric-label">Interface</span>
-        <span class="metric-value">ONLINE</span>
-      </div>
-      <div class="metric">
-        <span class="metric-label">Canal de voz</span>
-        <span class="metric-value">BROWSER</span>
-      </div>
-      <div class="metric">
-        <span class="metric-label">Assistente</span>
-        <span class="metric-value">FRIDAY AI</span>
-      </div>
-      <div class="sidebar-note">
-        <span>PROJETO TONY STARK</span><br>
-        Uma interface. Um sistema.<br>Novas capacidades em desenvolvimento.
-      </div>
-    </aside>
-
-    <main class="panel main-panel">
-      <div class="main-header">
-        <div>
-          <div class="heading">CENTRAL DE COMANDO</div>
-          <div class="heading-sub">Canal seguro de interação</div>
-        </div>
-        <div class="live-label">STARK CORE</div>
-      </div>
-
-      <div id="status" role="status" aria-live="polite">Sistema aguardando autenticação.</div>
-
-      <section id="login">
-        <div class="login-symbol"> ACESSO RESTRITO · STARK SYSTEMS</div>
-        <h2 class="login-title">Autenticação</h2>
-        <p class="login-copy">Identifique-se para iniciar uma sessão segura com a FRIDAY.</p>
-        <form id="loginForm">
-          <input id="password" type="password" placeholder="Senha de acesso" autocomplete="current-password" required>
-          <button class="primary" type="submit">INICIAR SESSÃO ↗</button>
-        </form>
-        <p id="lockoutNotice" class="lockout-notice hidden" role="alert" aria-live="assertive"></p>
-      </section>
-
-      <section id="assistant" class="hidden assistant-content">
-        <div class="toolbar">
-          <button id="settingsToggle" type="button">⚙ Configurações de voz</button>
-          <button id="stopSpeakTop" type="button">⏹ Parar voz</button>
-          <button id="calendarConnect" type="button">📅 Google Calendar</button>
-        </div>
-
-        <section id="calendarPanel" class="awareness-panel hidden">
-          <div class="toggle-row" style="margin-bottom: 12px;">
-            <h2>/// PRÓXIMOS COMPROMISSOS</h2>
-            <button id="refreshCalendarBtn" type="button" style="font-size: 9px; padding: 4px 8px;">🔄 Atualizar</button>
-          </div>
-          <div id="calendarEventsList">
-            <p class="awareness-note">Carregando eventos...</p>
-          </div>
-        </section>
-
-        <section id="settingsPanel" class="settings hidden">
-          <h2>/// CONFIGURAÇÕES DE VOZ</h2>
-          <div class="setting">
-            <div class="toggle-row">
-              <label for="autoSpeak">Leitura automática das respostas</label>
-              <input id="autoSpeak" type="checkbox" checked>
-            </div>
-            <small>Desative para receber respostas somente em texto. Você ainda pode pedir a leitura manual.</small>
-          </div>
-          <div class="setting">
-            <label for="speechRate">Velocidade: <strong id="rateValue">0,95×</strong></label>
-            <input id="speechRate" type="range" min="0.75" max="1.2" step="0.05" value="0.95">
-            <small>Ajuste a velocidade da fala.</small>
-          </div>
-          <div class="setting">
-            <label for="voiceStyle">Estilo de voz</label>
-            <select id="voiceStyle">
-              <option value="natural">Natural e clara</option>
-              <option value="formal">Formal e profissional</option>
-              <option value="cinematic">Mais grave e cinematográfica</option>
-            </select>
-            <small>O resultado depende das vozes instaladas no navegador.</small>
-          </div>
-          <div class="setting">
-            <label for="voiceSelect">Voz disponível no navegador</label>
-            <select id="voiceSelect"><option value="">Automática (português brasileiro)</option></select>
-            <small id="voiceInfo">Carregando vozes disponíveis...</small>
-          </div>
-          <div class="setting-buttons">
-            <button type="button" id="testVoiceBtn">🔊 Testar voz</button>
-            <button type="button" id="readLastBtn">▶ Ler última resposta</button>
-            <button type="button" id="stopSpeakBtn">⏹ Interromper fala</button>
-          </div>
-          <button type="button" id="saveSettingsBtn">Salvar configurações</button>
-          <div id="settingsNotice" role="status"></div>
-        </section>
-
-        <div class="chat-label">
-          <span>/// REGISTRO DE COMUNICAÇÃO</span>
-          <span>ENCRYPTED CHANNEL</span>
-        </div>
-        <div id="messages" aria-live="polite"></div>
-
-        <div class="composer">
-          <div class="composer-title">/// NOVO COMANDO</div>
-          <form id="chatForm">
-            <div class="controls">
-              <input id="command" maxlength="2000" placeholder="Comandante, qual é a próxima ordem?" autocomplete="off" required>
-              <button id="voiceBtn" type="button">🎙 Falar</button>
-            </div>
-            <button class="primary" id="sendBtn" type="submit">TRANSMITIR COMANDO ↗</button>
-          </form>
-        </div>
-        <button id="logout" type="button">Encerrar sessão segura</button>
-      </section>
-    </main>
-  </div>
-
-  <footer><span>STARK SYSTEMS</span> · PROJETO TONY STARK · FRIDAY</footer>
-</div>
-
-<script>
-const $ = id => document.getElementById(id);
-let recognition = null;
-let listening = false;
-let lastReply = '';
-let availableVoices = [];
-let currentUtterance = null;
-let speaking = false;
-let speechQueue = [];
-let speechRunId = 0;
-let lockoutInterval = null;
-let lockoutEndsAt = 0;
-
-const SETTINGS_KEY = 'friday_voice_settings_v1';
-
-const defaultSettings = {
-  autoSpeak: true,
-  rate: 0.95,
-  style: 'natural',
-  voiceURI: ''
-};
-
-let voiceSettings = {...defaultSettings};
-
-function status(text) {
-  $('status').textContent = text;
-}
-
-// ========================================
-// GOOGLE CALENDAR & FORMATAR DATAS
-// ========================================
-
-function formatEventDate(dateStr) {
-  if (!dateStr) return 'Horário não definido';
-  const date = new Date(dateStr);
-  if (isNaN(date.getTime())) return dateStr;
-
-  return new Intl.DateTimeFormat('pt-BR', {
-    day: '2-digit', 
-    month: '2-digit', 
-    hour: '2-digit', 
-    minute: '2-digit'
-  }).format(date);
-}
-
-async function loadCalendarEvents() {
-  const panel = $('calendarPanel');
-  const container = $('calendarEventsList');
-  if (!panel || !container) return;
-
-  panel.classList.remove('hidden');
-  container.innerHTML = '<p class="awareness-note">Consultando agenda...</p>';
-
-  try {
-    const response = await fetch('/calendar/events', {
-      credentials: 'same-origin',
-      cache: 'no-store'
-    });
-    const data = await response.json();
-
-    if (!response.ok) {
-      container.innerHTML = `<p class="awareness-note" style="color: #ff8a8a;">${data.error || 'Não foi possível carregar os eventos.'}</p>`;
-      return;
-    }
-
-    if (!data.events || data.events.length === 0) {
-      container.innerHTML = '<p class="awareness-note">Nenhum próximo compromisso encontrado no Google Calendar.</p>';
-      return;
-    }
-
-    container.replaceChildren();
-    data.events.forEach(evt => {
-      const item = document.createElement('div');
-      item.className = 'awareness-item';
-
-      const title = document.createElement('strong');
-      title.textContent = evt.summary;
-
-      const timeSpan = document.createElement('span');
-      timeSpan.textContent = formatEventDate(evt.start);
-
-      item.append(title, timeSpan);
-      container.appendChild(item);
-    });
-  } catch (error) {
-    container.innerHTML = '<p class="awareness-note" style="color: #ff8a8a;">Erro ao conectar com o servidor.</p>';
-  }
-}
-
-function loadSettings() {
-  try {
-    const saved = localStorage.getItem(SETTINGS_KEY);
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      voiceSettings = {...defaultSettings, ...parsed};
-    }
-  } catch (error) {
-    voiceSettings = {...defaultSettings};
-  }
-
-  voiceSettings.rate = Math.min(
-    1.2, Math.max(0.75, Number(voiceSettings.rate) || 0.95)
-  );
-
-  if (!['natural', 'formal', 'cinematic'].includes(voiceSettings.style)) {
-    voiceSettings.style = 'natural';
-  }
-
-  $('autoSpeak').checked = Boolean(voiceSettings.autoSpeak);
-  $('speechRate').value = voiceSettings.rate;
-  $('rateValue').textContent =
-    voiceSettings.rate.toFixed(2).replace('.', ',') + '×';
-  $('voiceStyle').value = voiceSettings.style;
-}
-
-function saveSettings(showNotice = true) {
-  voiceSettings.autoSpeak = $('autoSpeak').checked;
-  voiceSettings.rate = Number($('speechRate').value);
-  voiceSettings.style = $('voiceStyle').value;
-  voiceSettings.voiceURI = $('voiceSelect').value;
-
-  try {
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(voiceSettings));
-    if (showNotice) {
-      $('settingsNotice').textContent = 'Preferências salvas neste navegador.';
-    }
-  } catch (error) {
-    if (showNotice) {
-      $('settingsNotice').textContent =
-        'Não foi possível salvar. As opções valem nesta sessão.';
-    }
-  }
-
-  $('rateValue').textContent =
-    voiceSettings.rate.toFixed(2).replace('.', ',') + '×';
-}
-
-function loadVoices() {
-  if (!('speechSynthesis' in window)) {
-    $('voiceSelect').innerHTML = '<option value="">Áudio indisponível</option>';
-    $('voiceInfo').textContent = 'Este navegador não oferece síntese de voz.';
-    return;
-  }
-
-  availableVoices = window.speechSynthesis.getVoices();
-  const select = $('voiceSelect');
-  const previous = voiceSettings.voiceURI;
-  select.replaceChildren();
-
-  const defaultOption = document.createElement('option');
-  defaultOption.value = '';
-  defaultOption.textContent = 'Automática (português brasileiro)';
-  select.appendChild(defaultOption);
-
-  const portugueseVoices = availableVoices.filter(voice =>
-    /^pt(-|_)/i.test(voice.lang)
-  );
-  const voicesToShow = portugueseVoices.length
-    ? portugueseVoices : availableVoices;
-
-  voicesToShow.forEach(voice => {
-    const option = document.createElement('option');
-    option.value = voice.voiceURI;
-    option.textContent = voice.name + ' (' + voice.lang + ')';
-    select.appendChild(option);
-  });
-
-  const found = availableVoices.some(voice => voice.voiceURI === previous);
-  select.value = found ? previous : '';
-
-  if (portugueseVoices.length) {
-    $('voiceInfo').textContent =
-      portugueseVoices.length + ' voz(es) em português disponível(is).';
-  } else if (availableVoices.length) {
-    $('voiceInfo').textContent =
-      'Nenhuma voz em português foi identificada. Confira as opções.';
-  } else {
-    $('voiceInfo').textContent =
-      'O navegador ainda não disponibilizou vozes.';
-  }
-}
-
-function getSelectedVoice() {
-  const selectedURI = $('voiceSelect').value;
-
-  if (selectedURI) {
-    const selected = availableVoices.find(
-      voice => voice.voiceURI === selectedURI
-    );
-    if (selected) return selected;
-  }
-
-  return availableVoices.find(
-    voice => voice.lang.toLowerCase() === 'pt-br'
-  ) || availableVoices.find(
-    voice => voice.lang.toLowerCase().startsWith('pt')
-  ) || null;
-}
-
-function stopVoice() {
-  speechRunId++;
-  speechQueue = [];
-  currentUtterance = null;
-
-  if (recognition && listening) {
-    try {
-      recognition.stop();
-    } catch (error) {}
-  }
-
-  if ('speechSynthesis' in window) {
-    window.speechSynthesis.cancel();
-  }
-
-  speaking = false;
-}
-
-function cleanSpeechText(text) {
-  return String(text)
-    .replace(/\*\*(.*?)\*\*/g, '$1')
-    .replace(/\*(.*?)\*/g, '$1')
-    .replace(/`([^`]*)`/g, '$1')
-    .replace(/https?:\/\/\S+/g, 'link omitido')
-    .replace(/^\s*[-*]\s+/gm, '')
-    .trim();
-}
-
-function speakText(text, force = false) {
-  if (!('speechSynthesis' in window) || typeof SpeechSynthesisUtterance === 'undefined') {
-    status('Áudio indisponível neste navegador.');
-    return;
-  }
-
-  if (!force && !voiceSettings.autoSpeak) return;
-
-  const cleanText = cleanSpeechText(text);
-  if (!cleanText) return;
-
-  const synth = window.speechSynthesis;
-
-  speechRunId++;
-  const runId = speechRunId;
-  speechQueue = [];
-  synth.cancel();
-
-  const sentences = cleanText.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [cleanText];
-  let chunk = '';
-
-  for (const sentence of sentences) {
-    const part = sentence.trim();
-    if (!part) continue;
-
-    if (chunk && (chunk.length + part.length + 1 > 220)) {
-      speechQueue.push(chunk);
-      chunk = '';
-    }
-
-    if (part.length > 220) {
-      const words = part.split(/\s+/);
-      for (const word of words) {
-        if (chunk && chunk.length + word.length + 1 > 220) {
-          speechQueue.push(chunk);
-          chunk = '';
-        }
-        chunk += (chunk ? ' ' : '') + word;
-      }
-    } else {
-      chunk += (chunk ? ' ' : '') + part;
-    }
-  }
-
-  if (chunk) speechQueue.push(chunk);
-
-  const selectedVoice = getSelectedVoice();
-
-  function speakNext() {
-    if (runId !== speechRunId) return;
-
-    if (!speechQueue.length) {
-      currentUtterance = null;
-      speaking = false;
-      status('Sistema online.');
-      return;
-    }
-
-    const nextText = speechQueue.shift();
-    const utterance = new SpeechSynthesisUtterance(nextText);
-
-    currentUtterance = utterance;
-    utterance.lang = selectedVoice?.lang || 'pt-BR';
-    utterance.rate = Number(voiceSettings.rate) || 0.95;
-    utterance.pitch =
-      voiceSettings.style === 'cinematic' ? 0.82 :
-      voiceSettings.style === 'formal' ? 0.95 : 1.0;
-
-    if (selectedVoice) utterance.voice = selectedVoice;
-
-    utterance.onstart = () => {
-      if (runId !== speechRunId) return;
-      speaking = true;
-      status('FRIDAY está falando...');
-    };
-
-    utterance.onend = () => {
-      if (runId !== speechRunId) return;
-      speakNext();
-    };
-
-    utterance.onerror = event => {
-      if (runId !== speechRunId) return;
-      if (event.error === 'canceled' || event.error === 'interrupted') return;
-
-      speechQueue = [];
-      currentUtterance = null;
-      speaking = false;
-      status('Não foi possível reproduzir a voz.');
-    };
-
-    synth.speak(utterance);
-  }
-
-  speakNext();
-}
-
-function speakResponse(text) {
-  lastReply = String(text || '');
-  speakText(lastReply, false);
-}
-
-function addMessage(who, text) {
-  const item = document.createElement('div');
-  item.className = 'msg ' + (who === 'Você' ? 'user' : 'bot');
-
-  const label = document.createElement('strong');
-  label.textContent = who === 'Você' ? 'COMANDANTE' : 'FRIDAY';
-
-  const content = document.createElement('span');
-  content.textContent = text;
-
-  item.append(label, content);
-  $('messages').appendChild(item);
-  $('messages').scrollTop =$('messages').scrollHeight;
-}
-
-async function request(url, data) {
-  const response = await fetch(url, {
-    method: 'POST',
-    credentials: 'same-origin',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify(data)
-  });
-
-  let result;
-  try {
-    result = await response.json();
-  } catch (error) {
-    const requestError = new Error('Resposta inválida do servidor.');
-    requestError.status = response.status;
-    requestError.remaining = 0;
-    throw requestError;
-  }
-
-  if (!response.ok) {
-    const requestError = new Error(
-      (result && result.error) || 'Falha na solicitação.'
-    );
-    requestError.status = response.status;
-    requestError.remaining = result && result.remaining;
-    throw requestError;
-  }
-
-  return result;
-}
-
-function startLockout(remaining) {
-  const parsedSeconds = Number(remaining);
-  const seconds = Number.isFinite(parsedSeconds)
-    ? Math.max(0, Math.ceil(parsedSeconds))
-    : 0;
-  const notice = $('lockoutNotice');
-
-  window.clearInterval(lockoutInterval);
-  lockoutInterval = null;
-
-  if (seconds === 0) {
-    lockoutEndsAt = 0;
-    notice.classList.add('hidden');
-    return;
-  }
-
-  lockoutEndsAt = Date.now() + seconds * 1000;
-  notice.classList.remove('hidden');
-
-  const updateNotice = () => {
-    const secondsLeft = Math.max(
-      0,
-      Math.ceil((lockoutEndsAt - Date.now()) / 1000)
-    );
-
-    if (secondsLeft === 0) {
-      window.clearInterval(lockoutInterval);
-      lockoutInterval = null;
-      lockoutEndsAt = 0;
-      notice.textContent = 'Bloqueio encerrado. Você pode tentar novamente.';
-      return;
-    }
-
-    notice.textContent =
-      `Acesso temporariamente bloqueado. Tente novamente em ${secondsLeft} s.`;
-  };
-
-  updateNotice();
-  lockoutInterval = window.setInterval(updateNotice, 1000);
-}
-
-$('loginForm').addEventListener('submit', async event => {
-  event.preventDefault();
-  const password = $('password').value;
-  status('Verificando credenciais...');
-
-  try {
-    await request('/login', {password});
-    $('password').value = '';
-    $('login').classList.add('hidden');$('assistant').classList.remove('hidden');
-    status('Autenticada. FRIDAY online.');
-    addMessage('FRIDAY', 'Aguardando suas ordens, comandante.');
-    $('command').focus();
-    checkCalendarConnection();
-  } catch (error) {
-    status(error.message);
-    $('password').value = '';
-    if (error.status === 429) {
-      startLockout(error.remaining);
-    } else {
-      $('password').focus();
-    }
-  }
-});
-
-$('chatForm').addEventListener('submit', async event => {
-  event.preventDefault();
-  const command = $('command').value.trim();
-  if (!command) return;
-
-  $('command').value = '';
-  addMessage('Você', command);
-  $('sendBtn').disabled = true;
-  $('voiceBtn').disabled = true;
-  status('FRIDAY está processando...');
-
-  try {
-    const result = await request('/chat', {command});
-    const reply = result.response || 'Comando concluído.';
-
-    addMessage('FRIDAY', reply);
-    lastReply = reply;
-
-    if (result.closed) {
-      showLogin();
-      return;
-    }
-
-    speakResponse(reply);
-  } catch (error) {
-    addMessage('FRIDAY', error.message);
-    status('Verifique a conexão ou autenticação.');
-
-    if (error.message.toLowerCase().includes('sessão')) {
-      showLogin();
-    }
-  } finally {
-    $('sendBtn').disabled = false;
-    $('voiceBtn').disabled = false;
-
-    if (!$('assistant').classList.contains('hidden')) {$('command').focus();
-    }
-  }
-});
-
-function startVoice() {
-  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-
-  if (!SpeechRecognition) {
-    status('Reconhecimento indisponível. Tente outro navegador compatível.');
-    return;
-  }
-
-  if (listening && recognition) {
-    recognition.stop();
-    return;
-  }
-
-  stopVoice();
-  recognition = new SpeechRecognition();
-  recognition.lang = 'pt-BR';
-  recognition.continuous = false;
-  recognition.interimResults = false;
-  recognition.maxAlternatives = 1;
-
-  recognition.onstart = () => {
-    listening = true;
-    $('voiceBtn').classList.add('listening');$('voiceBtn').textContent = '⏹ Parar';
-    status('Estou ouvindo, comandante...');
-  };
-
-  recognition.onresult = event => {
-    const transcript = event.results[0][0].transcript;
-    $('command').value = transcript;
-    status('Voz reconhecida.');
-    $('chatForm').requestSubmit();
-  };
-
-  recognition.onerror = event => {
-    status('Falha no microfone: ' + event.error);
-  };
-
-  recognition.onend = () => {
-    listening = false;
-    $('voiceBtn').classList.remove('listening');$('voiceBtn').textContent = '🎙 Falar';
-  };
-
-  try {
-    recognition.start();
-  } catch (error) {
-    status('Não foi possível iniciar o microfone. Tente novamente.');
-  }
-}
-
-$('voiceBtn').addEventListener('click', startVoice);
-
-async function checkCalendarConnection() {
-  try {
-    const response = await fetch('/calendar/status', {
-      credentials: 'same-origin',
-      cache: 'no-store'
-    });
-    const data = await response.json();
-    if (response.ok && data.connected) {
-      $('calendarConnect').textContent = '📅 Calendário conectado';
-      loadCalendarEvents();
-      return true;
-    }
-  } catch (error) {}
-  return false;
-}
-
-// Ao clicar no botão, ele força o redirecionamento direto para a rota OAuth de autorização:
-$('calendarConnect').addEventListener('click', () => {
-  window.location.href = '/calendar/connect';
-});
-
-$('calendarConnect').addEventListener('click', async () => {
-  const connected = await checkCalendarConnection();
-  if (connected) {
-    status('Google Calendar já está conectado. A carregar compromissos...');
-    return;
-  }
-  window.location.href = '/calendar/connect';
-});
-
-$('refreshCalendarBtn').addEventListener('click', () => {
-  loadCalendarEvents();
-});
-
-$('settingsToggle').addEventListener('click', () => {
-  const panel = $('settingsPanel');
-  panel.classList.toggle('hidden');
-
-  $('settingsToggle').textContent =
-    panel.classList.contains('hidden')
-      ? '⚙ Configurações de voz'
-      : '✖ Fechar configurações';
-
-  if (!panel.classList.contains('hidden')) loadVoices();
-});
-
-$('speechRate').addEventListener('input', () => {$('rateValue').textContent =
-    Number($('speechRate').value).toFixed(2).replace('.', ',') + '×';
-});
-
-$('autoSpeak').addEventListener('change', () => {
-  saveSettings(false);
-  if (!$('autoSpeak').checked) {
-    stopVoice();
-    status('Leitura automática desativada.');
-  } else {
-    status('Leitura automática ativada.');
-  }
-});
-
-$('speechRate').addEventListener('change', () => saveSettings(false));
-$('voiceStyle').addEventListener('change', () => saveSettings(false));$('voiceSelect').addEventListener('change', () => saveSettings(false));
-
-$('saveSettingsBtn').addEventListener('click', () => saveSettings(true));
-
-$('testVoiceBtn').addEventListener('click', () => {
-  saveSettings(false);
-  speakText('Olá, comandante. Sou FRIDAY. Configurações de voz prontas.', true);
-});
-
-$('readLastBtn').addEventListener('click', () => {
-  if (!lastReply) {
-    $('settingsNotice').textContent = 'Ainda não existe uma resposta para ler.';
-    return;
-  }
-  saveSettings(false);
-  speakText(lastReply, true);
-});
-
-$('stopSpeakBtn').addEventListener('click', () => {
-  stopVoice();
-  status('Fala interrompida.');
-});
-
-$('stopSpeakTop').addEventListener('click', () => {
-  stopVoice();
-  status('Fala interrompida.');
-});
-
-function showLogin() {
-  stopVoice();
-  $('assistant').classList.add('hidden');$('login').classList.remove('hidden');
-  $('messages').replaceChildren();$('settingsPanel').classList.add('hidden');
-  $('calendarPanel').classList.add('hidden');$('settingsToggle').textContent = '⚙ Configurações de voz';
-  status('Sistema aguardando autenticação');
-}
-
-$('logout').addEventListener('click', async () => {
-  stopVoice();
-  try {
-    await request('/logout', {});
-  } catch (error) {}
-  showLogin();
-});
-
-async function checkSession() {
-  try {
-    const response = await fetch('/session', {
-      credentials: 'same-origin',
-      cache: 'no-store'
-    });
-    const data = await response.json();
-
-    const calendarState = new URLSearchParams(location.search).get('calendar');
-    const calendarMessages = {
-      connected: 'Google Calendar autorizado e salvo. Os próximos acessos reutilizam esta conexão.',
-      nosession: 'Entre na FRIDAY antes de conectar o calendário.',
-      denied: 'A autorização do Google foi cancelada.',
-      old: 'Essa tentativa expirou. Clique em Google Calendar outra vez.',
-      state: 'A sessão não confere com o retorno do Google. Entre de novo e repita a conexão.',
-      config: 'OAuth incompleto. Confira o client id, o secret e a redirect URI.',
-      redirect: 'A redirect URI do servidor não é a mesma cadastrada no Google Cloud.',
-      client: 'O Google recusou o cliente OAuth. Confira o client id e o secret.',
-      token: 'O Google não concluiu o acesso. Clique em Google Calendar e autorize de novo.',
-      incomplete: 'A resposta de autorização veio incompleta.'
-    };
-
-    if (data.authenticated) {
-      $('login').classList.add('hidden');$('assistant').classList.remove('hidden');
-      status('Sessão ativa. FRIDAY online.');
-      addMessage('FRIDAY', 'Bem-vindo de volta, comandante.');
-      checkCalendarConnection();
-    }
-
-    if (calendarMessages[calendarState]) {
-      status(calendarMessages[calendarState]);
-      history.replaceState({}, '', location.pathname);
-    }
-  } catch (error) {
-    status('Não foi possível verificar a sessão.');
-  }
-}
-
-loadSettings();
-
-if ('speechSynthesis' in window) {
-  loadVoices();
-  window.speechSynthesis.onvoiceschanged = loadVoices;
-}
-
-checkSession();
-</script>
-</body>
-</html>
-"""
+# --- SISTEMA DE MEMÓRIA SQLITE ---
+def _db_save_memory(key, value):
+    with sqlite3.connect("friday.db") as conn:
+        conn.execute("CREATE TABLE IF NOT EXISTS ai_memory (key TEXT PRIMARY KEY, value TEXT)")
+        conn.execute("INSERT OR REPLACE INTO ai_memory (key, value) VALUES (?, ?)", (key, value))
+        conn.commit()
+
+def _db_recall_memory(key):
+    with sqlite3.connect("friday.db") as conn:
+        conn.execute("CREATE TABLE IF NOT EXISTS ai_memory (key TEXT PRIMARY KEY, value TEXT)")
+        row = conn.execute("SELECT value FROM ai_memory WHERE key = ?", (key,)).fetchone()
+        return row[0] if row else None
+
+set_memory_context(save_func=_db_save_memory, recall_func=_db_recall_memory)
+
+# ========================================
+# LEITURA DO ARQUIVO HTML
+# ========================================
+HTML_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "index.html")
+
+def get_html():
+    try:
+        with open(HTML_FILE, "r", encoding="utf-8") as f:
+            return f.read()
+    except FileNotFoundError:
+        return "<h1>Erro: O arquivo index.html não foi encontrado na raiz do projeto.</h1>"
 
 
 class FridayHandler(BaseHTTPRequestHandler):
     def send_json(self, status_code, data, cookie=None, clear_cookie=False):
         body = json.dumps(data, ensure_ascii=False).encode("utf-8")
-
         self.send_response(status_code)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
@@ -2068,7 +507,6 @@ class FridayHandler(BaseHTTPRequestHandler):
             if secure:
                 cookie_text += "; Secure"
             self.send_header("Set-Cookie", cookie_text)
-
         elif clear_cookie:
             cookie_text = (
                 f"{SESSION_COOKIE}=; Path=/; HttpOnly; "
@@ -2159,10 +597,8 @@ class FridayHandler(BaseHTTPRequestHandler):
             length = int(self.headers.get("Content-Length", "0"))
         except ValueError:
             return None
-
         if length <= 0 or length > MAX_BODY:
             return None
-
         try:
             data = json.loads(self.rfile.read(length).decode("utf-8"))
             return data if isinstance(data, dict) else None
@@ -2173,7 +609,7 @@ class FridayHandler(BaseHTTPRequestHandler):
         path = urlsplit(self.path).path
 
         if path == "/":
-            body = HTML.encode("utf-8")
+            body = get_html().encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
@@ -2185,21 +621,13 @@ class FridayHandler(BaseHTTPRequestHandler):
 
         if path == "/session":
             token = self.get_session()
-            self.send_json(
-                200,
-                {"authenticated": token is not None},
-                clear_cookie=token is None,
-            )
+            self.send_json(200, {"authenticated": token is not None}, clear_cookie=token is None)
             return
 
         if path == "/calendar/status":
             token = self.get_session()
             if not token:
-                self.send_json(
-                    401,
-                    {"error": "Sessão inválida. Entre novamente.", "connected": False},
-                    clear_cookie=True,
-                )
+                self.send_json(401, {"error": "Sessão inválida. Entre novamente.", "connected": False}, clear_cookie=True)
                 return
             self.send_json(200, {"connected": _calendar_is_connected()})
             return
@@ -2219,11 +647,7 @@ class FridayHandler(BaseHTTPRequestHandler):
                 self.redirect_to("/?calendar=connected")
                 return
 
-            if not (
-                GOOGLE_OAUTH_CLIENT_ID
-                and GOOGLE_OAUTH_CLIENT_SECRET
-                and GOOGLE_OAUTH_REDIRECT_URI
-            ):
+            if not (GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET and GOOGLE_OAUTH_REDIRECT_URI):
                 self.redirect_to("/?calendar=config")
                 return
 
@@ -2269,9 +693,7 @@ class FridayHandler(BaseHTTPRequestHandler):
             return
 
         session_token = _read_session_cookie(self.headers.get("Cookie", ""))
-        if not session_token or not (
-            _signed_session_is_valid(session_token) or SESSION_STORE.get(session_token)
-        ):
+        if not session_token or not (_signed_session_is_valid(session_token) or SESSION_STORE.get(session_token)):
             self.redirect_to("/?calendar=nosession")
             return
 
@@ -2290,11 +712,7 @@ class FridayHandler(BaseHTTPRequestHandler):
             self.redirect_to("/?calendar=nosession")
             return
 
-        if not (
-            GOOGLE_OAUTH_CLIENT_ID
-            and GOOGLE_OAUTH_CLIENT_SECRET
-            and GOOGLE_OAUTH_REDIRECT_URI
-        ):
+        if not (GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET and GOOGLE_OAUTH_REDIRECT_URI):
             self.redirect_to("/?calendar=config")
             return
 
@@ -2320,18 +738,13 @@ class FridayHandler(BaseHTTPRequestHandler):
                     continue
                 break
             except (URLError, TimeoutError, ValueError, json.JSONDecodeError):
-                print("FRIDAY WEB: falha na troca do código OAuth do Google.")
                 self.redirect_to("/?calendar=token")
                 return
             except Exception:
-                import traceback
-                print("FRIDAY WEB: exceção não tratada no callback OAuth Google:")
-                traceback.print_exc()
                 self.redirect_to("/?calendar=token")
                 return
 
         if oauth_error is not None:
-            print("FRIDAY WEB: falha na troca do código OAuth do Google.")
             reason = {
                 "redirect_uri_mismatch": "redirect",
                 "invalid_client": "client",
@@ -2347,80 +760,230 @@ class FridayHandler(BaseHTTPRequestHandler):
     def handle_calendar_events(self):
         token = self.get_session()
         if not token:
-            self.send_json(
-                401,
-                {"error": "Sessão inválida. Entre novamente."},
-                clear_cookie=True,
-            )
+            self.send_json(401, {"error": "Sessão inválida. Entre novamente."}, clear_cookie=True)
             return
 
         if not _calendar_is_connected():
-            self.send_json(
-                409,
-                {"error": "Google Calendar ainda não está conectado."},
-            )
+            self.send_json(409, {"error": "Google Calendar ainda não está conectado."})
             return
 
         try:
             access_token = _usable_calendar_access_token()
         except GoogleOAuthError:
-            print("FRIDAY WEB: falha ao renovar o acesso do Google Calendar.")
-            self.send_json(
-                409,
-                {"error": "A conexão do Google Calendar expirou. Conecte novamente."},
-            )
+            self.send_json(409, {"error": "A conexão do Google Calendar expirou. Conecte novamente."})
             return
         except (URLError, TimeoutError, ValueError, json.JSONDecodeError):
-            print("FRIDAY WEB: falha ao renovar o acesso do Google Calendar.")
-            self.send_json(
-                502,
-                {"error": "Não foi possível renovar a conexão do Google Calendar."},
-            )
+            self.send_json(502, {"error": "Não foi possível renovar a conexão do Google Calendar."})
             return
 
         if not access_token:
-            self.send_json(
-                409,
-                {"error": "A conexão do Google Calendar expirou. Conecte novamente."},
-            )
+            self.send_json(409, {"error": "A conexão do Google Calendar expirou. Conecte novamente."})
             return
 
-        query = urlencode({
-            "maxResults": "10",
-            "singleEvents": "true",
-            "orderBy": "startTime",
-            "timeMin": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        })
-        request = Request(
-            "https://www.googleapis.com/calendar/v3/calendars/primary/events?" + query,
-            headers={"Accept": "application/json", "Authorization": "Bearer " + access_token},
-            method="GET",
-        )
+        query = parse_qs(urlsplit(self.path).query)
+        time_range = query.get("range", ["upcoming"])[0]
+
+        if time_range == "today":
+            events = _calendar_today_events(access_token)
+        else:
+            events = _calendar_events_query(access_token, max_results=10)
+
+        if events is None:
+            self.send_json(502, {"error": "Não foi possível consultar os eventos do calendário."})
+            return
+
+        self.send_json(200, {"ok": True, "events": events, "range": time_range})
+
+    def _handle_pending_tool_confirmation(self, session, command, normalized):
+        pending = getattr(session, "pending_tool", None)
+        if not pending:
+            return False, ""
+
+        if normalized in {"confirmar", "confirmo", "sim", "pode executar"}:
+            tool_name, tool_args = pending
+            session.pending_tool = None
+            result = execute_tool(
+                tool_name, tool_args, user_role="owner", session=session, confirmed=True
+            )
+
+            if result.get("ok"):
+                payload = result.get("result")
+
+                # --- NOVO: Verifica se a ferramenta retornou um erro interno ---
+                if isinstance(payload, dict) and "error" in payload:
+                    return True, payload["error"]
+
+                if tool_name == "create_calendar_event" and isinstance(payload, dict):
+                    return True, (
+                        f"Evento criado, comandante: '{payload.get('summary')}' "
+                        f"de {payload.get('start')} até {payload.get('end')}."
+                    )
+                if tool_name == "send_email":
+                    return True, str(payload)
+
+                return True, f"Ferramenta '{tool_name}' executada com sucesso."
+            return True, result.get("error", "Não foi possível executar a ferramenta.")
+            
+        if normalized in {"cancelar", "cancela", "não", "nao", "abortar"}:
+            session.pending_tool = None
+            return True, "Operação cancelada, comandante."
+
+        return False, ""
+
+    def _try_direct_calendar_intent(self, command, normalized):
+        if not _calendar_is_connected():
+            return False, ""
+
+        triggers_today = ("agenda de hoje", "o que tenho hoje", "compromissos de hoje", "eventos de hoje", "tenho algo hoje")
+        triggers_upcoming = ("próximos compromissos", "proximos compromissos", "próximos eventos", "proximos eventos", "minha agenda", "o que está agendado")
+
+        is_today = any(t in normalized for t in triggers_today)
+        is_upcoming = any(t in normalized for t in triggers_upcoming)
+
+        if not (is_today or is_upcoming):
+            return False, ""
 
         try:
-            with urlopen(request, timeout=15) as response:
-                result = json.loads(response.read(262144).decode("utf-8"))
-        except (HTTPError, URLError, TimeoutError, ValueError, json.JSONDecodeError):
-            print("FRIDAY WEB: falha ao consultar eventos do Google Calendar.")
-            self.send_json(
-                502,
-                {"error": "Não foi possível consultar os eventos do calendário."},
-            )
-            return
+            access_token = _usable_calendar_access_token()
+        except Exception:
+            return True, "Não consegui renovar o acesso ao calendário, comandante."
 
-        events = []
-        for item in (result.get("items") or [])[:10]:
-            if not isinstance(item, dict):
-                continue
-            start = item.get("start") if isinstance(item.get("start"), dict) else {}
-            end = item.get("end") if isinstance(item.get("end"), dict) else {}
-            events.append({
-                "summary": item.get("summary") or "(sem título)",
-                "start": start.get("dateTime") or start.get("date") or "",
-                "end": end.get("dateTime") or end.get("date") or "",
-            })
+        if not access_token:
+            return True, "O calendário não está conectado no momento."
 
-        self.send_json(200, {"ok": True, "events": events})
+        if is_today:
+            events = _calendar_today_events(access_token)
+            label = "hoje"
+        else:
+            events = _calendar_events_query(access_token, max_results=5)
+            label = "nos próximos dias"
+
+        if events is None:
+            return True, "Não consegui consultar sua agenda agora, comandante."
+
+        if not events:
+            return True, f"Nenhum compromisso agendado para {label}, comandante."
+
+        from datetime import datetime as _dt
+        lines = [f"Seus compromissos para {label}:"]
+        for evt in events[:7]:
+            start_raw = evt.get("start", "")
+            try:
+                dt = _dt.fromisoformat(start_raw.replace("Z", "+00:00"))
+                when = dt.strftime("%d/%m às %H:%M")
+            except Exception:
+                when = start_raw or "horário não definido"
+            lines.append(f"• {evt['summary']} — {when}")
+        return True, "\n".join(lines)
+
+    def _handle_chat_with_tools(self, clean_command, history, session):
+        normalized = clean_command.casefold()
+
+        pending_handled, pending_reply = self._handle_pending_tool_confirmation(session, clean_command, normalized)
+        if pending_handled:
+            return pending_reply
+
+        calendar_handled, calendar_reply = self._try_direct_calendar_intent(clean_command, normalized)
+        if calendar_handled:
+            return calendar_reply
+
+        intention = friday.interpret(clean_command)
+        if session.pending_action is not None:
+            if normalized == "atualizar lembrança":
+                intention = "confirm_memory_update"
+            elif normalized == "manter ambas":
+                intention = "confirm_memory_keep_both"
+            elif normalized == "cancelar operação":
+                intention = "cancel_pending"
+
+        response = friday.execute(intention, clean_command, "owner", history=history, session=session)
+
+        if response is None:
+            return None
+
+        if intention != "unknown":
+            return str(response)
+
+        from core.ai_provider import FridayAIProvider
+
+        provider = FridayAIProvider()
+        if not provider.available():
+            return str(response)
+
+        try:
+            ai_result = provider.chat_with_tools(user_message=clean_command, history=history, tools=public_tool_specs())
+        except Exception:
+            ai_result = {"text": str(response)}
+
+        tool_call = ai_result.get("tool_call") if isinstance(ai_result, dict) else None
+        if tool_call and isinstance(tool_call, dict):
+            tool_name = tool_call.get("name", "")
+            tool_args = tool_call.get("arguments", {}) or {}
+
+            exec_result = execute_tool(tool_name, tool_args, user_role="owner", session=session)
+
+            if exec_result.get("status") == "pending_confirmation":
+                session.pending_tool = (tool_name, tool_args)
+                return exec_result.get("message", f"Preciso de confirmação para executar '{tool_name}'.")
+
+            if not exec_result.get("ok"):
+                return exec_result.get("error", "Não foi possível executar a ferramenta.")
+
+            tool_result = exec_result.get("result")
+
+            if isinstance(tool_result, dict) and "error" in tool_result:
+                return tool_result["error"]
+
+            if tool_name == "create_calendar_event" and isinstance(tool_result, dict):
+                return f"Evento criado, comandante: '{tool_result.get('summary')}' de {tool_result.get('start')} até {tool_result.get('end')}."
+
+            try:
+                final_text = provider.chat_with_tool_result(
+                    user_message=clean_command,
+                    tool_name=tool_name,
+                    tool_result=tool_result,
+                    history=history,
+                    tool_call_id=tool_call.get("id"),
+                    raw_arguments=tool_call.get("raw_arguments", "{}")
+                )
+            except Exception:
+                final_text = None
+
+            if not final_text:
+                if tool_name == "get_calendar_events" and isinstance(tool_result, dict):
+                    events = tool_result.get("events", [])
+                    label = tool_result.get("range", "próximos dias")
+                    if not events:
+                        return f"Nenhum compromisso para {label}, comandante."
+                    lines = [f"Seus compromissos para {label}:"]
+                    for evt in events[:7]:
+                        lines.append(f"• {evt['summary']} — {evt['start']}")
+                    return "\n".join(lines)
+                if tool_name == "get_current_time" and isinstance(tool_result, str):
+                    return f"Agora são {tool_result}, comandante."
+
+                # PESQUISA WEB
+                if tool_name == "search_web" and isinstance(tool_result, dict):
+                    results = tool_result.get("results", [])
+                    if not results:
+                        return "Não encontrei informações relevantes na web, comandante."
+                    lines = ["Aqui estão os dados que encontrei na web:"]
+                    for res in results[:3]:
+                        lines.append(f"- {res.get('title')}: {res.get('snippet')}")
+                    return "\n".join(lines)
+
+                return "Ferramenta executada, comandante."
+
+        ai_text = ai_result.get("text") if isinstance(ai_result, dict) else None
+        if ai_text:
+            history.extend([
+                {"role": "user", "content": clean_command},
+                {"role": "assistant", "content": str(ai_text)},
+            ])
+            history[:] = history[-MAX_HISTORY_MESSAGES:]
+            return str(ai_text)
+
+        return str(response)
 
     def do_POST(self):
         path = urlsplit(self.path).path
@@ -2439,10 +1002,7 @@ class FridayHandler(BaseHTTPRequestHandler):
             password = data.get("password")
             client_key = self.client_address[0]
 
-            authenticated = (
-                isinstance(password, str)
-                and auth.authenticate(password, client_key=client_key)
-            )
+            authenticated = (isinstance(password, str) and auth.authenticate(password, client_key=client_key))
 
             if not authenticated:
                 remaining = auth.remaining_lockout(client_key)
@@ -2451,11 +1011,7 @@ class FridayHandler(BaseHTTPRequestHandler):
                 self.send_json(
                     429 if locked else 401,
                     {
-                        "error": (
-                            "Acesso temporariamente bloqueado."
-                            if locked
-                            else "Autenticação negada."
-                        ),
+                        "error": ("Acesso temporariamente bloqueado." if locked else "Autenticação negada."),
                         "locked": locked,
                         "remaining": remaining,
                     },
@@ -2469,11 +1025,7 @@ class FridayHandler(BaseHTTPRequestHandler):
         token = self.get_session()
 
         if not token:
-            self.send_json(
-                401,
-                {"error": "Sessão inválida. Entre novamente."},
-                clear_cookie=True,
-            )
+            self.send_json(401, {"error": "Sessão inválida. Entre novamente."}, clear_cookie=True)
             return
 
         if path == "/logout":
@@ -2484,11 +1036,7 @@ class FridayHandler(BaseHTTPRequestHandler):
         if path == "/chat":
             command = data.get("command")
 
-            if (
-                not isinstance(command, str)
-                or not command.strip()
-                or len(command) > 2000
-            ):
+            if not isinstance(command, str) or not command.strip() or len(command) > 2000:
                 self.send_json(400, {"error": "Comando vazio ou muito longo."})
                 return
 
@@ -2498,70 +1046,22 @@ class FridayHandler(BaseHTTPRequestHandler):
                 session = SESSION_STORE.get(token)
 
                 if history is None or session is None:
-                    self.send_json(
-                        401,
-                        {"error": "Sessão inválida. Entre novamente."},
-                        clear_cookie=True,
-                    )
+                    self.send_json(401, {"error": "Sessão inválida. Entre novamente."}, clear_cookie=True)
                     return
 
-                normalized_command = clean_command.casefold()
+                response_text = self._handle_chat_with_tools(clean_command, history, session)
 
-                if session.pending_action is not None:
-                    if normalized_command == "atualizar lembrança":
-                        intention = "confirm_memory_update"
-                    elif normalized_command == "manter ambas":
-                        intention = "confirm_memory_keep_both"
-                    elif normalized_command == "cancelar operação":
-                        intention = "cancel_pending"
-                    else:
-                        intention = friday.interpret(clean_command)
-                else:
-                    intention = friday.interpret(clean_command)
-
-                response = friday.execute(
-                    intention,
-                    clean_command,
-                    "owner",
-                    history=history,
-                    session=session,
-                )
-
-                if response is None:
+                if response_text is None:
                     SESSION_STORE.invalidate(token)
-                    self.send_json(
-                        200,
-                        {"response": "FRIDAY encerrada.", "closed": True},
-                        clear_cookie=True,
-                    )
+                    self.send_json(200, {"response": "FRIDAY encerrada.", "closed": True}, clear_cookie=True)
                     return
 
-                if intention == "unknown":
-                    from core.ai_provider import FridayAIProvider
-
-                    provider = FridayAIProvider()
-
-                    if (
-                        provider.available()
-                        and response != "Não consegui obter uma resposta da IA agora."
-                    ):
-                        history.extend([
-                            {"role": "user", "content": clean_command},
-                            {"role": "assistant", "content": str(response)},
-                        ])
-                        history[:] = history[-MAX_HISTORY_MESSAGES:]
-
-                self.send_json(
-                    200,
-                    {"response": str(response), "closed": False},
-                )
+                self.send_json(200, {"response": str(response_text), "closed": False})
 
             except Exception:
-                print("FRIDAY WEB: erro ao processar comando.")
-                self.send_json(
-                    500,
-                    {"error": "Erro interno ao processar comando."},
-                )
+                import traceback
+                traceback.print_exc()
+                self.send_json(500, {"error": "Erro interno ao processar comando."})
             return
 
         self.send_json(404, {"error": "Página não encontrada."})
