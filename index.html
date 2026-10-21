@@ -940,8 +940,8 @@
         <div class="brand">
           <div class="brand-mark">✦</div>
           <div>
-            <div class="brand-name">STARK SYSTEMS</div>
-            <div class="brand-sub">PERSONAL INTELLIGENCE</div>
+            <div class="brand-name">SISTEMAS STARK</div>
+            <div class="brand-sub">IA PESSOAL</div>
           </div>
         </div>
         <div class="system-chip">
@@ -956,7 +956,7 @@
             <div class="reactor"><div class="reactor-inner">✦</div></div>
           </div>
           <h1 class="system-title">FRIDAY</h1>
-          <div class="system-sub">STARK INTELLIGENCE SYSTEM</div>
+          <div class="system-sub">SISTEMA DE INTELIGÊNCIA AVANÇADA</div>
           <div class="system-state">
             <span class="status-dot"></span> <span>INTERFACE PRONTA</span>
           </div>
@@ -1033,7 +1033,6 @@
               </button>
             </div>
 
-            <!-- NOVO: PLAYER DE MÚSICA (Oculto por padrão) -->
             <iframe
               id="musicPlayer"
               class="hidden"
@@ -1165,7 +1164,7 @@
         </main>
       </div>
 
-      <footer><span>STARK SYSTEMS</span> · PROJETO TONY STARK · FRIDAY</footer>
+      <footer><span>SISTEMAS AVANÇADOS</span> · PROJETO TONY STARK · FRIDAY</footer>
     </div>
 
     <script>
@@ -1444,30 +1443,28 @@
       }
 
       // ========================================
-      // NOVO MOTOR DE VOZ (Cloud TTS + Fallback)
+      // MOTOR DE VOZ (Cloud TTS + Fallback)
       // ========================================
       async function speakText(text, force = false) {
         if (!force && !voiceSettings.autoSpeak) return;
         const cleanText = cleanSpeechText(text);
         if (!cleanText) return;
 
-        // Limpa falas anteriores
         speechRunId++;
         const runId = speechRunId;
         if ("speechSynthesis" in window) window.speechSynthesis.cancel();
 
         status("FRIDAY está falando...");
 
-        // 1. TENTA USAR TTS EM NUVEM (StreamElements)
         try {
-          const voiceName = "Brian"; // Brian é uma voz masculina britânica, boa para JARVIS
+          const voiceName = "Brian";
           const url = `https://api.streamelements.com/kappa/v2/speech?voice=${voiceName}&text=${encodeURIComponent(cleanText)}`;
           const audio = new Audio(url);
 
           audio.onplay = () => {
             if (runId === speechRunId) {
               speaking = true;
-              soundListen(); // <-- ADICIONADO: Som de clique na Cloud TTS
+              soundListen();
             }
           };
           audio.onended = () => {
@@ -1477,18 +1474,14 @@
             }
           };
           audio.onerror = () => {
-            // Se a StreamElements falhar, cai no TTS do navegador (Fallback)
             browserSpeak(cleanText, runId);
           };
 
           currentUtterance = audio;
           audio.play();
           return;
-        } catch (e) {
-          // Se der qualquer erro, usa o do navegador
-        }
+        } catch (e) {}
 
-        // 2. FALLBACK: TTS NATIVO DO NAVEGADOR
         browserSpeak(cleanText, runId);
       }
 
@@ -1526,7 +1519,7 @@
           utterance.onstart = () => {
             if (runId === speechRunId) {
               speaking = true;
-              soundListen(); // <-- ADICIONADO: Som de clique na Fallback TTS
+              soundListen();
             }
           };
           utterance.onend = () => {
@@ -1637,9 +1630,33 @@
           $("assistant").classList.remove("hidden");
           status("Autenticada. FRIDAY online.");
 
-          soundBoot(); // <-- ADICIONADO: Som de inicialização
+          soundBoot();
 
-          addMessage("FRIDAY", "Aguardando suas ordens, comandante.");
+          // Dispara o briefing na hora do login
+          $("messages").replaceChildren();
+          addMessage(
+            "FRIDAY",
+            "Bom dia, comandante. Iniciando varredura de sistemas...",
+          );
+          status("Gerando resumo matinal...");
+          request("/chat", {
+            command:
+              "Gere o meu briefing matinal para a cidade de Criciúma usando a ferramenta get_morning_briefing",
+          })
+            .then((res) => {
+              addMessage("FRIDAY", res.response);
+              speakResponse(res.response);
+            })
+            .catch(() => {
+              addMessage(
+                "FRIDAY",
+                "Bem-vindo de volta, comandante. Pronto para suas ordens.",
+              );
+              speakResponse(
+                "Bem-vindo de volta, comandante. Pronto para suas ordens.",
+              );
+            });
+
           $("command").focus();
           checkCalendarConnection();
         } catch (error) {
@@ -1677,10 +1694,9 @@
             if (match && match[1]) {
               const videoUrl = match[1];
               const player = $("musicPlayer");
-              player.src = videoUrl; // A URL já vem pronta do Python
+              player.src = videoUrl;
               player.classList.remove("hidden");
 
-              // Remove a tag técnica da mensagem exibida no chat
               const cleanReply = reply.replace(/\[PLAY_MUSIC:.*?\]/, "").trim();
               const msgElements = $("messages").querySelectorAll(".bot span");
               if (msgElements.length > 0) {
@@ -1688,7 +1704,6 @@
               }
             }
           }
-          // ----------------------------------
 
           if (result.closed) {
             showLogin();
@@ -1737,9 +1752,7 @@
         recognition.onstart = () => {
           listening = true;
           $("voiceBtn").classList.add("listening");
-
-          soundListen(); // <-- ADICIONADO: Som ao ativar microfone
-
+          soundListen();
           $("voiceBtn").textContent = "⏹ Parar";
           status("Estou ouvindo, comandante...");
         };
@@ -1857,8 +1870,8 @@
         $("messages").replaceChildren();
         $("settingsPanel").classList.add("hidden");
         $("calendarPanel").classList.add("hidden");
-        $("musicPlayer").classList.add("hidden"); // Para o player de música
-        $("musicPlayer").src = ""; // Limpa o iframe
+        $("musicPlayer").classList.add("hidden");
+        $("musicPlayer").src = "";
         $("settingsToggle").textContent = "⚙ Configurações de voz";
         status("Sistema aguardando autenticação");
       }
