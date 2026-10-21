@@ -812,7 +812,7 @@ class FridayHandler(BaseHTTPRequestHandler):
                     return True, payload["error"]
 
                 if tool_name == "create_calendar_event" and isinstance(payload, dict):
-                    return True, f"Evento criado, comandante: '{payload.get('summary')}' de {payload.get('start')} até {payload.get('end')}."
+                    return True, f"Evento criado, chefe: '{payload.get('summary')}' de {payload.get('start')} até {payload.get('end')}."
                 if tool_name == "send_email":
                     return True, str(payload)
 
@@ -821,7 +821,7 @@ class FridayHandler(BaseHTTPRequestHandler):
 
         if normalized in {"cancelar", "cancela", "não", "nao", "abortar"}:
             session.pending_tool = None
-            return True, "Operação cancelada, comandante."
+            return True, "Operação cancelada, chefe."
 
         return False, ""
 
@@ -841,7 +841,7 @@ class FridayHandler(BaseHTTPRequestHandler):
         try:
             access_token = _usable_calendar_access_token()
         except Exception:
-            return True, "Não consegui renovar o acesso ao calendário, comandante."
+            return True, "Não consegui renovar o acesso ao calendário, chefe."
 
         if not access_token:
             return True, "O calendário não está conectado no momento."
@@ -854,10 +854,10 @@ class FridayHandler(BaseHTTPRequestHandler):
             label = "nos próximos dias"
 
         if events is None:
-            return True, "Não consegui consultar sua agenda agora, comandante."
+            return True, "Não consegui consultar sua agenda agora, chefe."
 
         if not events:
-            return True, f"Nenhum compromisso agendado para {label}, comandante."
+            return True, f"Nenhum compromisso agendado para {label}, chefe."
 
         from datetime import datetime as _dt
         lines = [f"Seus compromissos para {label}:"]
@@ -881,7 +881,7 @@ class FridayHandler(BaseHTTPRequestHandler):
             if exec_res.get("ok"):
                 return str(exec_res.get("result"))
             else:
-                return "Não consegui acessar os dados para o briefing matinal, comandante."
+                return "Não consegui acessar os dados para o briefing matinal, chefe."
 
         # --- ATALHO DIRETO PARA MÚSICA ---
         if "toque" in normalized or "música" in normalized or "musica" in normalized or "play" in normalized:
@@ -894,10 +894,10 @@ class FridayHandler(BaseHTTPRequestHandler):
                 exec_res = execute_tool("play_music", {"query": query}, user_role="owner")
                 if exec_res.get("ok"):
                     url = exec_res.get("result", {}).get("url", "")
-                    return f"[PLAY_MUSIC:{url}] Tocando {query} no YouTube, comandante."
+                    return f"[PLAY_MUSIC:{url}] Tocando {query} no YouTube, chefe."
                 else:
                     return exec_res.get("error", "Não consegui tocar a música.")
-            return "Qual música deseja ouvir, comandante?"
+            return "Qual música deseja ouvir, chefe?"
 
         pending_handled, pending_reply = self._handle_pending_tool_confirmation(session, clean_command, normalized)
         if pending_handled:
@@ -954,7 +954,7 @@ class FridayHandler(BaseHTTPRequestHandler):
                 return tool_result["error"]
 
             if tool_name == "create_calendar_event" and isinstance(tool_result, dict):
-                return f"Evento criado, comandante: '{tool_result.get('summary')}' de {tool_result.get('start')} até {tool_result.get('end')}."
+                return f"Evento criado, chefe: '{tool_result.get('summary')}' de {tool_result.get('start')} até {tool_result.get('end')}."
 
             try:
                 final_text = provider.chat_with_tool_result(
@@ -975,25 +975,25 @@ class FridayHandler(BaseHTTPRequestHandler):
                     events = tool_result.get("events", [])
                     label = tool_result.get("range", "próximos dias")
                     if not events:
-                        return f"Nenhum compromisso para {label}, comandante."
+                        return f"Nenhum compromisso para {label}, chefe."
                     lines = [f"Seus compromissos para {label}:"]
                     for evt in events[:7]:
                         lines.append(f"• {evt['summary']} — {evt['start']}")
                     return "\n".join(lines)
                 if tool_name == "get_current_time" and isinstance(tool_result, str):
-                    return f"Agora são {tool_result}, comandante."
+                    return f"Agora são {tool_result}, chefe."
                 if tool_name == "search_web" and isinstance(tool_result, dict):
                     results = tool_result.get("results", [])
                     if not results:
-                        return "Não encontrei informações relevantes na web, comandante."
+                        return "Não encontrei informações relevantes na web, chefe."
                     lines = ["Aqui estão os dados que encontrei na web:"]
                     for res in results[:3]:
                         lines.append(f"- {res.get('title')}: {res.get('snippet')}")
                     return "\n".join(lines)
                 if tool_name == "play_music" and isinstance(tool_result, dict):
-                    return f"[PLAY_MUSIC:{tool_result.get('url', '')}] Tocando {tool_result.get('query', '')} no YouTube, comandante."
+                    return f"[PLAY_MUSIC:{tool_result.get('url', '')}] Tocando {tool_result.get('query', '')} no YouTube, chefe."
 
-                return "Ferramenta executada, comandante."
+                return "Ferramenta executada, chefe."
 
             return str(final_text)
 

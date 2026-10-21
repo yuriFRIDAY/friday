@@ -2,10 +2,7 @@
 <html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
-    <meta
-      name="viewport"
-      content="width=device-width, initial-scale=1, viewport-fit=cover"
-    />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#050914" />
     <title>FRIDAY | Stark Systems</title>
     <style>
@@ -24,31 +21,19 @@
         --radius: 16px;
       }
 
-      *,
-      *::before,
-      *::after {
-        box-sizing: border-box;
-      }
-      html {
-        min-height: 100%;
-        background: var(--bg);
-        scroll-behavior: smooth;
-      }
+      *, *::before, *::after { box-sizing: border-box; }
+      html { min-height: 100%; background: var(--bg); scroll-behavior: smooth; }
 
       body {
         margin: 0;
         min-height: 100vh;
         color: var(--text);
-        background:
-          radial-gradient(
-            ellipse at 50% 0%,
-            rgba(22, 98, 160, 0.16),
-            transparent 48%
-          ),
-          linear-gradient(145deg, #050a13, #081321 55%, #040811);
+        background: radial-gradient(ellipse at 50% 0%, rgba(22, 98, 160, 0.16), transparent 48%),
+                    linear-gradient(145deg, #050a13, #081321 55%, #040811);
         font-family: Inter, "Segoe UI", Arial, sans-serif;
         font-size: 14px;
         -webkit-font-smoothing: antialiased;
+        transition: background 0.5s ease;
       }
 
       body::before {
@@ -58,19 +43,13 @@
         z-index: 0;
         pointer-events: none;
         opacity: 0.13;
-        background-image:
-          linear-gradient(rgba(93, 190, 238, 0.08) 1px, transparent 1px),
-          linear-gradient(90deg, rgba(93, 190, 238, 0.08) 1px, transparent 1px);
+        background-image: linear-gradient(rgba(93, 190, 238, 0.08) 1px, transparent 1px),
+                          linear-gradient(90deg, rgba(93, 190, 238, 0.08) 1px, transparent 1px);
         background-size: 42px 42px;
         mask-image: linear-gradient(to bottom, #000, transparent 85%);
       }
 
-      button,
-      input,
-      textarea,
-      select {
-        font: inherit;
-      }
+      button, input, textarea, select { font: inherit; }
 
       button {
         min-height: 40px;
@@ -80,36 +59,20 @@
         border: 1px solid rgba(104, 211, 255, 0.25);
         border-radius: 9px;
         cursor: pointer;
-        transition:
-          background 180ms ease,
-          border-color 180ms ease,
-          transform 180ms ease;
+        transition: background 180ms ease, border-color 180ms ease, transform 180ms ease;
         -webkit-tap-highlight-color: transparent;
       }
 
-      button:hover:not(:disabled) {
-        background: rgba(19, 67, 99, 0.9);
-        border-color: rgba(115, 237, 255, 0.65);
-      }
-      button:active:not(:disabled) {
-        transform: translateY(1px);
-      }
-      button:disabled {
-        opacity: 0.5;
-        cursor: not-allowed;
-      }
+      button:hover:not(:disabled) { background: rgba(19, 67, 99, 0.9); border-color: rgba(115, 237, 255, 0.65); }
+      button:active:not(:disabled) { transform: translateY(1px); }
+      button:disabled { opacity: 0.5; cursor: not-allowed; }
 
-      button:focus-visible,
-      input:focus-visible,
-      textarea:focus-visible,
-      select:focus-visible {
+      button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible {
         outline: 2px solid var(--cyan);
         outline-offset: 3px;
       }
 
-      input,
-      textarea,
-      select {
+      input, textarea, select {
         width: 100%;
         min-width: 0;
         padding: 13px 14px;
@@ -119,22 +82,15 @@
         border-radius: 9px;
       }
 
-      input::placeholder,
-      textarea::placeholder {
-        color: #728ba1;
-      }
+      input::placeholder, textarea::placeholder { color: #728ba1; }
 
-      input:focus,
-      textarea:focus,
-      select:focus {
+      input:focus, textarea:focus, select:focus {
         outline: none;
         border-color: rgba(115, 237, 255, 0.65);
         box-shadow: 0 0 0 3px rgba(115, 237, 255, 0.06);
       }
 
-      .hidden {
-        display: none !important;
-      }
+      .hidden { display: none !important; }
 
       .shell {
         position: relative;
@@ -156,11 +112,7 @@
         border-bottom: 1px solid var(--line);
       }
 
-      .brand {
-        display: flex;
-        align-items: center;
-        gap: 13px;
-      }
+      .brand { display: flex; align-items: center; gap: 13px; }
 
       .brand-mark {
         display: grid;
@@ -174,20 +126,10 @@
         box-shadow: inset 0 0 15px rgba(37, 138, 255, 0.12);
       }
 
-      .brand-name {
-        font-size: 13px;
-        font-weight: 700;
-        letter-spacing: 0.2em;
-      }
-      .brand-sub {
-        margin-top: 5px;
-        color: var(--muted);
-        font-size: 9px;
-        letter-spacing: 0.17em;
-      }
+      .brand-name { font-size: 13px; font-weight: 700; letter-spacing: 0.2em; }
+      .brand-sub { margin-top: 5px; color: var(--muted); font-size: 9px; letter-spacing: 0.17em; }
 
-      .system-chip,
-      .live-label {
+      .system-chip, .live-label {
         display: inline-flex;
         align-items: center;
         gap: 8px;
@@ -220,6 +162,27 @@
         border: 1px solid var(--line);
         border-radius: var(--radius);
         box-shadow: var(--glow);
+        transition: box-shadow 0.3s ease, border-color 0.3s ease;
+      }
+
+      .hud-corner {
+        position: absolute;
+        width: 16px;
+        height: 16px;
+        border-color: var(--cyan);
+        border-style: solid;
+        opacity: 0.7;
+        pointer-events: none;
+        z-index: 10;
+      }
+      .hud-tl { top: 0; left: 0; border-width: 2px 0 0 2px; border-top-left-radius: var(--radius); }
+      .hud-tr { top: 0; right: 0; border-width: 2px 2px 0 0; border-top-right-radius: var(--radius); }
+      .hud-bl { bottom: 0; left: 0; border-width: 0 0 2px 2px; border-bottom-left-radius: var(--radius); }
+      .hud-br { bottom: 0; right: 0; border-width: 0 2px 2px 0; border-bottom-right-radius: var(--radius); }
+
+      body.is-speaking .main-panel {
+        box-shadow: 0 0 50px rgba(115, 237, 255, 0.15);
+        border-color: rgba(115, 237, 255, 0.4);
       }
 
       .panel::before {
@@ -239,6 +202,7 @@
         flex-direction: column;
         align-items: center;
         padding: 28px 22px 22px;
+        overflow: hidden;
       }
 
       .reactor-wrap {
@@ -248,6 +212,21 @@
         width: 166px;
         height: 166px;
         margin: 8px 0 23px;
+        z-index: 1;
+      }
+
+      .radar {
+        position: absolute;
+        inset: -25px;
+        border-radius: 50%;
+        background: conic-gradient(from 0deg, transparent 60%, rgba(115, 237, 255, 0.1) 90%, rgba(115, 237, 255, 0.4) 100%);
+        animation: radar-sweep 3s linear infinite;
+        pointer-events: none;
+        z-index: 0;
+      }
+      @keyframes radar-sweep {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
       }
 
       .reactor {
@@ -258,13 +237,13 @@
         height: 116px;
         border: 1px solid rgba(115, 237, 255, 0.64);
         border-radius: 50%;
-        box-shadow:
-          0 0 24px rgba(37, 138, 255, 0.12),
-          inset 0 0 22px rgba(37, 138, 255, 0.1);
+        box-shadow: 0 0 24px rgba(37, 138, 255, 0.12), inset 0 0 22px rgba(37, 138, 255, 0.1);
+        transition: box-shadow 0.2s ease;
+        background: var(--panel);
+        z-index: 2;
       }
 
-      .reactor::before,
-      .reactor::after {
+      .reactor::before, .reactor::after {
         content: "";
         position: absolute;
         inset: 9px;
@@ -288,9 +267,22 @@
         background: radial-gradient(circle, #286a94, #0c2741 65%, #071320);
         border: 1px solid var(--cyan);
         border-radius: 50%;
-        box-shadow:
-          0 0 20px rgba(115, 237, 255, 0.2),
-          inset 0 0 18px rgba(115, 237, 255, 0.16);
+        box-shadow: 0 0 20px rgba(115, 237, 255, 0.2), inset 0 0 18px rgba(115, 237, 255, 0.16);
+        transition: box-shadow 0.2s ease;
+      }
+
+      body.is-speaking .reactor-inner {
+        box-shadow: 0 0 50px rgba(115, 237, 255, 0.8), inset 0 0 30px rgba(115, 237, 255, 0.5);
+        animation: reactor-speak 0.6s ease-in-out infinite alternate !important;
+      }
+      body.is-speaking .orbit {
+        animation-duration: 4s !important;
+        border-color: rgba(115, 237, 255, 0.4);
+      }
+
+      @keyframes reactor-speak {
+        0% { transform: scale(1); }
+        100% { transform: scale(1.08); }
       }
 
       .orbit {
@@ -298,10 +290,11 @@
         inset: 0;
         border: 1px solid rgba(115, 237, 255, 0.14);
         border-radius: 50%;
+        transition: border-color 0.3s ease;
+        z-index: 1;
       }
 
-      .orbit::before,
-      .orbit::after {
+      .orbit::before, .orbit::after {
         content: "";
         position: absolute;
         background: var(--cyan);
@@ -309,18 +302,8 @@
         box-shadow: 0 0 10px rgba(115, 237, 255, 0.6);
       }
 
-      .orbit::before {
-        width: 5px;
-        height: 5px;
-        top: 18px;
-        left: 27px;
-      }
-      .orbit::after {
-        width: 4px;
-        height: 4px;
-        right: 18px;
-        bottom: 37px;
-      }
+      .orbit::before { width: 5px; height: 5px; top: 18px; left: 27px; }
+      .orbit::after { width: 4px; height: 4px; right: 18px; bottom: 37px; }
 
       .system-title {
         margin: 0;
@@ -328,15 +311,10 @@
         font-size: 26px;
         font-weight: 500;
         letter-spacing: 0.25em;
+        z-index: 2;
       }
 
-      .system-sub {
-        margin-top: 9px;
-        color: var(--muted);
-        font-size: 9px;
-        letter-spacing: 0.12em;
-        text-align: center;
-      }
+      .system-sub { margin-top: 9px; color: var(--muted); font-size: 9px; letter-spacing: 0.12em; text-align: center; z-index: 2; }
 
       .system-state {
         display: flex;
@@ -350,15 +328,10 @@
         border-radius: 30px;
         font-size: 9px;
         letter-spacing: 0.1em;
+        z-index: 2;
       }
 
-      .mini-heading {
-        width: 100%;
-        margin-bottom: 9px;
-        color: #7593aa;
-        font-size: 9px;
-        letter-spacing: 0.2em;
-      }
+      .mini-heading { width: 100%; margin-bottom: 9px; color: #7593aa; font-size: 9px; letter-spacing: 0.2em; z-index: 2; }
 
       .metric {
         display: flex;
@@ -368,37 +341,16 @@
         padding: 13px 0;
         border-bottom: 1px solid rgba(104, 211, 255, 0.09);
         font-size: 11px;
+        z-index: 2;
       }
 
-      .metric-label {
-        color: var(--muted);
-      }
-      .metric-value {
-        color: #b9e8fa;
-        font-size: 9px;
-        letter-spacing: 0.08em;
-        text-align: right;
-      }
+      .metric-label { color: var(--muted); }
+      .metric-value { color: #b9e8fa; font-size: 9px; letter-spacing: 0.08em; text-align: right; }
 
-      .sidebar-note {
-        width: 100%;
-        margin-top: auto;
-        padding-top: 24px;
-        color: var(--muted);
-        font-size: 10px;
-        line-height: 1.9;
-      }
-      .sidebar-note span {
-        color: #a9dced;
-        font-size: 9px;
-        letter-spacing: 0.13em;
-      }
+      .sidebar-note { width: 100%; margin-top: auto; padding-top: 24px; color: var(--muted); font-size: 10px; line-height: 1.9; z-index: 2; }
+      .sidebar-note span { color: #a9dced; font-size: 9px; letter-spacing: 0.13em; }
 
-      .main-panel {
-        display: flex;
-        flex-direction: column;
-        padding: 26px;
-      }
+      .main-panel { display: flex; flex-direction: column; padding: 26px; }
 
       .main-header {
         display: flex;
@@ -409,23 +361,10 @@
         border-bottom: 1px solid var(--line);
       }
 
-      .heading {
-        font-size: 14px;
-        font-weight: 600;
-        letter-spacing: 0.15em;
-      }
-      .heading-sub {
-        margin-top: 7px;
-        color: var(--muted);
-        font-size: 11px;
-      }
+      .heading { font-size: 14px; font-weight: 600; letter-spacing: 0.15em; }
+      .heading-sub { margin-top: 7px; color: var(--muted); font-size: 11px; }
 
-      .live-label {
-        padding: 8px 10px;
-        border: 1px solid var(--line);
-        border-radius: 6px;
-        white-space: nowrap;
-      }
+      .live-label { padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; white-space: nowrap; }
 
       #status {
         margin: 16px 0;
@@ -437,33 +376,89 @@
         line-height: 1.6;
       }
 
-      #login {
-        width: min(100%, 440px);
-        margin: auto;
-        padding: 34px 0 38px;
+      .waveform-container {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 5px;
+        height: 60px;
+        margin: 0 0 16px 0;
+        opacity: 0;
+        transition: opacity 0.3s ease;
+        pointer-events: none;
       }
-      .login-symbol {
-        color: var(--cyan);
-        font-size: 9px;
-        letter-spacing: 0.14em;
-        line-height: 1.8;
+      .waveform-container.active { opacity: 1; }
+
+      .waveform-container span {
+        display: block;
+        width: 6px;
+        height: 8px;
+        background: linear-gradient(to top, var(--blue), var(--cyan));
+        border-radius: 4px;
+        box-shadow: 0 0 12px var(--cyan);
+        transition: height 0.15s ease;
       }
-      .login-title {
-        margin: 18px 0 10px;
-        font-size: clamp(25px, 3vw, 34px);
-        font-weight: 500;
-        letter-spacing: 0.04em;
+
+      .waveform-container.listening span { animation: wave-listen 1s ease-in-out infinite alternate; }
+      .waveform-container.speaking span { animation: wave-speak 0.6s ease-in-out infinite alternate; }
+
+      .waveform-container span:nth-child(1) { animation-delay: 0.0s; }
+      .waveform-container span:nth-child(2) { animation-delay: 0.2s; }
+      .waveform-container span:nth-child(3) { animation-delay: 0.4s; }
+      .waveform-container span:nth-child(4) { animation-delay: 0.1s; }
+      .waveform-container span:nth-child(5) { animation-delay: 0.3s; }
+      .waveform-container span:nth-child(6) { animation-delay: 0.5s; }
+      .waveform-container span:nth-child(7) { animation-delay: 0.0s; }
+      .waveform-container span:nth-child(8) { animation-delay: 0.4s; }
+      .waveform-container span:nth-child(9) { animation-delay: 0.2s; }
+      .waveform-container span:nth-child(10) { animation-delay: 0.5s; }
+      .waveform-container span:nth-child(11) { animation-delay: 0.1s; }
+      .waveform-container span:nth-child(12) { animation-delay: 0.3s; }
+      .waveform-container span:nth-child(13) { animation-delay: 0.0s; }
+      .waveform-container span:nth-child(14) { animation-delay: 0.4s; }
+      .waveform-container span:nth-child(15) { animation-delay: 0.2s; }
+      .waveform-container span:nth-child(16) { animation-delay: 0.3s; }
+
+      @keyframes wave-listen {
+        0% { height: 8px; opacity: 0.6; }
+        100% { height: 28px; opacity: 1; }
       }
-      .login-copy {
-        margin: 0 0 25px;
-        color: var(--muted);
-        font-size: 13px;
-        line-height: 1.8;
+      @keyframes wave-speak {
+        0% { height: 10px; opacity: 0.7; }
+        100% { height: 55px; opacity: 1; }
       }
-      #loginForm {
-        display: grid;
-        gap: 12px;
+
+      .typing-indicator {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        padding: 12px 16px;
+        background: rgba(3, 10, 19, 0.8);
+        border: 1px solid rgba(104, 211, 255, 0.18);
+        border-radius: 0;
+        border-left: 2px solid var(--cyan);
+        align-self: flex-start;
+        width: fit-content;
       }
+      .typing-indicator span {
+        width: 6px;
+        height: 6px;
+        background-color: var(--cyan);
+        border-radius: 50%;
+        animation: typing 1.4s infinite ease-in-out both;
+      }
+      .typing-indicator span:nth-child(1) { animation-delay: -0.32s; }
+      .typing-indicator span:nth-child(2) { animation-delay: -0.16s; }
+      @keyframes typing {
+        0%, 80%, 100% { transform: scale(0); opacity: 0.3; }
+        40% { transform: scale(1); opacity: 1; box-shadow: 0 0 10px var(--cyan); }
+      }
+
+      #login { width: min(100%, 440px); margin: auto; padding: 34px 0 38px; }
+      .login-symbol { color: var(--cyan); font-size: 9px; letter-spacing: 0.14em; line-height: 1.8; }
+      .login-title { margin: 18px 0 10px; font-size: clamp(25px, 3vw, 34px); font-weight: 500; letter-spacing: 0.04em; }
+      .login-copy { margin: 0 0 25px; color: var(--muted); font-size: 13px; line-height: 1.8; }
+      #loginForm { display: grid; gap: 12px; }
 
       .primary {
         width: 100%;
@@ -476,95 +471,25 @@
         letter-spacing: 0.13em;
       }
 
-      .primary:hover:not(:disabled) {
-        background: #c0f6ff;
-        box-shadow: 0 0 20px rgba(115, 237, 255, 0.12);
-      }
+      .primary:hover:not(:disabled) { background: #c0f6ff; box-shadow: 0 0 20px rgba(115, 237, 255, 0.12); }
 
-      .lockout-notice {
-        color: #ffb9b9;
-        font-size: 12px;
-        line-height: 1.7;
-      }
-      .toolbar {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 9px;
-        margin-bottom: 17px;
-      }
-      .toolbar button,
-      .setting-buttons button {
-        font-size: 10px;
-      }
+      .lockout-notice { color: #ffb9b9; font-size: 12px; line-height: 1.7; }
+      .toolbar { display: flex; flex-wrap: wrap; gap: 9px; margin-bottom: 17px; }
+      .toolbar button, .setting-buttons button { font-size: 10px; }
 
-      .settings {
-        margin-bottom: 22px;
-        padding: 19px;
-        background: rgba(3, 11, 21, 0.75);
-        border: 1px solid var(--line);
-        border-radius: 12px;
-      }
-      .settings h2 {
-        margin: 0 0 19px;
-        color: var(--cyan);
-        font-size: 10px;
-        letter-spacing: 0.14em;
-      }
-      .setting {
-        margin-bottom: 19px;
-      }
-      .setting label {
-        display: block;
-        margin-bottom: 9px;
-        color: #d5e7f2;
-        font-size: 12px;
-      }
-      .setting small {
-        display: block;
-        margin-top: 8px;
-        color: var(--muted);
-        font-size: 10px;
-        line-height: 1.7;
-      }
-      .toggle-row {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 12px;
-      }
-      .toggle-row label {
-        margin: 0;
-      }
-      input[type="checkbox"] {
-        width: 18px;
-        height: 18px;
-        accent-color: var(--cyan);
-      }
-      input[type="range"] {
-        padding: 0;
-        accent-color: var(--cyan);
-      }
-      .setting-buttons {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 8px;
-        margin: 18px 0;
-      }
-      #settingsNotice {
-        margin-top: 10px;
-        color: var(--cyan);
-        font-size: 11px;
-      }
+      .settings { margin-bottom: 22px; padding: 19px; background: rgba(3, 11, 21, 0.75); border: 1px solid var(--line); border-radius: 12px; }
+      .settings h2 { margin: 0 0 19px; color: var(--cyan); font-size: 10px; letter-spacing: 0.14em; }
+      .setting { margin-bottom: 19px; }
+      .setting label { display: block; margin-bottom: 9px; color: #d5e7f2; font-size: 12px; }
+      .setting small { display: block; margin-top: 8px; color: var(--muted); font-size: 10px; line-height: 1.7; }
+      .toggle-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+      .toggle-row label { margin: 0; }
+      input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--cyan); }
+      input[type="range"] { padding: 0; accent-color: var(--cyan); }
+      .setting-buttons { display: flex; flex-wrap: wrap; gap: 8px; margin: 18px 0; }
+      #settingsNotice { margin-top: 10px; color: var(--cyan); font-size: 11px; }
 
-      .chat-label {
-        display: flex;
-        justify-content: space-between;
-        gap: 12px;
-        margin: 6px 0 12px;
-        color: #9ab6c9;
-        font-size: 9px;
-        letter-spacing: 0.12em;
-      }
+      .chat-label { display: flex; justify-content: space-between; gap: 12px; margin: 6px 0 12px; color: #9ab6c9; font-size: 9px; letter-spacing: 0.12em; }
 
       #messages {
         display: flex;
@@ -574,7 +499,9 @@
         max-height: 46vh;
         overflow-y: auto;
         padding: 17px;
-        background: rgba(3, 10, 19, 0.62);
+        background-color: rgba(3, 10, 19, 0.62);
+        background-image: linear-gradient(rgba(3, 10, 19, 0.85), rgba(3, 10, 19, 0.85)), 
+                          repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(115, 237, 255, 0.02) 2px, rgba(115, 237, 255, 0.02) 4px);
         border: 1px solid var(--line);
         border-radius: 12px;
         scrollbar-color: #235e82 transparent;
@@ -592,345 +519,143 @@
         text-align: center;
       }
 
-      #messages::-webkit-scrollbar {
-        width: 5px;
-      }
-      #messages::-webkit-scrollbar-thumb {
-        background: #235e82;
-        border-radius: 8px;
-      }
+      #messages::-webkit-scrollbar { width: 5px; }
+      #messages::-webkit-scrollbar-thumb { background: #235e82; border-radius: 8px; }
 
       .msg {
         display: flex;
         flex-direction: column;
-        gap: 7px;
+        gap: 4px;
         max-width: 90%;
-        padding: 13px 15px;
-        border: 1px solid var(--line);
-        border-radius: 10px;
+        padding: 10px 14px;
+        border: 1px solid rgba(115, 237, 255, 0.05);
+        border-left: 2px solid var(--cyan);
+        border-radius: 0;
+        background: linear-gradient(90deg, rgba(115, 237, 255, 0.03) 0%, transparent 100%);
+        font-family: 'Courier New', Courier, monospace;
         font-size: 13px;
-        line-height: 1.8;
+        line-height: 1.7;
         overflow-wrap: anywhere;
         white-space: pre-wrap;
       }
 
       .msg strong {
         color: var(--cyan);
-        font-size: 9px;
+        font-size: 10px;
         letter-spacing: 0.14em;
       }
+
+      .msg strong::before { content: "["; }
+      .msg strong::after { content: "]"; }
+
+      .bot span::before { content: "> "; color: var(--cyan); font-weight: bold; }
+
       .user {
         align-self: flex-end;
-        background: rgba(18, 67, 105, 0.3);
-        border-color: rgba(57, 151, 226, 0.27);
-      }
-      .user strong {
-        color: #8ecbff;
-      }
-      .bot {
-        align-self: flex-start;
-        background: rgba(12, 35, 52, 0.48);
-        border-color: rgba(104, 211, 255, 0.18);
+        border-left: none;
+        border-right: 2px solid var(--blue);
+        background: linear-gradient(270deg, rgba(37, 138, 255, 0.03) 0%, transparent 100%);
+        text-align: left;
       }
 
-      .composer {
-        margin-top: 18px;
-        padding: 17px;
-        background: rgba(8, 20, 33, 0.68);
-        border: 1px solid var(--line);
-        border-radius: 12px;
-      }
-      .composer-title {
-        margin-bottom: 12px;
-        color: #94b4c9;
-        font-size: 9px;
-        letter-spacing: 0.16em;
-      }
-      #chatForm {
-        display: grid;
-        gap: 11px;
-      }
-      .controls {
-        display: grid;
-        grid-template-columns: minmax(0, 1fr) auto;
-        gap: 9px;
-      }
-      #command {
-        min-height: 46px;
-      }
+      .user strong { color: var(--blue); }
+      .user span::before { content: "< "; color: var(--blue); font-weight: bold; }
 
-      #voiceBtn.listening {
-        color: #fff;
-        background: rgba(150, 45, 60, 0.8);
-        border-color: rgba(255, 130, 150, 0.55);
-      }
+      .composer { margin-top: 18px; padding: 17px; background: rgba(8, 20, 33, 0.68); border: 1px solid var(--line); border-radius: 12px; }
+      .composer-title { margin-bottom: 12px; color: #94b4c9; font-size: 9px; letter-spacing: 0.16em; }
+      #chatForm { display: grid; gap: 11px; }
+      .controls { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 9px; }
 
-      #logout {
-        align-self: flex-start;
-        margin-top: 15px;
-        color: #b2c2d0;
-        background: transparent;
-        border-color: rgba(140, 170, 190, 0.18);
-        box-shadow: none;
-        font-size: 10px;
-      }
-
-      footer {
-        display: flex;
-        justify-content: space-between;
-        gap: 10px;
-        margin-top: 22px;
-        padding: 16px 4px 0;
-        color: #637d91;
-        font-size: 9px;
-        letter-spacing: 0.1em;
-      }
-      footer span {
-        color: #a0c9dc;
-      }
-
-      .awareness-panel {
-        margin: 0 0 20px;
-        padding: 18px;
-        background: rgba(3, 12, 23, 0.62);
-        border: 1px solid var(--line);
-        border-radius: 12px;
-      }
-      .awareness-panel h2 {
-        margin: 0;
+      .input-wrapper { position: relative; display: flex; align-items: center; }
+      .input-wrapper .prompt {
+        position: absolute;
+        left: 14px;
         color: var(--cyan);
-        font-size: 10px;
-        letter-spacing: 0.14em;
-      }
-      .awareness-item {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 12px;
-        padding: 11px 0;
-        border-bottom: 1px solid rgba(104, 211, 255, 0.09);
-      }
-      .awareness-item span {
-        color: var(--muted);
-        font-size: 10px;
-        letter-spacing: 0.08em;
-      }
-      .awareness-item strong {
-        color: var(--cyan-bright);
-        font-size: 12px;
-        overflow-wrap: anywhere;
-      }
-      .awareness-note {
-        margin: 12px 0 0;
-        color: var(--muted);
-        font-size: 10px;
-        line-height: 1.7;
+        font-family: 'Courier New', Courier, monospace;
+        font-weight: bold;
+        font-size: 18px;
+        pointer-events: none;
       }
 
-      @media (min-width: 1100px) {
-        .sidebar,
-        .main-panel {
-          min-height: 610px;
-        }
+      #command { 
+        min-height: 46px;
+        padding-left: 32px !important;
+        font-family: 'Courier New', Courier, monospace;
+        background: rgba(3, 10, 19, 0.9);
+        font-size: 14px;
       }
+
+      #voiceBtn.listening { color: #fff; background: rgba(150, 45, 60, 0.8); border-color: rgba(255, 130, 150, 0.55); }
+
+      #logout { align-self: flex-start; margin-top: 15px; color: #b2c2d0; background: transparent; border-color: rgba(140, 170, 190, 0.18); box-shadow: none; font-size: 10px; }
+
+      footer { display: flex; justify-content: space-between; gap: 10px; margin-top: 22px; padding: 16px 4px 0; color: #637d91; font-size: 9px; letter-spacing: 0.1em; }
+      footer span { color: #a0c9dc; }
+
+      .awareness-panel { margin: 0 0 20px; padding: 18px; background: rgba(3, 12, 23, 0.62); border: 1px solid var(--line); border-radius: 12px; }
+      .awareness-panel h2 { margin: 0; color: var(--cyan); font-size: 10px; letter-spacing: 0.14em; }
+      .awareness-item { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 0; border-bottom: 1px solid rgba(104, 211, 255, 0.09); }
+      .awareness-item span { color: var(--muted); font-size: 10px; letter-spacing: 0.08em; }
+      .awareness-item strong { color: var(--cyan-bright); font-size: 12px; overflow-wrap: anywhere; }
+      .awareness-note { margin: 12px 0 0; color: var(--muted); font-size: 10px; line-height: 1.7; }
+
+      @media (min-width: 1100px) { .sidebar, .main-panel { min-height: 610px; } }
       @media (max-width: 850px) {
-        .shell {
-          padding: 18px;
-        }
-        .layout {
-          grid-template-columns: minmax(205px, 0.7fr) minmax(0, 1.5fr);
-          gap: 13px;
-        }
-        .sidebar {
-          padding: 22px 15px;
-        }
-        .main-panel {
-          padding: 19px;
-        }
-        .reactor-wrap {
-          transform: scale(0.85);
-          margin: 0 0 12px;
-        }
+        .shell { padding: 18px; }
+        .layout { grid-template-columns: minmax(205px, 0.7fr) minmax(0, 1.5fr); gap: 13px; }
+        .sidebar { padding: 22px 15px; }
+        .main-panel { padding: 19px; }
+        .reactor-wrap { transform: scale(0.85); margin: 0 0 12px; }
       }
       @media (max-width: 640px) {
-        .shell {
-          padding: 14px 12px 12px;
-        }
-        .topbar {
-          min-height: 55px;
-          margin-bottom: 14px;
-          padding-bottom: 14px;
-        }
-        .brand-mark {
-          width: 35px;
-          height: 35px;
-          font-size: 22px;
-        }
-        .brand-name {
-          font-size: 11px;
-        }
-        .brand-sub {
-          font-size: 8px;
-        }
-        .system-chip {
-          font-size: 8px;
-          letter-spacing: 0.06em;
-        }
-        .layout {
-          grid-template-columns: minmax(0, 1fr);
-          gap: 13px;
-        }
-        .sidebar {
-          display: grid;
-          grid-template-columns: 86px minmax(0, 1fr);
-          align-items: center;
-          justify-items: start;
-          column-gap: 14px;
-          padding: 16px;
-        }
-        .reactor-wrap {
-          grid-column: 1;
-          grid-row: 1 / span 4;
-          width: 86px;
-          height: 86px;
-          margin: 0;
-          transform: none;
-        }
-        .reactor {
-          width: 65px;
-          height: 65px;
-        }
-        .reactor::before {
-          inset: 6px;
-        }
-        .reactor::after {
-          inset: -6px;
-        }
-        .reactor-inner {
-          width: 39px;
-          height: 39px;
-          font-size: 19px;
-        }
-        .system-title {
-          align-self: end;
-          font-size: 22px;
-          letter-spacing: 0.18em;
-        }
-        .system-sub {
-          align-self: start;
-          margin-top: 5px;
-          font-size: 8px;
-          text-align: left;
-          line-height: 1.6;
-        }
-        .system-state {
-          margin: 7px 0 0;
-          padding: 6px 8px;
-          font-size: 8px;
-        }
-        .mini-heading,
-        .metric,
-        .sidebar-note {
-          display: none;
-        }
-        .main-panel {
-          min-height: 0;
-          padding: 16px 13px;
-        }
-        .main-header {
-          padding-bottom: 14px;
-        }
-        .heading {
-          font-size: 12px;
-        }
-        .heading-sub {
-          font-size: 10px;
-        }
-        .live-label {
-          padding: 7px;
-          font-size: 8px;
-        }
-        #status {
-          margin: 12px 0;
-          font-size: 10px;
-        }
-        #login {
-          padding: 22px 0;
-        }
-        .login-title {
-          font-size: 27px;
-        }
-        #messages {
-          min-height: 240px;
-          max-height: 42vh;
-          padding: 12px;
-        }
-        .msg {
-          max-width: 96%;
-          padding: 11px;
-          font-size: 12px;
-        }
-        .composer {
-          padding: 12px;
-        }
-        .controls {
-          grid-template-columns: minmax(0, 1fr) auto;
-          gap: 7px;
-        }
-        #command {
-          padding: 12px 10px;
-        }
-        .controls button {
-          padding: 9px;
-          font-size: 11px;
-        }
-        .toolbar button {
-          flex: 1;
-        }
-        .settings {
-          padding: 13px;
-        }
-        .setting-buttons button {
-          flex: 1 1 40%;
-        }
-        footer {
-          flex-wrap: wrap;
-          font-size: 8px;
-        }
-        .awareness-panel {
-          padding: 13px;
-        }
-        .awareness-item {
-          align-items: flex-start;
-          flex-direction: column;
-          gap: 6px;
-        }
+        .shell { padding: 14px 12px 12px; }
+        .topbar { min-height: 55px; margin-bottom: 14px; padding-bottom: 14px; }
+        .brand-mark { width: 35px; height: 35px; font-size: 22px; }
+        .brand-name { font-size: 11px; }
+        .brand-sub { font-size: 8px; }
+        .system-chip { font-size: 8px; letter-spacing: 0.06em; }
+        .layout { grid-template-columns: minmax(0, 1fr); gap: 13px; }
+        .sidebar { display: grid; grid-template-columns: 86px minmax(0, 1fr); align-items: center; justify-items: start; column-gap: 14px; padding: 16px; }
+        .reactor-wrap { grid-column: 1; grid-row: 1 / span 4; width: 86px; height: 86px; margin: 0; transform: none; }
+        .reactor { width: 65px; height: 65px; }
+        .reactor::before { inset: 6px; }
+        .reactor::after { inset: -6px; }
+        .reactor-inner { width: 39px; height: 39px; font-size: 19px; }
+        .system-title { align-self: end; font-size: 22px; letter-spacing: 0.18em; }
+        .system-sub { align-self: start; margin-top: 5px; font-size: 8px; text-align: left; line-height: 1.6; }
+        .system-state { margin: 7px 0 0; padding: 6px 8px; font-size: 8px; }
+        .mini-heading, .metric, .sidebar-note { display: none; }
+        .main-panel { min-height: 0; padding: 16px 13px; }
+        .main-header { padding-bottom: 14px; }
+        .heading { font-size: 12px; }
+        .heading-sub { font-size: 10px; }
+        .live-label { padding: 7px; font-size: 8px; }
+        #status { margin: 12px 0; font-size: 10px; }
+        #login { padding: 22px 0; }
+        .login-title { font-size: 27px; }
+        #messages { min-height: 240px; max-height: 42vh; padding: 12px; }
+        .msg { max-width: 96%; padding: 11px; font-size: 12px; }
+        .composer { padding: 12px; }
+        .controls { grid-template-columns: minmax(0, 1fr) auto; gap: 7px; }
+        #command { padding: 12px 10px 12px 28px; }
+        .controls button { padding: 9px; font-size: 11px; }
+        .toolbar button { flex: 1; }
+        .settings { padding: 13px; }
+        .setting-buttons button { flex: 1 1 40%; }
+        footer { flex-wrap: wrap; font-size: 8px; }
+        .awareness-panel { padding: 13px; }
+        .awareness-item { align-items: flex-start; flex-direction: column; gap: 6px; }
+        .waveform-container { gap: 3px; height: 40px; }
+        .waveform-container span { width: 4px; }
       }
       @media (prefers-reduced-motion: no-preference) {
-        .reactor-inner {
-          animation: reactor-breathe 4s ease-in-out infinite;
-        }
-        .orbit {
-          animation: orbit-turn 24s linear infinite;
-        }
+        .reactor-inner { animation: reactor-breathe 4s ease-in-out infinite; }
+        .orbit { animation: orbit-turn 24s linear infinite; }
         @keyframes reactor-breathe {
-          0%,
-          100% {
-            box-shadow:
-              0 0 12px rgba(115, 237, 255, 0.15),
-              inset 0 0 12px rgba(115, 237, 255, 0.08);
-          }
-          50% {
-            box-shadow:
-              0 0 25px rgba(115, 237, 255, 0.3),
-              inset 0 0 18px rgba(115, 237, 255, 0.16);
-          }
+          0%, 100% { box-shadow: 0 0 12px rgba(115, 237, 255, 0.15), inset 0 0 12px rgba(115, 237, 255, 0.08); }
+          50% { box-shadow: 0 0 25px rgba(115, 237, 255, 0.3), inset 0 0 18px rgba(115, 237, 255, 0.16); }
         }
-        @keyframes orbit-turn {
-          to {
-            transform: rotate(360deg);
-          }
-        }
+        @keyframes orbit-turn { to { transform: rotate(360deg); } }
       }
     </style>
   </head>
@@ -940,8 +665,8 @@
         <div class="brand">
           <div class="brand-mark">✦</div>
           <div>
-            <div class="brand-name">SISTEMAS STARK</div>
-            <div class="brand-sub">IA PESSOAL</div>
+            <div class="brand-name">STARK SYSTEMS</div>
+            <div class="brand-sub">PERSONAL INTELLIGENCE</div>
           </div>
         </div>
         <div class="system-chip">
@@ -951,41 +676,39 @@
 
       <div class="layout">
         <aside class="panel sidebar">
+          <div class="hud-corner hud-tl"></div>
+          <div class="hud-corner hud-tr"></div>
+          <div class="hud-corner hud-bl"></div>
+          <div class="hud-corner hud-br"></div>
+
           <div class="reactor-wrap" aria-label="Núcleo visual da FRIDAY">
+            <div class="radar"></div>
             <div class="orbit"></div>
             <div class="reactor"><div class="reactor-inner">✦</div></div>
           </div>
           <h1 class="system-title">FRIDAY</h1>
-          <div class="system-sub">SISTEMA DE INTELIGÊNCIA AVANÇADA</div>
+          <div class="system-sub">STARK INTELLIGENCE SYSTEM</div>
           <div class="system-state">
             <span class="status-dot"></span> <span>INTERFACE PRONTA</span>
           </div>
 
           <div class="mini-heading">SISTEMA</div>
-          <div class="metric">
-            <span class="metric-label">Interface</span
-            ><span class="metric-value">ONLINE</span>
-          </div>
-          <div class="metric">
-            <span class="metric-label">Canal de voz</span
-            ><span class="metric-value">BROWSER</span>
-          </div>
-          <div class="metric">
-            <span class="metric-label">Assistente</span
-            ><span class="metric-value">FRIDAY AI</span>
-          </div>
-          <div class="metric">
-            <span class="metric-label">Agenda</span
-            ><span class="metric-value">INTEGRADA</span>
-          </div>
+          <div class="metric"><span class="metric-label">Interface</span><span class="metric-value">ONLINE</span></div>
+          <div class="metric"><span class="metric-label">Canal de voz</span><span class="metric-value">BROWSER</span></div>
+          <div class="metric"><span class="metric-label">Assistente</span><span class="metric-value">FRIDAY AI</span></div>
+          <div class="metric"><span class="metric-label">Agenda</span><span class="metric-value">INTEGRADA</span></div>
           <div class="sidebar-note">
             <span>PROJETO TONY STARK</span><br />
-            Uma interface. Um sistema.<br />Novas capacidades em
-            desenvolvimento.
+            Uma interface. Um sistema.<br />Novas capacidades em desenvolvimento.
           </div>
         </aside>
 
         <main class="panel main-panel">
+          <div class="hud-corner hud-tl"></div>
+          <div class="hud-corner hud-tr"></div>
+          <div class="hud-corner hud-bl"></div>
+          <div class="hud-corner hud-br"></div>
+
           <div class="main-header">
             <div>
               <div class="heading">CENTRAL DE COMANDO</div>
@@ -994,77 +717,41 @@
             <div class="live-label">STARK CORE</div>
           </div>
 
-          <div id="status" role="status" aria-live="polite">
-            Sistema aguardando autenticação.
+          <div id="status" role="status" aria-live="polite">Sistema aguardando autenticação.</div>
+
+          <div id="waveform" class="waveform-container">
+            <span></span><span></span><span></span><span></span>
+            <span></span><span></span><span></span><span></span>
+            <span></span><span></span><span></span><span></span>
+            <span></span><span></span><span></span><span></span>
           </div>
 
           <section id="login">
             <div class="login-symbol">ACESSO RESTRITO · STARK SYSTEMS</div>
             <h2 class="login-title">Autenticação</h2>
-            <p class="login-copy">
-              Identifique-se para iniciar uma sessão segura com a FRIDAY.
-            </p>
+            <p class="login-copy">Identifique-se para iniciar uma sessão segura com a FRIDAY.</p>
             <form id="loginForm">
-              <input
-                id="password"
-                type="password"
-                placeholder="Senha de acesso"
-                autocomplete="current-password"
-                required
-              />
+              <input id="password" type="password" placeholder="Senha de acesso" autocomplete="current-password" required />
               <button class="primary" type="submit">INICIAR SESSÃO ↗</button>
             </form>
-            <p
-              id="lockoutNotice"
-              class="lockout-notice hidden"
-              role="alert"
-              aria-live="assertive"
-            ></p>
+            <p id="lockoutNotice" class="lockout-notice hidden" role="alert" aria-live="assertive"></p>
           </section>
 
           <section id="assistant" class="hidden assistant-content">
             <div class="toolbar">
-              <button id="settingsToggle" type="button">
-                ⚙ Configurações de voz
-              </button>
+              <button id="settingsToggle" type="button">⚙ Configurações de voz</button>
               <button id="stopSpeakTop" type="button">⏹ Parar voz</button>
-              <button id="calendarConnect" type="button">
-                📅 Google Calendar
-              </button>
+              <button id="calendarConnect" type="button">📅 Google Calendar</button>
             </div>
 
-            <iframe
-              id="musicPlayer"
-              class="hidden"
-              style="
-                width: 100%;
-                height: 200px;
-                border: 1px solid var(--line);
-                border-radius: 12px;
-                margin-bottom: 20px;
-              "
-              allow="autoplay; encrypted-media"
-              allowfullscreen
-            ></iframe>
+            <iframe id="musicPlayer" class="hidden" style="width: 100%; height: 200px; border: 1px solid var(--line); border-radius: 12px; margin-bottom: 20px;" allow="autoplay; encrypted-media" allowfullscreen></iframe>
 
             <section id="calendarPanel" class="awareness-panel hidden">
               <div class="toggle-row" style="margin-bottom: 12px">
                 <h2>/// AGENDA</h2>
                 <div style="display: flex; gap: 6px">
-                  <button
-                    id="refreshCalendarTodayBtn"
-                    type="button"
-                    style="font-size: 9px; padding: 4px 8px"
-                  >
-                    🔄 Hoje
-                  </button>
-                  <button
-                    id="refreshCalendarBtn"
-                    type="button"
-                    style="font-size: 9px; padding: 4px 8px"
-                  >
-                    📅 Próximos
-                  </button>
+                  <button id="refreshCalendarTodayBtn" type="button" style="font-size: 9px; padding: 4px 8px">🔄 Hoje</button>
+                  <button id="refreshCalendarBtn" type="button" style="font-size: 9px; padding: 4px 8px">📅 Próximos</button>
                 </div>
               </div>
               <div id="calendarEventsList">
@@ -1076,28 +763,14 @@
               <h2>/// CONFIGURAÇÕES DE VOZ</h2>
               <div class="setting">
                 <div class="toggle-row">
-                  <label for="autoSpeak"
-                    >Leitura automática das respostas</label
-                  >
+                  <label for="autoSpeak">Leitura automática das respostas</label>
                   <input id="autoSpeak" type="checkbox" checked />
                 </div>
-                <small
-                  >Desative para receber respostas somente em texto. Você ainda
-                  pode pedir a leitura manual.</small
-                >
+                <small>Desative para receber respostas somente em texto. Você ainda pode pedir a leitura manual.</small>
               </div>
               <div class="setting">
-                <label for="speechRate"
-                  >Velocidade: <strong id="rateValue">0,95×</strong></label
-                >
-                <input
-                  id="speechRate"
-                  type="range"
-                  min="0.75"
-                  max="1.2"
-                  step="0.05"
-                  value="0.95"
-                />
+                <label for="speechRate">Velocidade: <strong id="rateValue">0,95×</strong></label>
+                <input id="speechRate" type="range" min="0.75" max="1.2" step="0.05" value="0.95" />
                 <small>Ajuste a velocidade da fala.</small>
               </div>
               <div class="setting">
@@ -1105,13 +778,9 @@
                 <select id="voiceStyle">
                   <option value="natural">Natural e clara</option>
                   <option value="formal">Formal e profissional</option>
-                  <option value="cinematic">
-                    Mais grave e cinematográfica
-                  </option>
+                  <option value="cinematic">Mais grave e cinematográfica</option>
                 </select>
-                <small
-                  >O resultado depende das vozes instaladas no navegador.</small
-                >
+                <small>O resultado depende das vozes instaladas no navegador.</small>
               </div>
               <div class="setting">
                 <label for="voiceSelect">Voz disponível no navegador</label>
@@ -1122,16 +791,10 @@
               </div>
               <div class="setting-buttons">
                 <button type="button" id="testVoiceBtn">🔊 Testar voz</button>
-                <button type="button" id="readLastBtn">
-                  ▶ Ler última resposta
-                </button>
-                <button type="button" id="stopSpeakBtn">
-                  ⏹ Interromper fala
-                </button>
+                <button type="button" id="readLastBtn">▶ Ler última resposta</button>
+                <button type="button" id="stopSpeakBtn">⏹ Interromper fala</button>
               </div>
-              <button type="button" id="saveSettingsBtn">
-                Salvar configurações
-              </button>
+              <button type="button" id="saveSettingsBtn">Salvar configurações</button>
               <div id="settingsNotice" role="status"></div>
             </section>
 
@@ -1145,18 +808,13 @@
               <div class="composer-title">/// NOVO COMANDO</div>
               <form id="chatForm">
                 <div class="controls">
-                  <input
-                    id="command"
-                    maxlength="2000"
-                    placeholder="Comandante, qual é a próxima ordem?"
-                    autocomplete="off"
-                    required
-                  />
+                  <div class="input-wrapper">
+                    <span class="prompt">></span>
+                    <input id="command" maxlength="2000" placeholder="Chefe, qual é a próxima ordem?" autocomplete="off" required />
+                  </div>
                   <button id="voiceBtn" type="button">🎙 Falar</button>
                 </div>
-                <button class="primary" id="sendBtn" type="submit">
-                  TRANSMITIR COMANDO ↗
-                </button>
+                <button class="primary" id="sendBtn" type="submit">TRANSMITIR COMANDO ↗</button>
               </form>
             </div>
             <button id="logout" type="button">Encerrar sessão segura</button>
@@ -1164,7 +822,7 @@
         </main>
       </div>
 
-      <footer><span>SISTEMAS AVANÇADOS</span> · PROJETO TONY STARK · FRIDAY</footer>
+      <footer><span>STARK SYSTEMS</span> · PROJETO TONY STARK · FRIDAY</footer>
     </div>
 
     <script>
@@ -1191,49 +849,59 @@
 
       let voiceSettings = { ...defaultSettings };
 
-      // ========================================
-      // SINTETIZADOR DE EFEITOS SONOROS (UI)
-      // ========================================
       let audioCtx = null;
       function playTone(freq, type, duration) {
-        try {
-          if (!audioCtx)
-            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-          if (audioCtx.state === "suspended") audioCtx.resume();
+          try {
+              if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+              if (audioCtx.state === 'suspended') audioCtx.resume();
 
-          const oscillator = audioCtx.createOscillator();
-          const gainNode = audioCtx.createGain();
-          oscillator.type = type;
-          oscillator.frequency.setValueAtTime(freq, audioCtx.currentTime);
-          gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
-          gainNode.gain.exponentialRampToValueAtTime(
-            0.00001,
-            audioCtx.currentTime + duration,
-          );
-          oscillator.connect(gainNode);
-          gainNode.connect(audioCtx.destination);
-          oscillator.start();
-          oscillator.stop(audioCtx.currentTime + duration);
-        } catch (e) {}
+              const oscillator = audioCtx.createOscillator();
+              const gainNode = audioCtx.createGain();
+              oscillator.type = type;
+              oscillator.frequency.setValueAtTime(freq, audioCtx.currentTime);
+              gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
+              gainNode.gain.exponentialRampToValueAtTime(0.00001, audioCtx.currentTime + duration);
+              oscillator.connect(gainNode);
+              gainNode.connect(audioCtx.destination);
+              oscillator.start();
+              oscillator.stop(audioCtx.currentTime + duration);
+          } catch(e) {}
       }
-      function soundBoot() {
-        playTone(400, "sine", 0.1);
-        setTimeout(() => playTone(800, "sine", 0.2), 100);
-      }
-      function soundListen() {
-        playTone(600, "triangle", 0.15);
-      }
-      function soundError() {
-        playTone(200, "sawtooth", 0.3);
+      function soundBoot() { playTone(400, 'sine', 0.1); setTimeout(() => playTone(800, 'sine', 0.2), 100); }
+      function soundListen() { playTone(600, 'triangle', 0.15); }
+      function soundError() { playTone(200, 'sawtooth', 0.3); }
+
+      function setWaveformState(state) {
+        const wf = $('waveform');
+        if (!wf) return;
+        wf.className = 'waveform-container';
+        document.body.classList.remove('is-speaking');
+
+        if (state === 'listening') {
+            wf.classList.add('active', 'listening');
+        } else if (state === 'speaking') {
+            wf.classList.add('active', 'speaking');
+            document.body.classList.add('is-speaking');
+        }
       }
 
       function status(text) {
         $("status").textContent = text;
       }
 
-      // ========================================
-      // GOOGLE CALENDAR & FORMATAR DATAS
-      // ========================================
+      function showTypingIndicator() {
+          const el = document.createElement('div');
+          el.id = 'typingIndicator';
+          el.className = 'typing-indicator';
+          el.innerHTML = '<span></span><span></span><span></span>';
+          $('messages').appendChild(el);
+          $('messages').scrollTop = $('messages').scrollHeight;
+      }
+      function hideTypingIndicator() {
+          const el = $('typingIndicator');
+          if (el) el.remove();
+      }
+
       function formatEventDate(dateStr) {
         if (!dateStr) return "Horário não definido";
         const date = new Date(dateStr);
@@ -1253,8 +921,7 @@
         if (!panel || !container) return;
 
         panel.classList.remove("hidden");
-        container.innerHTML =
-          '<p class="awareness-note">Consultando agenda...</p>';
+        container.innerHTML = '<p class="awareness-note">Consultando agenda...</p>';
 
         try {
           const response = await fetch(`/calendar/events?range=${range}`, {
@@ -1270,7 +937,7 @@
 
           if (!data.events || data.events.length === 0) {
             const label = range === "today" ? "hoje" : "nos próximos dias";
-            container.innerHTML = `<p class="awareness-note">Nenhum compromisso ${label}, comandante.</p>`;
+            container.innerHTML = `<p class="awareness-note">Nenhum compromisso ${label}, chefe.</p>`;
             return;
           }
 
@@ -1289,8 +956,7 @@
             container.appendChild(item);
           });
         } catch (error) {
-          container.innerHTML =
-            '<p class="awareness-note" style="color: #ff8a8a;">Erro ao conectar com o servidor.</p>';
+          container.innerHTML = '<p class="awareness-note" style="color: #ff8a8a;">Erro ao conectar com o servidor.</p>';
         }
       }
 
@@ -1305,18 +971,14 @@
           voiceSettings = { ...defaultSettings };
         }
 
-        voiceSettings.rate = Math.min(
-          1.2,
-          Math.max(0.75, Number(voiceSettings.rate) || 0.95),
-        );
+        voiceSettings.rate = Math.min(1.2, Math.max(0.75, Number(voiceSettings.rate) || 0.95));
         if (!["natural", "formal", "cinematic"].includes(voiceSettings.style)) {
           voiceSettings.style = "natural";
         }
 
         $("autoSpeak").checked = Boolean(voiceSettings.autoSpeak);
         $("speechRate").value = voiceSettings.rate;
-        $("rateValue").textContent =
-          voiceSettings.rate.toFixed(2).replace(".", ",") + "×";
+        $("rateValue").textContent = voiceSettings.rate.toFixed(2).replace(".", ",") + "×";
         $("voiceStyle").value = voiceSettings.style;
       }
 
@@ -1328,25 +990,18 @@
 
         try {
           localStorage.setItem(SETTINGS_KEY, JSON.stringify(voiceSettings));
-          if (showNotice)
-            $("settingsNotice").textContent =
-              "Preferências salvas neste navegador.";
+          if (showNotice) $("settingsNotice").textContent = "Preferências salvas neste navegador.";
         } catch (error) {
-          if (showNotice)
-            $("settingsNotice").textContent =
-              "Não foi possível salvar. As opções valem nesta sessão.";
+          if (showNotice) $("settingsNotice").textContent = "Não foi possível salvar. As opções valem nesta sessão.";
         }
 
-        $("rateValue").textContent =
-          voiceSettings.rate.toFixed(2).replace(".", ",") + "×";
+        $("rateValue").textContent = voiceSettings.rate.toFixed(2).replace(".", ",") + "×";
       }
 
       function loadVoices() {
         if (!("speechSynthesis" in window)) {
-          $("voiceSelect").innerHTML =
-            '<option value="">Áudio indisponível</option>';
-          $("voiceInfo").textContent =
-            "Este navegador não oferece síntese de voz.";
+          $("voiceSelect").innerHTML = '<option value="">Áudio indisponível</option>';
+          $("voiceInfo").textContent = "Este navegador não oferece síntese de voz.";
           return;
         }
 
@@ -1360,12 +1015,8 @@
         defaultOption.textContent = "Automática (português brasileiro)";
         select.appendChild(defaultOption);
 
-        const portugueseVoices = availableVoices.filter((voice) =>
-          /^pt(-|_)/i.test(voice.lang),
-        );
-        const voicesToShow = portugueseVoices.length
-          ? portugueseVoices
-          : availableVoices;
+        const portugueseVoices = availableVoices.filter((voice) => /^pt(-|_)/i.test(voice.lang));
+        const voicesToShow = portugueseVoices.length ? portugueseVoices : availableVoices;
 
         voicesToShow.forEach((voice) => {
           const option = document.createElement("option");
@@ -1374,37 +1025,23 @@
           select.appendChild(option);
         });
 
-        const found = availableVoices.some(
-          (voice) => voice.voiceURI === previous,
-        );
+        const found = availableVoices.some((voice) => voice.voiceURI === previous);
         select.value = found ? previous : "";
 
-        if (portugueseVoices.length)
-          $("voiceInfo").textContent =
-            portugueseVoices.length + " voz(es) em português disponível(is).";
-        else if (availableVoices.length)
-          $("voiceInfo").textContent =
-            "Nenhuma voz em português foi identificada. Confira as opções.";
-        else
-          $("voiceInfo").textContent =
-            "O navegador ainda não disponibilizou vozes.";
+        if (portugueseVoices.length) $("voiceInfo").textContent = portugueseVoices.length + " voz(es) em português disponível(is).";
+        else if (availableVoices.length) $("voiceInfo").textContent = "Nenhuma voz em português foi identificada. Confira as opções.";
+        else $("voiceInfo").textContent = "O navegador ainda não disponibilizou vozes.";
       }
 
       function getSelectedVoice() {
         const selectedURI = $("voiceSelect").value;
         if (selectedURI) {
-          const selected = availableVoices.find(
-            (voice) => voice.voiceURI === selectedURI,
-          );
+          const selected = availableVoices.find((voice) => voice.voiceURI === selectedURI);
           if (selected) return selected;
         }
         return (
-          availableVoices.find(
-            (voice) => voice.lang.toLowerCase() === "pt-br",
-          ) ||
-          availableVoices.find((voice) =>
-            voice.lang.toLowerCase().startsWith("pt"),
-          ) ||
+          availableVoices.find((voice) => voice.lang.toLowerCase() === "pt-br") ||
+          availableVoices.find((voice) => voice.lang.toLowerCase().startsWith("pt")) ||
           null
         );
       }
@@ -1414,15 +1051,13 @@
         speechQueue = [];
 
         if (currentUtterance instanceof Audio) {
-          currentUtterance.pause();
-          currentUtterance.currentTime = 0;
+            currentUtterance.pause();
+            currentUtterance.currentTime = 0;
         }
         currentUtterance = null;
 
         if (recognition && listening) {
-          try {
-            recognition.stop();
-          } catch (error) {}
+          try { recognition.stop(); } catch (error) {}
         }
 
         if ("speechSynthesis" in window) {
@@ -1430,6 +1065,7 @@
         }
 
         speaking = false;
+        setWaveformState('idle');
       }
 
       function cleanSpeechText(text) {
@@ -1442,9 +1078,6 @@
           .trim();
       }
 
-      // ========================================
-      // MOTOR DE VOZ (Cloud TTS + Fallback)
-      // ========================================
       async function speakText(text, force = false) {
         if (!force && !voiceSettings.autoSpeak) return;
         const cleanText = cleanSpeechText(text);
@@ -1452,29 +1085,31 @@
 
         speechRunId++;
         const runId = speechRunId;
-        if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+        if ('speechSynthesis' in window) window.speechSynthesis.cancel();
 
-        status("FRIDAY está falando...");
+        status('FRIDAY está falando...');
 
         try {
           const voiceName = "Brian";
           const url = `https://api.streamelements.com/kappa/v2/speech?voice=${voiceName}&text=${encodeURIComponent(cleanText)}`;
           const audio = new Audio(url);
 
-          audio.onplay = () => {
-            if (runId === speechRunId) {
-              speaking = true;
-              soundListen();
-            }
+          audio.onplay = () => { 
+              if(runId === speechRunId) {
+                  speaking = true; 
+                  soundListen();
+                  setWaveformState('speaking');
+              }
           };
-          audio.onended = () => {
-            if (runId === speechRunId) {
-              speaking = false;
-              status("Sistema online.");
-            }
+          audio.onended = () => { 
+              if(runId === speechRunId) { 
+                  speaking = false; 
+                  status('Sistema online.'); 
+                  setWaveformState('idle');
+              } 
           };
           audio.onerror = () => {
-            browserSpeak(cleanText, runId);
+              browserSpeak(cleanText, runId); 
           };
 
           currentUtterance = audio;
@@ -1486,45 +1121,42 @@
       }
 
       function browserSpeak(text, runId) {
-        if (!("speechSynthesis" in window)) return;
+        if (!('speechSynthesis' in window)) return;
         const synth = window.speechSynthesis;
         const sentences = text.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [text];
-        let chunk = "";
+        let chunk = '';
         const queue = [];
         for (const sentence of sentences) {
           const part = sentence.trim();
-          if (chunk && chunk.length + part.length + 1 > 220) {
-            queue.push(chunk);
-            chunk = "";
-          }
-          chunk += (chunk ? " " : "") + part;
+          if (chunk && (chunk.length + part.length + 1 > 220)) { queue.push(chunk); chunk = ''; }
+          chunk += (chunk ? ' ' : '') + part;
         }
         if (chunk) queue.push(chunk);
 
         const selectedVoice = getSelectedVoice();
         function speakNext() {
           if (runId !== speechRunId) return;
-          if (!queue.length) {
-            speaking = false;
-            status("Sistema online.");
-            return;
+          if (!queue.length) { 
+              speaking = false; 
+              status('Sistema online.'); 
+              setWaveformState('idle');
+              return; 
           }
           const nextText = queue.shift();
           const utterance = new SpeechSynthesisUtterance(nextText);
-          utterance.lang = selectedVoice?.lang || "pt-BR";
+          utterance.lang = selectedVoice?.lang || 'pt-BR';
           utterance.rate = Number(voiceSettings.rate) || 0.95;
-          utterance.pitch = voiceSettings.style === "cinematic" ? 0.82 : 0.95;
+          utterance.pitch = voiceSettings.style === 'cinematic' ? 0.82 : 0.95;
           if (selectedVoice) utterance.voice = selectedVoice;
 
-          utterance.onstart = () => {
-            if (runId === speechRunId) {
-              speaking = true;
-              soundListen();
-            }
+          utterance.onstart = () => { 
+              if(runId === speechRunId) {
+                  speaking = true; 
+                  soundListen();
+                  setWaveformState('speaking');
+              }
           };
-          utterance.onend = () => {
-            if (runId === speechRunId) speakNext();
-          };
+          utterance.onend = () => { if(runId === speechRunId) speakNext(); };
           synth.speak(utterance);
         }
         speakNext();
@@ -1539,7 +1171,7 @@
         const item = document.createElement("div");
         item.className = "msg " + (who === "Você" ? "user" : "bot");
         const label = document.createElement("strong");
-        label.textContent = who === "Você" ? "COMANDANTE" : "FRIDAY";
+        label.textContent = who === "Você" ? "CHEFE" : "FRIDAY";
         const content = document.createElement("span");
         content.textContent = text;
         item.append(label, content);
@@ -1566,9 +1198,7 @@
         }
 
         if (!response.ok) {
-          const requestError = new Error(
-            (result && result.error) || "Falha na solicitação.",
-          );
+          const requestError = new Error((result && result.error) || "Falha na solicitação.");
           requestError.status = response.status;
           requestError.remaining = result && result.remaining;
           throw requestError;
@@ -1578,9 +1208,7 @@
 
       function startLockout(remaining) {
         const parsedSeconds = Number(remaining);
-        const seconds = Number.isFinite(parsedSeconds)
-          ? Math.max(0, Math.ceil(parsedSeconds))
-          : 0;
+        const seconds = Number.isFinite(parsedSeconds) ? Math.max(0, Math.ceil(parsedSeconds)) : 0;
         const notice = $("lockoutNotice");
 
         window.clearInterval(lockoutInterval);
@@ -1596,16 +1224,12 @@
         notice.classList.remove("hidden");
 
         const updateNotice = () => {
-          const secondsLeft = Math.max(
-            0,
-            Math.ceil((lockoutEndsAt - Date.now()) / 1000),
-          );
+          const secondsLeft = Math.max(0, Math.ceil((lockoutEndsAt - Date.now()) / 1000));
           if (secondsLeft === 0) {
             window.clearInterval(lockoutInterval);
             lockoutInterval = null;
             lockoutEndsAt = 0;
-            notice.textContent =
-              "Bloqueio encerrado. Você pode tentar novamente.";
+            notice.textContent = "Bloqueio encerrado. Você pode tentar novamente.";
             return;
           }
           notice.textContent = `Acesso temporariamente bloqueado. Tente novamente em ${secondsLeft} s.`;
@@ -1615,9 +1239,6 @@
         lockoutInterval = window.setInterval(updateNotice, 1000);
       }
 
-      // ========================================
-      // EVENTOS DE LOGIN
-      // ========================================
       $("loginForm").addEventListener("submit", async (event) => {
         event.preventDefault();
         const password = $("password").value;
@@ -1630,32 +1251,25 @@
           $("assistant").classList.remove("hidden");
           status("Autenticada. FRIDAY online.");
 
-          soundBoot();
+          soundBoot(); 
 
-          // Dispara o briefing na hora do login
-          $("messages").replaceChildren();
-          addMessage(
-            "FRIDAY",
-            "Bom dia, comandante. Iniciando varredura de sistemas...",
-          );
-          status("Gerando resumo matinal...");
-          request("/chat", {
-            command:
-              "Gere o meu briefing matinal para a cidade de Criciúma usando a ferramenta get_morning_briefing",
-          })
-            .then((res) => {
-              addMessage("FRIDAY", res.response);
-              speakResponse(res.response);
-            })
-            .catch(() => {
-              addMessage(
-                "FRIDAY",
-                "Bem-vindo de volta, comandante. Pronto para suas ordens.",
-              );
-              speakResponse(
-                "Bem-vindo de volta, comandante. Pronto para suas ordens.",
-              );
-            });
+          $('messages').replaceChildren(); 
+          addMessage('FRIDAY', 'Bom dia, chefe. Iniciando varredura de sistemas...');
+          status('Gerando resumo matinal...');
+
+          showTypingIndicator();
+
+          request('/chat', {command: 'Gere o meu briefing matinal para a cidade de Criciúma usando a ferramenta get_morning_briefing'})
+              .then(res => {
+                  hideTypingIndicator();
+                  addMessage('FRIDAY', res.response);
+                  speakResponse(res.response);
+              })
+              .catch(() => {
+                  hideTypingIndicator();
+                  addMessage('FRIDAY', 'Bem-vindo de volta, chefe. Pronto para suas ordens.');
+                  speakResponse('Bem-vindo de volta, chefe. Pronto para suas ordens.');
+              });
 
           $("command").focus();
           checkCalendarConnection();
@@ -1667,9 +1281,6 @@
         }
       });
 
-      // ========================================
-      // EVENTOS DE CHAT (Processar Mensagem)
-      // ========================================
       $("chatForm").addEventListener("submit", async (event) => {
         event.preventDefault();
         const command = $("command").value.trim();
@@ -1681,28 +1292,31 @@
         $("voiceBtn").disabled = true;
         status("FRIDAY está processando...");
 
+        showTypingIndicator();
+
         try {
           const result = await request("/chat", { command });
+          hideTypingIndicator();
+
           const reply = result.response || "Comando concluído.";
 
           addMessage("FRIDAY", reply);
           lastReply = reply;
 
-          // --- LÓGICA DO PLAYER DE MÚSICA ---
-          if (reply.includes("[PLAY_MUSIC:")) {
-            const match = reply.match(/\[PLAY_MUSIC:(.*?)\]/);
-            if (match && match[1]) {
-              const videoUrl = match[1];
-              const player = $("musicPlayer");
-              player.src = videoUrl;
-              player.classList.remove("hidden");
+          if (reply.includes('[PLAY_MUSIC:')) {
+              const match = reply.match(/\[PLAY_MUSIC:(.*?)\]/);
+              if (match && match[1]) {
+                  const videoUrl = match[1];
+                  const player = $('musicPlayer');
+                  player.src = videoUrl; 
+                  player.classList.remove('hidden');
 
-              const cleanReply = reply.replace(/\[PLAY_MUSIC:.*?\]/, "").trim();
-              const msgElements = $("messages").querySelectorAll(".bot span");
-              if (msgElements.length > 0) {
-                msgElements[msgElements.length - 1].textContent = cleanReply;
+                  const cleanReply = reply.replace(/\[PLAY_MUSIC:.*?\]/, '').trim();
+                  const msgElements = $('messages').querySelectorAll('.bot span');
+                  if (msgElements.length > 0) {
+                      msgElements[msgElements.length - 1].textContent = cleanReply;
+                  }
               }
-            }
           }
 
           if (result.closed) {
@@ -1712,28 +1326,22 @@
 
           speakResponse(reply);
         } catch (error) {
+          hideTypingIndicator();
           addMessage("FRIDAY", error.message);
           status("Verifique a conexão ou autenticação.");
           if (error.message.toLowerCase().includes("sessão")) showLogin();
         } finally {
           $("sendBtn").disabled = false;
           $("voiceBtn").disabled = false;
-          if (!$("assistant").classList.contains("hidden"))
-            $("command").focus();
+          if (!$("assistant").classList.contains("hidden")) $("command").focus();
         }
       });
 
-      // ========================================
-      // RECONHECIMENTO DE VOZ (Microfone)
-      // ========================================
       function startVoice() {
-        const SpeechRecognition =
-          window.SpeechRecognition || window.webkitSpeechRecognition;
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
         if (!SpeechRecognition) {
-          status(
-            "Reconhecimento indisponível. Tente outro navegador compatível.",
-          );
+          status("Reconhecimento indisponível. Tente outro navegador compatível.");
           return;
         }
 
@@ -1753,8 +1361,9 @@
           listening = true;
           $("voiceBtn").classList.add("listening");
           soundListen();
+          setWaveformState('listening');
           $("voiceBtn").textContent = "⏹ Parar";
-          status("Estou ouvindo, comandante...");
+          status("Estou ouvindo, chefe...");
         };
 
         recognition.onresult = (event) => {
@@ -1766,18 +1375,21 @@
 
         recognition.onerror = (event) => {
           status("Falha no microfone: " + event.error);
+          setWaveformState('idle');
         };
 
         recognition.onend = () => {
           listening = false;
           $("voiceBtn").classList.remove("listening");
           $("voiceBtn").textContent = "🎙 Falar";
+          setWaveformState('idle');
         };
 
         try {
           recognition.start();
         } catch (error) {
           status("Não foi possível iniciar o microfone. Tente novamente.");
+          setWaveformState('idle');
         }
       }
 
@@ -1799,36 +1411,25 @@
         return false;
       }
 
-      $("calendarConnect").addEventListener("click", () => {
-        window.location.href = "/calendar/connect";
-      });
-      $("refreshCalendarTodayBtn").addEventListener("click", () =>
-        loadCalendarEvents("today"),
-      );
-      $("refreshCalendarBtn").addEventListener("click", () =>
-        loadCalendarEvents("upcoming"),
-      );
+      $("calendarConnect").addEventListener("click", () => { window.location.href = "/calendar/connect"; });
+      $("refreshCalendarTodayBtn").addEventListener("click", () => loadCalendarEvents("today"));
+      $("refreshCalendarBtn").addEventListener("click", () => loadCalendarEvents("upcoming"));
 
       $("settingsToggle").addEventListener("click", () => {
         const panel = $("settingsPanel");
         panel.classList.toggle("hidden");
-        $("settingsToggle").textContent = panel.classList.contains("hidden")
-          ? "⚙ Configurações de voz"
-          : "✖ Fechar configurações";
+        $("settingsToggle").textContent = panel.classList.contains("hidden") ? "⚙ Configurações de voz" : "✖ Fechar configurações";
         if (!panel.classList.contains("hidden")) loadVoices();
       });
 
       $("speechRate").addEventListener("input", () => {
-        $("rateValue").textContent =
-          Number($("speechRate").value).toFixed(2).replace(".", ",") + "×";
+        $("rateValue").textContent = Number($("speechRate").value).toFixed(2).replace(".", ",") + "×";
       });
 
       $("autoSpeak").addEventListener("change", () => {
         saveSettings(false);
-        if (!$("autoSpeak").checked) {
-          stopVoice();
-          status("Leitura automática desativada.");
-        } else status("Leitura automática ativada.");
+        if (!$("autoSpeak").checked) { stopVoice(); status("Leitura automática desativada."); }
+        else status("Leitura automática ativada.");
       });
 
       $("speechRate").addEventListener("change", () => saveSettings(false));
@@ -1838,30 +1439,17 @@
 
       $("testVoiceBtn").addEventListener("click", () => {
         saveSettings(false);
-        speakText(
-          "Olá, comandante. Sou FRIDAY. Configurações de voz prontas.",
-          true,
-        );
+        speakText("Olá, chefe. Sou FRIDAY. Configurações de voz prontas.", true);
       });
 
       $("readLastBtn").addEventListener("click", () => {
-        if (!lastReply) {
-          $("settingsNotice").textContent =
-            "Ainda não existe uma resposta para ler.";
-          return;
-        }
+        if (!lastReply) { $("settingsNotice").textContent = "Ainda não existe uma resposta para ler."; return; }
         saveSettings(false);
         speakText(lastReply, true);
       });
 
-      $("stopSpeakBtn").addEventListener("click", () => {
-        stopVoice();
-        status("Fala interrompida.");
-      });
-      $("stopSpeakTop").addEventListener("click", () => {
-        stopVoice();
-        status("Fala interrompida.");
-      });
+      $("stopSpeakBtn").addEventListener("click", () => { stopVoice(); status("Fala interrompida."); });
+      $("stopSpeakTop").addEventListener("click", () => { stopVoice(); status("Fala interrompida."); });
 
       function showLogin() {
         stopVoice();
@@ -1878,9 +1466,7 @@
 
       $("logout").addEventListener("click", async () => {
         stopVoice();
-        try {
-          await request("/logout", {});
-        } catch (error) {}
+        try { await request("/logout", {}); } catch (error) {}
         showLogin();
       });
 
@@ -1892,25 +1478,17 @@
           });
           const data = await response.json();
 
-          const calendarState = new URLSearchParams(location.search).get(
-            "calendar",
-          );
+          const calendarState = new URLSearchParams(location.search).get("calendar");
           const calendarMessages = {
-            connected:
-              "Google Calendar autorizado e salvo. Os próximos acessos reutilizam esta conexão.",
+            connected: "Google Calendar autorizado e salvo. Os próximos acessos reutilizam esta conexão.",
             nosession: "Entre na FRIDAY antes de conectar o calendário.",
             denied: "A autorização do Google foi cancelada.",
             old: "Essa tentativa expirou. Clique em Google Calendar outra vez.",
-            state:
-              "A sessão não confere com o retorno do Google. Entre de novo e repita a conexão.",
-            config:
-              "OAuth incompleto. Confira o client id, o secret e a redirect URI.",
-            redirect:
-              "A redirect URI do servidor não é a mesma cadastrada no Google Cloud.",
-            client:
-              "O Google recusou o cliente OAuth. Confira o client id e o secret.",
-            token:
-              "O Google não concluiu o acesso. Clique em Google Calendar e autorize de novo.",
+            state: "A sessão não confere com o retorno do Google. Entre de novo e repita a conexão.",
+            config: "OAuth incompleto. Confira o client id, o secret e a redirect URI.",
+            redirect: "A redirect URI do servidor não é a mesma cadastrada no Google Cloud.",
+            client: "O Google recusou o cliente OAuth. Confira o client id e o secret.",
+            token: "O Google não concluiu o acesso. Clique em Google Calendar e autorize de novo.",
             incomplete: "A resposta de autorização veio incompleta.",
           };
 
@@ -1918,29 +1496,23 @@
             $("login").classList.add("hidden");
             $("assistant").classList.remove("hidden");
             status("Sessão ativa. FRIDAY online.");
-            $("messages").replaceChildren();
-            addMessage(
-              "FRIDAY",
-              "Bom dia, comandante. Iniciando varredura de sistemas...",
-            );
-            status("Gerando resumo matinal...");
-            request("/chat", {
-              command:
-                "Gere o meu briefing matinal para a cidade de Criciúma usando a ferramenta get_morning_briefing",
-            })
-              .then((res) => {
-                addMessage("FRIDAY", res.response);
-                speakResponse(res.response);
-              })
-              .catch(() => {
-                addMessage(
-                  "FRIDAY",
-                  "Bem-vindo de volta, comandante. Pronto para suas ordens.",
-                );
-                speakResponse(
-                  "Bem-vindo de volta, comandante. Pronto para suas ordens.",
-                );
-              });
+            $('messages').replaceChildren();
+            addMessage('FRIDAY', 'Bom dia, chefe. Iniciando varredura de sistemas...');
+            status('Gerando resumo matinal...');
+
+            showTypingIndicator();
+
+            request('/chat', {command: 'Gere o meu briefing matinal para a cidade de Criciúma usando a ferramenta get_morning_briefing'})
+                .then(res => {
+                    hideTypingIndicator();
+                    addMessage('FRIDAY', res.response);
+                    speakResponse(res.response);
+                })
+                .catch(() => {
+                    hideTypingIndicator();
+                    addMessage('FRIDAY', 'Bem-vindo de volta, chefe. Pronto para suas ordens.');
+                    speakResponse('Bem-vindo de volta, chefe. Pronto para suas ordens.');
+                });
             checkCalendarConnection();
           }
 
@@ -1960,9 +1532,6 @@
         window.speechSynthesis.onvoiceschanged = loadVoices;
       }
 
-      // ========================================
-      // PROATIVIDADE: ALERTAS DE AGENDA (A cada 5 min)
-      // ========================================
       setInterval(
         async () => {
           if ($("assistant").classList.contains("hidden")) return;
@@ -1987,7 +1556,7 @@
                 const alertKey = `alerted_${evt.summary}_${evt.start}`;
                 if (!localStorage.getItem(alertKey)) {
                   localStorage.setItem(alertKey, "true");
-                  const msg = `Comandante, seu compromisso "${evt.summary}" começa em ${Math.round(diffMins)} minutos.`;
+                  const msg = `Chefe, seu compromisso "${evt.summary}" começa em ${Math.round(diffMins)} minutos.`;
                   addMessage("FRIDAY", msg);
                   speakText(msg, true);
                 }
@@ -1995,7 +1564,7 @@
             });
           } catch (e) {}
         },
-        5 * 60 * 1000,
+        5 * 60 * 1000
       );
 
       checkSession();
