@@ -534,7 +534,7 @@ class FridayHandler(BaseHTTPRequestHandler):
         self.send_header("Referrer-Policy", "no-referrer")
         self.end_headers()
 
-        def handle_tts(self):
+    def handle_tts(self):
         query = parse_qs(urlsplit(self.path).query)
         text = query.get("text", [""])[0]
         if not text:
