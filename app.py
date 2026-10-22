@@ -29,6 +29,17 @@ MAX_BODY = 8192
 MAX_HISTORY_MESSAGES = 10
 
 # ========================================
+# DIRETÓRIO PERSISTENTE (Render Disk)
+# ========================================
+DATA_DIR = os.getenv("DATA_DIR", ".")
+# Em produção (Render), o disco é montado em /data
+if os.path.exists("/data") and os.access("/data", os.W_OK):
+    DATA_DIR = "/data"
+
+# Caminho do banco de dados
+DB_PATH = os.path.join(DATA_DIR, "friday.db")
+
+# ========================================
 # GOOGLE CALENDAR — OAUTH
 # ========================================
 
@@ -39,8 +50,7 @@ GOOGLE_CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.events"
 OAUTH_STATE_TTL_SECONDS = 600
 GOOGLE_OWNER_KEY = "owner"
 GOOGLE_TOKEN_FILE = os.getenv("FRIDAY_GOOGLE_TOKEN_FILE", "").strip() or os.path.join(
-    os.path.dirname(os.path.abspath(__file__)),
-    ".friday_google_tokens.json",
+    DATA_DIR, ".friday_google_tokens.json"
 )
 _TOKEN_MEMORY_ONLY = False
 
@@ -462,13 +472,13 @@ friday = FridayAssistant()
 
 # --- SISTEMA DE MEMÓRIA SQLITE ---
 def _db_save_memory(key, value):
-    with sqlite3.connect("friday.db") as conn:
+    with sqlite3.connect(DB_PATH) as conn:
         conn.execute("CREATE TABLE IF NOT EXISTS ai_memory (key TEXT PRIMARY KEY, value TEXT)")
         conn.execute("INSERT OR REPLACE INTO ai_memory (key, value) VALUES (?, ?)", (key, value))
         conn.commit()
 
 def _db_recall_memory(key):
-    with sqlite3.connect("friday.db") as conn:
+    with sqlite3.connect(DB_PATH) as conn:
         conn.execute("CREATE TABLE IF NOT EXISTS ai_memory (key TEXT PRIMARY KEY, value TEXT)")
         row = conn.execute("SELECT value FROM ai_memory WHERE key = ?", (key,)).fetchone()
         return row[0] if row else None
@@ -876,7 +886,6 @@ class FridayHandler(BaseHTTPRequestHandler):
 
         # --- ATALHO DIRETO PARA O BRIEFING ---
         if "briefing" in normalized or "resumo matinal" in normalized:
-            from core.friday_tools import execute_tool
             exec_res = execute_tool("get_morning_briefing", {"city": "Criciúma"}, user_role="owner")
             if exec_res.get("ok"):
                 return str(exec_res.get("result"))
@@ -890,7 +899,6 @@ class FridayHandler(BaseHTTPRequestHandler):
                 query = query.replace(word, "").strip()
 
             if query:
-                from core.friday_tools import execute_tool
                 exec_res = execute_tool("play_music", {"query": query}, user_role="owner")
                 if exec_res.get("ok"):
                     url = exec_res.get("result", {}).get("url", "")
@@ -907,32 +915,45 @@ class FridayHandler(BaseHTTPRequestHandler):
         if calendar_handled:
             return calendar_reply
 
-        intention = friday.interpret(clean_command)
-        if session.pending_action is not None:
-            if normalized == "atualizar lembrança":
-                intention = "confirm_memory_update"
-            elif normalized == "manter ambas":
-                intention = "confirm_memory_keep_both"
-            elif normalized == "cancelar operação":
-                intention = "cancel_pending"
+        # --- NOVO: Ignora o cérebro antigo para comandos de memória e deixa o LLM lidar com o SQLite ---
+        force_llm = any(t in normalized for t in ["lembre-se", "salve na memória", "memorize", "qual é minha", "o que você sabe sobre", "reserva", "reserve"])
 
-        response = friday.execute(intention, clean_command, "owner", history=history, session=session)
+        if not force_llm:
+            intention = friday.interpret(clean_command)
+            if session.pending_action is not None:
+                if normalized == "atualizar lembrança":
+                    intention = "confirm_memory_update"
+                elif normalized == "manter ambas":
+                    intention = "confirm_memory_keep_both"
+                elif normalized == "cancelar operação":
+                    intention = "cancel_pending"
 
-        if response is None:
-            return None
+            response = friday.execute(
+                intention,
+                clean_command,
+                "owner",
+                history=history,
+                session=session,
+            )
 
-        if intention != "unknown":
-            return str(response)
+            if response is None:
+                return None
+
+            if intention != "unknown":
+                return str(response)
+        # ------------------------------------------------------------------------------------------
 
         from core.ai_provider import FridayAIProvider
         provider = FridayAIProvider()
         if not provider.available():
-            return str(response)
+            return str(response) # Se não tiver chave, cai na resposta padrão
 
+        # --- TENTATIVA 1: IA COM FERRAMENTAS ---
         try:
             ai_result = provider.chat_with_tools(user_message=clean_command, history=history, tools=public_tool_specs())
-        except Exception:
-            ai_result = {"text": str(response)}
+        except Exception as e:
+            print(f"FRIDAY WEB: Erro na chamada de ferramentas: {e}")
+            ai_result = None
 
         tool_call = ai_result.get("tool_call") if isinstance(ai_result, dict) else None
         if tool_call and isinstance(tool_call, dict):
@@ -965,7 +986,8 @@ class FridayHandler(BaseHTTPRequestHandler):
                     tool_call_id=tool_call.get("id"),
                     raw_arguments=tool_call.get("raw_arguments", "{}")
                 )
-            except Exception:
+            except Exception as e:
+                print(f"FRIDAY WEB: Erro no retorno da ferramenta: {e}")
                 final_text = None
 
             if not final_text:
@@ -1006,7 +1028,20 @@ class FridayHandler(BaseHTTPRequestHandler):
             history[:] = history[-MAX_HISTORY_MESSAGES:]
             return str(ai_text)
 
-        return str(response)
+        # --- TENTATIVA 2: FALLBACK (IA SEM FERRAMENTAS) ---
+        try:
+            fallback_text = provider.generate(message=clean_command, history=history)
+            if fallback_text:
+                history.extend([
+                    {"role": "user", "content": clean_command},
+                    {"role": "assistant", "content": str(fallback_text)},
+                ])
+                history[:] = history[-MAX_HISTORY_MESSAGES:]
+                return str(fallback_text)
+        except Exception as e:
+            print(f"FRIDAY WEB: Erro no fallback: {e}")
+
+        return "Não consegui obter uma resposta da IA agora."
 
     def do_POST(self):
         path = urlsplit(self.path).path
