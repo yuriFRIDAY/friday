@@ -534,7 +534,7 @@ class FridayHandler(BaseHTTPRequestHandler):
         self.send_header("Referrer-Policy", "no-referrer")
         self.end_headers()
 
-    def handle_tts(self):
+        def handle_tts(self):
         query = parse_qs(urlsplit(self.path).query)
         text = query.get("text", [""])[0]
         if not text:
@@ -546,14 +546,22 @@ class FridayHandler(BaseHTTPRequestHandler):
             self.send_json(500, {"error": "Chave da ElevenLabs não configurada."})
             return
 
-        # Voz "Rachel" (Feminina, tom suave e profissional)
+        # ID da Voz "Rachel" (Feminina, tom suave e profissional)
+        # Outras opções: Bella (EXAVITQu4vr4xnSDxMaL), Domi (AZnzlk1XvdvUeBnXmlld)
         voice_id = "21m00Tcm4TlvDq8ikWAM" 
-        url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
+        
+        # Forçando alta qualidade e o modelo mais rápido e natural
+        url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}?output_format=mp3_44100_128"
 
         payload = json.dumps({
             "text": text,
-            "model_id": "eleven_multilingual_v2",
-            "voice_settings": {"stability": 0.5, "similarity_boost": 0.75}
+            "model_id": "eleven_turbo_v2_5", 
+            "voice_settings": {
+                "stability": 0.3,          # Menor estabilidade = mais emoção e naturalidade
+                "similarity_boost": 0.85,  # Fidelidade à voz original
+                "style": 0.0,              # Exagero de estilo (0 = desligado)
+                "use_speaker_boost": True  # Aumenta a clareza da voz
+            }
         }).encode("utf-8")
 
         req = Request(url, data=payload, headers={
@@ -573,16 +581,6 @@ class FridayHandler(BaseHTTPRequestHandler):
         except Exception as e:
             print(f"FRIDAY WEB: Falha na ElevenLabs: {e}")
             self.send_json(500, {"error": f"Falha na ElevenLabs: {str(e)}"})
-
-    def get_session(self):
-        token = _read_session_cookie(self.headers.get("Cookie", ""))
-        if not token:
-            return None
-        if not _signed_session_is_valid(token) and SESSION_STORE.get(token) is None:
-            return None
-        if SESSION_STORE.get(token) is None and not _restore_session(token):
-            return None
-        return token
 
     def request_scheme(self):
         forwarded = self.headers.get("X-Forwarded-Proto", "").split(",", 1)[0].strip().lower()
