@@ -1100,9 +1100,13 @@
         status('FRIDAY está falando...');
 
         try {
-          const voiceName = "Brian";
-          const url = `https://api.streamelements.com/kappa/v2/speech?voice=${voiceName}&text=${encodeURIComponent(cleanText)}`;
-          const audio = new Audio(url);
+          // Chama a rota /tts do nosso backend na Render
+          const response = await fetch(`/tts?text=${encodeURIComponent(cleanText)}`);
+          if (!response.ok) throw new Error('Falha na ElevenLabs');
+          
+          const audioBlob = await response.blob();
+          const audioUrl = URL.createObjectURL(audioBlob);
+          const audio = new Audio(audioUrl);
 
           audio.onplay = () => { 
               if(runId === speechRunId) {
@@ -1116,6 +1120,7 @@
                   speaking = false; 
                   status('Sistema online.'); 
                   setWaveformState('idle');
+                  URL.revokeObjectURL(audioUrl); // Limpa a memória do navegador
               } 
           };
           audio.onerror = () => {
@@ -1125,9 +1130,10 @@
           currentUtterance = audio;
           audio.play();
           return;
-        } catch (e) {}
-
-        browserSpeak(cleanText, runId);
+        } catch (e) {
+          console.warn('ElevenLabs indisponível, usando voz nativa:', e);
+          browserSpeak(cleanText, runId); // Fallback para a voz nativa
+        }
       }
 
       function browserSpeak(text, runId) {
