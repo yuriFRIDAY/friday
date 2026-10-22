@@ -32,17 +32,14 @@ MAX_HISTORY_MESSAGES = 10
 # DIRETÓRIO PERSISTENTE (Render Disk)
 # ========================================
 DATA_DIR = os.getenv("DATA_DIR", ".")
-# Em produção (Render), o disco é montado em /data
 if os.path.exists("/data") and os.access("/data", os.W_OK):
     DATA_DIR = "/data"
 
-# Caminho do banco de dados
 DB_PATH = os.path.join(DATA_DIR, "friday.db")
 
 # ========================================
 # GOOGLE CALENDAR — OAUTH
 # ========================================
-
 GOOGLE_OAUTH_AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_OAUTH_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GOOGLE_CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.events"
@@ -537,6 +534,46 @@ class FridayHandler(BaseHTTPRequestHandler):
         self.send_header("Referrer-Policy", "no-referrer")
         self.end_headers()
 
+    def handle_tts(self):
+        query = parse_qs(urlsplit(self.path).query)
+        text = query.get("text", [""])[0]
+        if not text:
+            self.send_json(400, {"error": "Texto vazio."})
+            return
+
+        api_key = os.getenv("ELEVENLABS_API_KEY", "").strip()
+        if not api_key:
+            self.send_json(500, {"error": "Chave da ElevenLabs não configurada."})
+            return
+
+        # Voz "Rachel" (Feminina, tom suave e profissional)
+        voice_id = "21m00Tcm4TlvDq8ikWAM" 
+        url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
+
+        payload = json.dumps({
+            "text": text,
+            "model_id": "eleven_multilingual_v2",
+            "voice_settings": {"stability": 0.5, "similarity_boost": 0.75}
+        }).encode("utf-8")
+
+        req = Request(url, data=payload, headers={
+            "Accept": "audio/mpeg",
+            "Content-Type": "application/json",
+            "xi-api-key": api_key
+        }, method="POST")
+
+        try:
+            with urlopen(req, timeout=30) as response:
+                audio_data = response.read()
+            self.send_response(200)
+            self.send_header("Content-Type", "audio/mpeg")
+            self.send_header("Content-Length", str(len(audio_data)))
+            self.end_headers()
+            self.wfile.write(audio_data)
+        except Exception as e:
+            print(f"FRIDAY WEB: Falha na ElevenLabs: {e}")
+            self.send_json(500, {"error": f"Falha na ElevenLabs: {str(e)}"})
+
     def get_session(self):
         token = _read_session_cookie(self.headers.get("Cookie", ""))
         if not token:
@@ -618,6 +655,10 @@ class FridayHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = urlsplit(self.path).path
+
+        if path == "/tts":
+            self.handle_tts()
+            return
 
         if path == "/":
             body = get_html().encode("utf-8")
@@ -814,18 +855,18 @@ class FridayHandler(BaseHTTPRequestHandler):
             tool_name, tool_args = pending
             session.pending_tool = None
             result = execute_tool(tool_name, tool_args, user_role="owner", session=session, confirmed=True)
-
+            
             if result.get("ok"):
                 payload = result.get("result")
-
+                
                 if isinstance(payload, dict) and "error" in payload:
                     return True, payload["error"]
-
+                
                 if tool_name == "create_calendar_event" and isinstance(payload, dict):
                     return True, f"Evento criado, chefe: '{payload.get('summary')}' de {payload.get('start')} até {payload.get('end')}."
                 if tool_name == "send_email":
                     return True, str(payload)
-
+                    
                 return True, f"Ferramenta '{tool_name}' executada com sucesso."
             return True, result.get("error", "Não foi possível executar a ferramenta.")
 
@@ -897,7 +938,7 @@ class FridayHandler(BaseHTTPRequestHandler):
             query = clean_command
             for word in ["FRIDAY,", "FRIDAY", "toque", "a música", "a musica", "música", "musica", "coloque", "play"]:
                 query = query.replace(word, "").strip()
-
+            
             if query:
                 exec_res = execute_tool("play_music", {"query": query}, user_role="owner")
                 if exec_res.get("ok"):
@@ -917,7 +958,7 @@ class FridayHandler(BaseHTTPRequestHandler):
 
         # --- NOVO: Ignora o cérebro antigo para comandos de memória e deixa o LLM lidar com o SQLite ---
         force_llm = any(t in normalized for t in ["lembre-se", "salve na memória", "memorize", "qual é minha", "o que você sabe sobre", "reserva", "reserve"])
-
+        
         if not force_llm:
             intention = friday.interpret(clean_command)
             if session.pending_action is not None:
@@ -970,7 +1011,7 @@ class FridayHandler(BaseHTTPRequestHandler):
                 return exec_result.get("error", "Não foi possível executar a ferramenta.")
 
             tool_result = exec_result.get("result")
-
+            
             if isinstance(tool_result, dict) and "error" in tool_result:
                 return tool_result["error"]
 
@@ -1014,7 +1055,7 @@ class FridayHandler(BaseHTTPRequestHandler):
                     return "\n".join(lines)
                 if tool_name == "play_music" and isinstance(tool_result, dict):
                     return f"[PLAY_MUSIC:{tool_result.get('url', '')}] Tocando {tool_result.get('query', '')} no YouTube, chefe."
-
+                    
                 return "Ferramenta executada, chefe."
 
             return str(final_text)
@@ -1139,7 +1180,7 @@ class FridayHandler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     if not os.getenv("FRIDAY_PASSWORD"):
-        raise RuntimeError("Configure o segredo FRIDAY_PASSWORD no Replit.")
+        raise RuntimeError("Configure o segredo FRIDAY_PASSWORD no servidor.")
 
     port = int(os.environ.get("PORT", "5000"))
 
