@@ -19,7 +19,6 @@ if not logger.handlers:
     logger.addHandler(handler)
     logger.setLevel(logging.INFO)
 
-
 # ========================================
 # HANDLERS (implementações reais)
 # ========================================
@@ -122,6 +121,61 @@ def _handler_send_email(to_email, subject, body):
     except Exception as e:
         return {"error": f"Falha ao enviar e-mail: {str(e)}"}
 
+def _handler_read_emails(query="", max_results=5):
+    ctx = _CALENDAR_CONTEXT.get("access_token_provider")
+    if not callable(ctx):
+        return {"error": "Integração com o Google indisponível."}
+    
+    try:
+        access_token = ctx()
+    except Exception as exc:
+        return {"error": f"Falha ao obter token: {exc}"}
+    
+    if not access_token:
+        return {"error": "Google não conectado. Autorize o Calendar novamente."}
+
+    params = {
+        "maxResults": str(max_results),
+        "labelIds": "INBOX",
+    }
+    if query:
+        params["q"] = query
+
+    url = "https://gmail.googleapis.com/gmail/v1/users/me/messages?" + urllib.parse.urlencode(params)
+    req = Request(url, headers={"Authorization": "Bearer " + access_token})
+    
+    try:
+        with urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except HTTPError as e:
+        if e.code == 401:
+            return {"error": "Token expirado. Reconecte o Google Calendar."}
+        return {"error": f"Falha ao listar e-mails: {e}"}
+    except Exception as e:
+        return {"error": f"Falha na conexão com Gmail: {e}"}
+
+    messages = data.get("messages", [])
+    if not messages:
+        return {"ok": True, "emails": [], "message": "Nenhum e-mail encontrado."}
+
+    emails = []
+    for msg in messages[:max_results]:
+        msg_id = msg["id"]
+        detail_url = f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{msg_id}?format=metadata&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=Date"
+        req_detail = Request(detail_url, headers={"Authorization": "Bearer " + access_token})
+        try:
+            with urlopen(req_detail, timeout=10) as resp:
+                detail = json.loads(resp.read().decode("utf-8"))
+                headers = detail.get("payload", {}).get("headers", [])
+                subject = next((h["value"] for h in headers if h["name"] == "Subject"), "(sem assunto)")
+                sender = next((h["value"] for h in headers if h["name"] == "From"), "(remetente desconhecido)")
+                date = next((h["value"] for h in headers if h["name"] == "Date"), "")
+                emails.append({"subject": subject, "from": sender, "date": date})
+        except Exception:
+            emails.append({"subject": "(falha ao ler)", "from": "", "date": ""})
+
+    return {"ok": True, "emails": emails}
+
 def _handler_save_memory(key, value):
     save_func = _MEMORY_CONTEXT.get("save")
     if not callable(save_func):
@@ -144,48 +198,43 @@ def _handler_recall_memory(key):
 
 def _handler_play_music(query):
     query_encoded = urllib.parse.quote(query)
-
-    # TENTATIVA 1: API Piped (altamente confiável para achar vídeos)
     try:
         piped_url = f"https://pipedapi.kavin.rocks/search?q={query_encoded}&filter=videos"
         req = Request(piped_url, headers={"User-Agent": "Mozilla/5.0"})
         with urlopen(req, timeout=10) as response:
             data = json.loads(response.read().decode("utf-8"))
-
         items = data.get("items", [])
         if items and "url" in items[0]:
             video_id = items[0]["url"].split("v=")[-1]
             embed_url = f"https://www.youtube.com/embed/{video_id}?autoplay=1"
             return {"ok": True, "action": "play_music", "url": embed_url, "query": query}
-    except Exception as e:
-        print(f"FRIDAY WEB: erro na API Piped: {e}")
+    except Exception:
+        pass
 
-    # TENTATIVA 2 (Fallback): Raspar o YouTube diretamente
     try:
         url = f"https://www.youtube.com/results?search_query={query_encoded}"
         req = Request(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
         with urlopen(req, timeout=10) as response:
             html = response.read().decode("utf-8")
-
         match = re.search(r'"videoId":"([a-zA-Z0-9_-]{11})"', html)
         if match:
             video_id = match.group(1)
             embed_url = f"https://www.youtube.com/embed/{video_id}?autoplay=1"
             return {"ok": True, "action": "play_music", "url": embed_url, "query": query}
-    except Exception as e:
-        print(f"FRIDAY WEB: erro ao raspar YouTube: {e}")
+    except Exception:
+        pass
 
     return {"error": "Não consegui encontrar o vídeo no YouTube."}
 
 def _handler_get_morning_briefing(city="Criciúma"):
     briefing = []
-
+    
     clima = _handler_get_weather(city)
     if isinstance(clima, str):
         briefing.append(clima)
     elif isinstance(clima, dict) and "error" in clima:
         briefing.append("Não consegui obter a previsão do tempo agora.")
-
+        
     agenda = _handler_get_calendar_events("today")
     if isinstance(agenda, dict) and "events" in agenda:
         evts = agenda["events"]
@@ -195,7 +244,7 @@ def _handler_get_morning_briefing(city="Criciúma"):
             briefing.append("Sua agenda está livre hoje.")
     else:
         briefing.append("Não consegui acessar a sua agenda neste momento.")
-
+            
     news = _handler_search_web("últimas notícias do mundo hoje", max_results=1)
     if isinstance(news, dict) and "results" in news and news["results"]:
         snippet = news["results"][0].get("snippet", "")
@@ -321,8 +370,20 @@ TOOL_REGISTRY = {
         },
         "requires_confirmation": True, "allowed_roles": ["owner"], "handler": _handler_send_email,
     },
+    "read_emails": {
+        "description": "Lê os e-mails mais recentes da caixa de entrada do Gmail.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Filtro opcional (ex: 'from:chefe@empresa.com is:unread')."},
+                "max_results": {"type": "integer", "description": "Número de e-mails a retornar (padrão 5)."}
+            },
+            "additionalProperties": False,
+        },
+        "requires_confirmation": False, "allowed_roles": ["owner"], "handler": _handler_read_emails,
+    },
     "save_memory": {
-        "description": "Salva uma informação importante de longo prazo sobre o usuário.",
+        "description": "Salva uma informação importante de longo prazo sobre o usuário (ex: preferências, nomes, fatos).",
         "parameters": {
             "type": "object",
             "properties": {
