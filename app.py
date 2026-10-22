@@ -38,10 +38,12 @@ if os.path.exists("/data") and os.access("/data", os.W_OK):
 DB_PATH = os.path.join(DATA_DIR, "friday.db")
 
 # ========================================
-# GOOGLE CALENDAR — OAUTH
+# GOOGLE CALENDAR / GMAIL — OAUTH
 # ========================================
 GOOGLE_OAUTH_AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_OAUTH_TOKEN_URL = "https://oauth2.googleapis.com/token"
+
+# Escopo atualizado para incluir Calendar e Gmail
 GOOGLE_SCOPES = "https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/gmail.readonly"
 
 OAUTH_STATE_TTL_SECONDS = 600
@@ -547,20 +549,18 @@ class FridayHandler(BaseHTTPRequestHandler):
             return
 
         # ID da Voz "Rachel" (Feminina, tom suave e profissional)
-        # Outras opções: Bella (EXAVITQu4vr4xnSDxMaL), Domi (AZnzlk1XvdvUeBnXmlld)
         voice_id = "21m00Tcm4TlvDq8ikWAM" 
         
-        # Forçando alta qualidade e o modelo mais rápido e natural
         url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}?output_format=mp3_44100_128"
 
         payload = json.dumps({
             "text": text,
             "model_id": "eleven_turbo_v2_5", 
             "voice_settings": {
-                "stability": 0.3,          # Menor estabilidade = mais emoção e naturalidade
-                "similarity_boost": 0.85,  # Fidelidade à voz original
-                "style": 0.0,              # Exagero de estilo (0 = desligado)
-                "use_speaker_boost": True  # Aumenta a clareza da voz
+                "stability": 0.3,          
+                "similarity_boost": 0.85,  
+                "style": 0.0,              
+                "use_speaker_boost": True  
             }
         }).encode("utf-8")
 
@@ -581,6 +581,16 @@ class FridayHandler(BaseHTTPRequestHandler):
         except Exception as e:
             print(f"FRIDAY WEB: Falha na ElevenLabs: {e}")
             self.send_json(500, {"error": f"Falha na ElevenLabs: {str(e)}"})
+
+    def get_session(self):
+        token = _read_session_cookie(self.headers.get("Cookie", ""))
+        if not token:
+            return None
+        if not _signed_session_is_valid(token) and SESSION_STORE.get(token) is None:
+            return None
+        if SESSION_STORE.get(token) is None and not _restore_session(token):
+            return None
+        return token
 
     def request_scheme(self):
         forwarded = self.headers.get("X-Forwarded-Proto", "").split(",", 1)[0].strip().lower()
@@ -711,7 +721,7 @@ class FridayHandler(BaseHTTPRequestHandler):
                 "client_id": GOOGLE_OAUTH_CLIENT_ID,
                 "redirect_uri": GOOGLE_OAUTH_REDIRECT_URI,
                 "response_type": "code",
-                "scope": GOOGLE_CALENDAR_SCOPE,
+                "scope": GOOGLE_SCOPES,
                 "state": state,
                 "access_type": "offline",
                 "include_granted_scopes": "true",
@@ -955,7 +965,7 @@ class FridayHandler(BaseHTTPRequestHandler):
             return calendar_reply
 
         # --- NOVO: Ignora o cérebro antigo para comandos de memória e deixa o LLM lidar com o SQLite ---
-        force_llm = any(t in normalized for t in ["lembre-se", "salve na memória", "memorize", "qual é minha", "o que você sabe sobre", "reserva", "reserve"])
+        force_llm = any(t in normalized for t in ["lembre-se", "salve na memória", "memorize", "qual é minha", "o que você sabe sobre", "reserva", "reserve", "email", "e-mail", "caixa de entrada"])
         
         if not force_llm:
             intention = friday.interpret(clean_command)
@@ -1053,6 +1063,14 @@ class FridayHandler(BaseHTTPRequestHandler):
                     return "\n".join(lines)
                 if tool_name == "play_music" and isinstance(tool_result, dict):
                     return f"[PLAY_MUSIC:{tool_result.get('url', '')}] Tocando {tool_result.get('query', '')} no YouTube, chefe."
+                if tool_name == "read_emails" and isinstance(tool_result, dict):
+                    emails = tool_result.get("emails", [])
+                    if not emails:
+                        return "Sua caixa de entrada está vazia, chefe."
+                    lines = ["Aqui estão os e-mails mais recentes:"]
+                    for e in emails:
+                        lines.append(f"- De: {e.get('from')} | Assunto: {e.get('subject')}")
+                    return "\n".join(lines)
                     
                 return "Ferramenta executada, chefe."
 
