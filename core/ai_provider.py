@@ -29,31 +29,30 @@ class FridayAIProvider:
 
     def _get_system_prompt(self):
         return """
-    Você é FRIDAY, a inteligência artificial pessoal do Chefe, inspirada no JARVIS.
-    Sua personalidade é formal, leal, proativa, precisa e levemente espirituosa quando apropriado.
-    Trate o usuário por "chefe" ou "senhor".
-    Mantenha respostas concisas e acionáveis. Responda sempre em português brasileiro.
+Você é FRIDAY, a inteligência artificial pessoal do Chefe, inspirada no JARVIS.
+Sua personalidade é formal, leal, proativa, precisa e levemente espirituosa.
+Trate o usuário por "chefe" ou "senhor".
+Mantenha respostas concisas e acionáveis. Responda sempre em português brasileiro.
 
-    REGRA DE OURO PARA FERRAMENTAS (MUITO IMPORTANTE):
-    Você tem acesso a ferramentas reais no sistema. NUNCA finja que salvou ou lembrou de algo usando apenas texto.
-    1. SEMPRE que o usuário pedir para você lembrar ou salvar algo, use `save_memory`.
-    2. SEMPRE que o usuário perguntar sobre algo que você deveria lembrar, use `recall_memory`.
-    3. Para notícias, clima ou fatos recentes, use `search_web`.
+REGRA DE OURO PARA FERRAMENTAS:
+Você tem acesso a ferramentas reais no sistema. NUNCA finja que salvou, lembrou ou reservou algo sem executar a ferramenta.
+1. Para lembrar de algo, use `save_memory`.
+2. Para recordar, use `recall_memory`.
+3. Para fatos recentes ou telefones/endereços, use `search_web`.
+4. Para ler os e-mails mais recentes, use `read_emails`. Use quando o usuário perguntar "tem algum e-mail novo?" ou "o que chegou na caixa de entrada?".
+5. VOCÊ PODE FAZER RESERVAS REAIS usando a ferramenta `make_reservation` (se configurada) ou enviando e-mail.
+6. Pode usar `send_email` para enviar e-mails.
 
-    COMPORTAMENTO PROATIVO E ANTECIPAÇÃO:
-    Você não é apenas uma executora, você é uma assistente de inteligência.
-    Sempre que você executar uma ação (como salvar uma memória) ou o usuário mencionar algo novo (como um restaurante favorito, um filme ou um evento), ANTECIPE as necessidades dele.
-    Sugira ações lógicas que você pode realizar usando as ferramentas disponíveis.
-    Exemplos de proatividade:
-    - Se o usuário salvar o nome de uma pizzaria, diga: "Registrado. Deseja que eu pesquise os horários de funcionamento ou faça uma reserva para hoje?"
-    - Se o usuário falar de um evento, diga: "Anotado. Quer que eu crie um lembrete na sua agenda para não esquecer?"
-    - Se o usuário mencionar um destino, diga: "Interessante. Quer que eu verifique a previsão do tempo lá para os próximos dias?"
-    Seja sempre útil, mas educada. Termine suas respostas com uma sugestão de próximo passo quando fizer sentido.
-    """
+COMPORTAMENTO PROATIVO E ANTECIPAÇÃO:
+Você é uma assistente de inteligência. Antecipe as necessidades do usuário e sugira ações com base nas ferramentas disponíveis.
+Exemplos de sugestões proativas:
+- Se salvar uma pizzaria, sugira: "Deseja que eu pesquise o telefone ou crie um evento na sua agenda?"
+- Se o usuário perguntar sobre e-mails, resuma e pergunte se deseja responder ou arquivar.
+"""
 
     def _build_messages(self, message, history=None):
         messages = [{"role": "system", "content": self._get_system_prompt().strip()}]
-
+        
         if history:
             for item in history[-10:]:
                 if (
@@ -65,7 +64,7 @@ class FridayAIProvider:
                         "role": item["role"],
                         "content": item["content"][:4000],
                     })
-
+                    
         messages.append({
             "role": "user",
             "content": str(message)[:4000],
@@ -73,7 +72,6 @@ class FridayAIProvider:
         return messages
 
     def generate(self, message, history=None):
-        """Gera uma resposta simples sem ferramentas (usada pelo core/assistant.py e como fallback)."""
         if not self.available():
             logger.warning("IA indisponível: chave de API não configurada.")
             return None
@@ -87,7 +85,6 @@ class FridayAIProvider:
         return self._execute_request(payload)
 
     def chat_with_tools(self, user_message, history, tools):
-        """Gera uma resposta com suporte a ferramentas (Function Calling)."""
         if not self.available():
             return {"error": "IA indisponível."}
 
@@ -118,11 +115,11 @@ class FridayAIProvider:
                 return {"text": "Não consegui obter uma resposta."}
 
             message = choices[0].get("message", {})
-
+            
             if "tool_calls" in message and message["tool_calls"]:
                 tool_call = message["tool_calls"][0]
                 function_data = tool_call.get("function", {})
-
+                
                 try:
                     args = json.loads(function_data.get("arguments", "{}"))
                 except json.JSONDecodeError:
@@ -136,11 +133,11 @@ class FridayAIProvider:
                         "raw_arguments": function_data.get("arguments", "{}")
                     }
                 }
-
+            
             content = message.get("content")
             if isinstance(content, str) and content.strip():
                 return {"text": content.strip()}
-
+                
             return {"text": "Comando processado."}
 
         except Exception as e:
@@ -148,12 +145,11 @@ class FridayAIProvider:
             return {"error": str(e)}
 
     def chat_with_tool_result(self, user_message, tool_name, tool_result, history, tool_call_id=None, raw_arguments="{}"):
-        """Envia o resultado da ferramenta de volta para a IA formatar a resposta final."""
         if not self.available():
             return None
 
         messages = self._build_messages(user_message, history)
-
+        
         messages.append({
             "role": "assistant",
             "content": None,
@@ -168,7 +164,7 @@ class FridayAIProvider:
                 }
             ]
         })
-
+        
         result_str = json.dumps(tool_result, ensure_ascii=False)
         messages.append({
             "role": "tool",
@@ -206,7 +202,7 @@ class FridayAIProvider:
         try:
             result = self._send_raw_request(payload)
             choices = result.get("choices", [])
-
+            
             if choices:
                 content = choices[0].get("message", {}).get("content")
                 if isinstance(content, str) and content.strip():
