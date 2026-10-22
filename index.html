@@ -838,6 +838,10 @@
       let lockoutInterval = null;
       let lockoutEndsAt = 0;
 
+      // Variáveis do Wake Word
+      let wakeWordRecognition = null;
+      let wakeWordActive = false;
+
       const SETTINGS_KEY = "friday_voice_settings_v1";
 
       const defaultSettings = {
@@ -1049,6 +1053,12 @@
       function stopVoice() {
         speechRunId++;
         speechQueue = [];
+
+        // --- Para o Wake Word para não conflitar com o microfone principal ---
+        if (wakeWordRecognition && wakeWordActive) {
+            wakeWordActive = false;
+            try { wakeWordRecognition.stop(); } catch(e) {}
+        }
 
         if (currentUtterance instanceof Audio) {
             currentUtterance.pause();
@@ -1273,6 +1283,10 @@
 
           $("command").focus();
           checkCalendarConnection();
+          
+          // --- Inicia o Wake Word após o login bem-sucedido ---
+          startWakeWordListener(); 
+          
         } catch (error) {
           status(error.message);
           $("password").value = "";
@@ -1383,6 +1397,13 @@
           $("voiceBtn").classList.remove("listening");
           $("voiceBtn").textContent = "🎙 Falar";
           setWaveformState('idle');
+
+          // --- Volta a escutar o Wake Word após o comando terminar ---
+          setTimeout(() => {
+              if (!$("assistant").classList.contains("hidden")) {
+                  startWakeWordListener();
+              }
+          }, 1000); // Espera 1 segundo para evitar capturar o eco da própria voz
         };
 
         try {
@@ -1451,6 +1472,59 @@
       $("stopSpeakBtn").addEventListener("click", () => { stopVoice(); status("Fala interrompida."); });
       $("stopSpeakTop").addEventListener("click", () => { stopVoice(); status("Fala interrompida."); });
 
+      // ========================================
+      // WAKE WORD - "HEY FRIDAY"
+      // ========================================
+      function startWakeWordListener() {
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRecognition || wakeWordActive) return;
+
+        wakeWordRecognition = new SpeechRecognition();
+        wakeWordRecognition.lang = 'pt-BR';
+        wakeWordRecognition.continuous = true;
+        wakeWordRecognition.interimResults = true;
+
+        wakeWordRecognition.onresult = (event) => {
+          const transcript = Array.from(event.results)
+            .map(result => result[0].transcript)
+            .join('')
+            .toLowerCase();
+
+          // Detecta a frase de ativação
+          if (transcript.includes('hey friday') || transcript.includes('oi friday')) {
+            console.log('Wake word detectada!');
+            // Para o listener de wake word para não conflitar
+            wakeWordRecognition.stop();
+            wakeWordActive = false;
+            
+            // Dispara o microfone principal da FRIDAY
+            soundListen();
+            startVoice();
+          }
+        };
+
+        wakeWordRecognition.onerror = (event) => {
+          // Ignora erros de "no-speech" ou "aborted" para manter a escuta
+          if (event.error === 'no-speech' || event.error === 'aborted') return;
+          console.warn('Wake word erro:', event.error);
+        };
+
+        wakeWordRecognition.onend = () => {
+          // Se parou sozinho, reinicia para continuar ouvindo
+          if (!wakeWordActive && !$("assistant").classList.contains("hidden")) {
+            try { wakeWordRecognition.start(); } catch(e) {}
+          }
+        };
+
+        try {
+          wakeWordRecognition.start();
+          wakeWordActive = true;
+          console.log('Wake word listener ativo.');
+        } catch (e) {
+          console.warn('Não foi possível iniciar wake word:', e);
+        }
+      }
+
       function showLogin() {
         stopVoice();
         $("assistant").classList.add("hidden");
@@ -1514,6 +1588,9 @@
                     speakResponse('Bem-vindo de volta, chefe. Pronto para suas ordens.');
                 });
             checkCalendarConnection();
+            
+            // --- Inicia o Wake Word após detectar sessão ativa ---
+            startWakeWordListener();
           }
 
           if (calendarMessages[calendarState]) {
