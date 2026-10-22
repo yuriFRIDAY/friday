@@ -42,7 +42,7 @@ DB_PATH = os.path.join(DATA_DIR, "friday.db")
 # ========================================
 GOOGLE_OAUTH_AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_OAUTH_TOKEN_URL = "https://oauth2.googleapis.com/token"
-GOOGLE_CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.events"
+GOOGLE_SCOPES = "https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/gmail.readonly"
 
 OAUTH_STATE_TTL_SECONDS = 600
 GOOGLE_OWNER_KEY = "owner"
