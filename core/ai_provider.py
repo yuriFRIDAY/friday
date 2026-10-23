@@ -29,9 +29,9 @@ class FridayAIProvider:
 
     def __init__(self):
         self.api_key = os.getenv("GROQ_API_KEY", "")
-        # Modelo oficial da Groq que suporta function calling local
-        self.model = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
-        self.vision_model = "openai/gpt-oss-120b"  # Usando o mesmo modelo para visão, se necessário
+        # Llama 3 70B é o modelo mais estável da Groq para Function Calling
+        self.model = os.getenv("GROQ_MODEL", "llama3-70b-8192")
+        self.vision_model = "llama3-70b-8192" 
         self.base_url = "https://api.groq.com/openai/v1"
         self.smtp_user = os.getenv("SMTP_USER", "")
         self.data_dir = os.getenv("DATA_DIR", ".")
@@ -82,25 +82,22 @@ Seja direto. Máximo 2-3 frases, salvo quando pedirem resumo detalhado.
 
 FERRAMENTAS:
 NUNCA finja que salvou/lembrou/executou algo sem chamar a ferramenta.
+Você DEVE usar EXATAMENTE os nomes das ferramentas fornecidas no schema JSON. 
+NÃO invente nomes como 'websearch' ou 'weather'. Use 'search_web' e 'get_weather'.
+
 1. `save_memory` / `recall_memory` / `delete_memory` para memória.
 2. `read_emails` para listar; `read_email_full` (com message_id) para ler corpo completo; `get_email_thread` (com thread_id) para conversa inteira.
 3. `reply_to_email` para responder mantendo thread.
-4. `send_email` (aceita attachment_base64 + attachment_name).
+4. `send_email`.
 5. `search_web` para links; `deep_search` para já ler o conteúdo do topo.
 6. `read_webpage` para uma URL específica.
 7. `get_calendar_events`, `create_calendar_event`, `update_calendar_event`, `delete_calendar_event`.
-8. `find_free_slots` para achar horários livres — use após detectar conflito.
-9. `play_music` (is_playlist=true para playlists).
+8. `find_free_slots` para achar horários livres.
+9. `play_music`.
 
 REGRA CRÍTICA DE AGENDA:
 - Compromissos que estão em MEMÓRIAS abaixo: responda direto da memória, sem consultar a agenda.
 - Só use `get_calendar_events` quando o usuário pedir a agenda explicitamente.
-
-RACIOCÍNIO EM MÚLTIPLOS PASSOS:
-- Exemplo 1: "Veja e-mail do Render e pesquise como resolver" → read_emails → search_web → responda.
-- Exemplo 2: "Crie reunião amanhã às 15h" → get_calendar_events(today) → se houver conflito, use find_free_slots → avise ou crie.
-- Exemplo 3: "Leia esta thread do RH" → read_emails(query='from:rh') → get_email_thread(thread_id) → resuma.
-- Exemplo 4: "Qual a cláusula de rescisão deste PDF?" → analise o texto do PDF (já fornecido) → responda direto.
 
 {memories}
 """
@@ -123,29 +120,8 @@ RACIOCÍNIO EM MÚLTIPLOS PASSOS:
         return self._execute_request(payload)
 
     def chat_with_vision(self, user_message, image_base64, history=None):
-        if not self.available():
-            return "A IA não está configurada."
-        messages = [{"role": "system", "content": self._get_system_prompt().strip()}]
-        if history:
-            for item in history[-5:]:
-                if isinstance(item, dict) and item.get("role") in ("user", "assistant"):
-                    messages.append({"role": item["role"], "content": item["content"][:2000]})
-        messages.append({"role": "user", "content": [
-            {"type": "text", "text": user_message},
-            {"type": "image_url", "image_url": {"url": image_base64}}
-        ]})
-        payload = {"model": self.vision_model, "messages": messages, "stream": False}
-        try:
-            result = self._send_raw_request(payload)
-            choices = result.get("choices", [])
-            if choices:
-                content = choices[0].get("message", {}).get("content")
-                if isinstance(content, str) and content.strip():
-                    return content.strip()
-            return "A IA não retornou uma descrição."
-        except Exception as e:
-            logger.error(f"Erro visão: {str(e)}")
-            return f"Falha ao analisar imagem: {str(e)}"
+        # Como o Llama3-70b não tem visão, usamos uma mensagem de fallback amigável se necessário
+        return "Desculpe, chefe. Meu módulo de visão está temporariamente em manutenção."
 
     def chat_with_tools(self, user_message, history, tools):
         if not self.available():
@@ -176,8 +152,13 @@ RACIOCÍNIO EM MÚLTIPLOS PASSOS:
             if isinstance(content, str) and content.strip():
                 return {"text": content.strip()}
             return {"text": "Comando processado."}
+        except HTTPError as e:
+            try:
+                err_body = e.read().decode("utf-8")
+            except:
+                err_body = str(e)
+            return {"error": f"HTTP {e.code}: {err_body}"}
         except Exception as e:
-            logger.error(f"Erro tools: {e}")
             return {"error": str(e)}
 
     def chat_with_tool_result(self, user_message, tool_name, tool_result, history, tool_call_id=None, raw_arguments="{}"):
@@ -223,6 +204,13 @@ RACIOCÍNIO EM MÚLTIPLOS PASSOS:
             if isinstance(content, str) and content.strip():
                 return {"text": content.strip()}
             return {"text": "Comando processado."}
+        except HTTPError as e:
+            try:
+                err_body = e.read().decode("utf-8")
+            except:
+                err_body = str(e)
+            logger.error(f"Erro full history (HTTP {e.code}): {err_body}")
+            return {"error": f"HTTP {e.code}: {err_body}"}
         except Exception as e:
             logger.error(f"Erro full history: {e}")
             return {"error": str(e)}
