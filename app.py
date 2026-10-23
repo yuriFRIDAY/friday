@@ -413,6 +413,7 @@ def _calendar_events_query(access_token, time_min=None, time_max=None, max_resul
         start = item.get("start") if isinstance(item.get("start"), dict) else {}
         end = item.get("end") if isinstance(item.get("end"), dict) else {}
         events.append({
+            "id": item.get("id", ""),
             "summary": item.get("summary") or "(sem título)",
             "start": start.get("dateTime") or start.get("date") or "",
             "end": end.get("dateTime") or end.get("date") or "",
@@ -447,11 +448,45 @@ def _calendar_create_event(access_token, payload):
     except (HTTPError, URLError, TimeoutError, ValueError, json.JSONDecodeError):
         return None
 
+def _calendar_delete_event(access_token, event_id):
+    request = Request(
+        f"https://www.googleapis.com/calendar/v3/calendars/primary/events/{event_id}",
+        headers={
+            "Accept": "application/json",
+            "Authorization": "Bearer " + access_token,
+        },
+        method="DELETE",
+    )
+    try:
+        with urlopen(request, timeout=15) as response:
+            return {"ok": True} # O Google retorna 204 No Content para sucesso
+    except (HTTPError, URLError, TimeoutError, ValueError, json.JSONDecodeError):
+        return None
+
+def _calendar_update_event(access_token, event_id, payload):
+    request = Request(
+        f"https://www.googleapis.com/calendar/v3/calendars/primary/events/{event_id}",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json; charset=utf-8",
+            "Accept": "application/json",
+            "Authorization": "Bearer " + access_token,
+        },
+        method="PATCH",
+    )
+    try:
+        with urlopen(request, timeout=15) as response:
+            return json.loads(response.read(262144).decode("utf-8"))
+    except (HTTPError, URLError, TimeoutError, ValueError, json.JSONDecodeError):
+        return None
+
 set_calendar_context(
     access_token_provider=_usable_calendar_access_token,
     events_query=_calendar_events_query,
     today_events=_calendar_today_events,
     create_event=_calendar_create_event,
+    delete_event=_calendar_delete_event,
+    update_event=_calendar_update_event,
 )
 
 GOOGLE_OAUTH_CLIENT_ID = os.getenv("GOOGLE_OAUTH_CLIENT_ID", "").strip()
@@ -478,7 +513,9 @@ def _db_save_memory(key, value):
 def _db_recall_memory(key):
     with sqlite3.connect(DB_PATH) as conn:
         conn.execute("CREATE TABLE IF NOT EXISTS ai_memory (key TEXT PRIMARY KEY, value TEXT)")
-        row = conn.execute("SELECT value FROM ai_memory WHERE key = ?", (key,)).fetchone()
+        # Alterado para busca por aproximação (LIKE)
+        search_term = f"%{key}%"
+        row = conn.execute("SELECT value FROM ai_memory WHERE key LIKE ? OR value LIKE ?", (search_term, search_term)).fetchone()
         return row[0] if row else None
 
 set_memory_context(save_func=_db_save_memory, recall_func=_db_recall_memory)
@@ -961,8 +998,8 @@ class FridayHandler(BaseHTTPRequestHandler):
         if calendar_handled:
             return calendar_reply
 
-        # --- NOVO: Ignora o cérebro antigo para comandos de memória e deixa o LLM lidar com o SQLite ---
-        force_llm = any(t in normalized for t in ["lembre-se", "salve na memória", "memorize", "qual é minha", "o que você sabe sobre", "reserva", "reserve", "email", "e-mail", "caixa de entrada"])
+        # --- NOVO: Ignora o cérebro antigo para comandos complexos ---
+        force_llm = any(t in normalized for t in ["lembre-se", "salve na memória", "memorize", "qual é minha", "o que você sabe sobre", "reserva", "reserve", "email", "e-mail", "caixa de entrada", "cancela", "cancele", "muda", "altere", "remarque", "apaga", "deleta"])
         
         if not force_llm:
             intention = friday.interpret(clean_command)
