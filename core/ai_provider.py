@@ -29,9 +29,9 @@ class FridayAIProvider:
 
     def __init__(self):
         self.api_key = os.getenv("GROQ_API_KEY", "")
-        # Trocamos para o Llama 4 Scout, que suporta function calling nativamente e é estável
-        self.model = os.getenv("GROQ_MODEL", "meta-llama/llama-4-scout-17b-16e-instruct")
-        self.vision_model = "meta-llama/llama-4-scout-17b-16e-instruct"
+        # Modelo oficial da Groq que suporta function calling local
+        self.model = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
+        self.vision_model = "openai/gpt-oss-120b"  # Usando o mesmo modelo para visão, se necessário
         self.base_url = "https://api.groq.com/openai/v1"
         self.smtp_user = os.getenv("SMTP_USER", "")
         self.data_dir = os.getenv("DATA_DIR", ".")
