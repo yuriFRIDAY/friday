@@ -42,18 +42,12 @@ class FridayAIProvider:
         return bool(self.api_key.strip())
 
     def _get_current_time_context(self):
-        # Usa o fuso de Brasília; fallback para UTC-3 caso o servidor não tenha tzdata
         try:
-            if HAS_ZONEINFO:
-                now = datetime.now(ZoneInfo("America/Sao_Paulo"))
-            else:
-                now = datetime.now(timezone(timedelta(hours=-3)))
+            now = datetime.now(ZoneInfo("America/Sao_Paulo")) if HAS_ZONEINFO else datetime.now(timezone(timedelta(hours=-3)))
         except Exception:
             now = datetime.now(timezone(timedelta(hours=-3)))
-            
-        dias_semana = ["segunda-feira", "terça-feira", "quarta-feira", "quinta-feira", "sexta-feira", "sábado", "domingo"]
-        dia_semana = dias_semana[now.weekday()]
-        return f"Hoje é {dia_semana}, {now.strftime('%d/%m/%Y')} e agora são {now.strftime('%H:%M')} (Horário de Brasília)."
+        dias = ["segunda-feira", "terça-feira", "quarta-feira", "quinta-feira", "sexta-feira", "sábado", "domingo"]
+        return f"Hoje é {dias[now.weekday()]}, {now.strftime('%d/%m/%Y')} e agora são {now.strftime('%H:%M')} (Horário de Brasília)."
 
     def _get_recent_memories(self):
         try:
@@ -63,10 +57,7 @@ class FridayAIProvider:
                 conn.execute("CREATE TABLE IF NOT EXISTS ai_memory (key TEXT PRIMARY KEY, value TEXT)")
                 rows = conn.execute("SELECT key, value FROM ai_memory ORDER BY rowid DESC LIMIT 10").fetchall()
                 if rows:
-                    mem_text = "\nAqui estão as coisas que você lembra sobre o Chefe:\n"
-                    for r in rows:
-                        mem_text += f"- {r[0]}: {r[1]}\n"
-                    return mem_text
+                    return "\nMemórias sobre o Chefe:\n" + "\n".join(f"- {r[0]}: {r[1]}" for r in rows)
         except Exception:
             pass
         return ""
@@ -75,95 +66,74 @@ class FridayAIProvider:
         memories = self._get_recent_memories()
         time_context = self._get_current_time_context()
         return f"""
-Você é FRIDAY, a inteligência artificial pessoal do Chefe, inspirada no JARVIS.
-Sua personalidade é formal, leal, proativa, precisa e levemente espirituosa.
+Você é FRIDAY, a IA pessoal do Chefe, inspirada no JARVIS.
+Personalidade: formal, leal, proativa, precisa e levemente espirituosa.
 Trate o usuário por "chefe" ou "senhor".
-Responda sempre em português brasileiro.
-O seu próprio e-mail (do Chefe) é {self.smtp_user}. 
+Responda em português brasileiro.
+Seu e-mail (do Chefe) é {self.smtp_user}.
 
 CONTEXTO DE TEMPO:
 {time_context}
-Use isso para calcular datas relativas (ex: "amanhã", "próxima sexta"). Se precisar usar a agenda, calcule o formato ISO 8601 com base nessa data.
+Use para calcular datas relativas. PREFIRA start_natural/end_natural em vez de ISO 8601.
 
-REGRA DE OURO PARA CONCISÃO:
-Seja direto e conciso. A menos que o usuário peça explicitamente um resumo detalhado ou uma explicação longa, limite suas respostas a no máximo 2 ou 3 frases curtas. O JARVIS não enrola.
+CONCISÃO:
+Seja direto. Máximo 2-3 frases, salvo quando pedirem resumo detalhado.
 
-REGRA DE OURO PARA FERRAMENTAS:
-Você tem acesso a ferramentas reais no sistema. NUNCA finja que salvou, lembrou ou reservou algo sem executar a ferramenta.
-1. Para lembrar de algo, use `save_memory`.
-2. Para consultar e-mails, use `read_emails`. Para ler a conversa inteira, use `get_email_thread`.
-3. Para responder e-mails, use `reply_to_email` (usando o message_id retornado por read_emails).
-4. Para fatos recentes, use `search_web`. Para ler o conteúdo completo de um link, use `read_webpage`.
+FERRAMENTAS:
+NUNCA finja que salvou/lembrou/executou algo sem chamar a ferramenta.
+1. `save_memory` / `recall_memory` / `delete_memory` para memória.
+2. `read_emails` para listar; `read_email_full` (com message_id) para ler corpo completo; `get_email_thread` (com thread_id) para conversa inteira.
+3. `reply_to_email` para responder mantendo thread.
+4. `send_email` (aceita attachment_base64 + attachment_name).
+5. `search_web` para links; `deep_search` para já ler o conteúdo do topo.
+6. `read_webpage` para uma URL específica.
+7. `get_calendar_events`, `create_calendar_event`, `update_calendar_event`, `delete_calendar_event`.
+8. `find_free_slots` para achar horários livres — use após detectar conflito.
+9. `play_music` (is_playlist=true para playlists).
 
-REGRA CRÍTICA DE AGENDA VS MEMÓRIA:
-- Se o Chefe perguntar sobre um compromisso que está na sua lista de MEMÓRIAS (abaixo), responda diretamente com a informação da memória. NÃO chame `get_calendar_events` para isso.
-- Só use `get_calendar_events` se ele pedir explicitamente para checar a agenda do Google, ou se for criar/alterar um evento real.
+REGRA CRÍTICA DE AGENDA:
+- Compromissos que estão em MEMÓRIAS abaixo: responda direto da memória, sem consultar a agenda.
+- Só use `get_calendar_events` quando o usuário pedir a agenda explicitamente.
 
-RACIOCÍNIO EM MÚLTIPLOS PASSOS (FEW-SHOT EXEMPLOS):
-Você pode e deve usar MÚLTIPLAS ferramentas em sequência se a tarefa for complexa.
-- Exemplo 1 (E-mail e Web): "Veja se chegou e-mail do Render e pesquise como resolver". PRIMEIRO use `read_emails`. Depois use `search_web`. Só então responda.
-- Exemplo 2 (Conflito): "Crie uma reunião amanhã às 15h". Passo 1: Use `get_calendar_events`. Passo 2: Verifique se há conflito. Passo 3: Avise ou crie.
-- Exemplo 3 (Atualizar Evento): "Mude a reunião X para as 15h". Passo 1: Use `get_calendar_events` para achar o ID. Passo 2: Calcule o novo ISO 8601. Passo 3: Use `update_calendar_event`.
+RACIOCÍNIO EM MÚLTIPLOS PASSOS:
+- Exemplo 1: "Veja e-mail do Render e pesquise como resolver" → read_emails → search_web → responda.
+- Exemplo 2: "Crie reunião amanhã às 15h" → get_calendar_events(today) → se houver conflito, use find_free_slots → avise ou crie.
+- Exemplo 3: "Leia esta thread do RH" → read_emails(query='from:rh') → get_email_thread(thread_id) → resuma.
+- Exemplo 4: "Qual a cláusula de rescisão deste PDF?" → analise o texto do PDF (já fornecido) → responda direto.
 
 {memories}
 """
 
     def _build_messages(self, message, history=None):
         messages = [{"role": "system", "content": self._get_system_prompt().strip()}]
-        
         if history:
             for item in history[-10:]:
-                if (
-                    isinstance(item, dict)
-                    and item.get("role") in ("user", "assistant")
-                    and isinstance(item.get("content"), str)
-                ):
-                    messages.append({
-                        "role": item["role"],
-                        "content": item["content"][:4000],
-                    })
-                    
-        messages.append({
-            "role": "user",
-            "content": str(message)[:4000],
-        })
+                if (isinstance(item, dict) and item.get("role") in ("user", "assistant")
+                        and isinstance(item.get("content"), str)):
+                    messages.append({"role": item["role"], "content": item["content"][:4000]})
+        messages.append({"role": "user", "content": str(message)[:4000]})
         return messages
 
     def generate(self, message, history=None):
         if not self.available():
-            logger.warning("IA indisponível: chave de API não configurada.")
             return None
-
         messages = self._build_messages(message, history)
-        payload = {
-            "model": self.model,
-            "messages": messages,
-            "stream": False,
-        }
+        payload = {"model": self.model, "messages": messages, "stream": False}
         return self._execute_request(payload)
 
     def chat_with_vision(self, user_message, image_base64, history=None):
         if not self.available():
             return "A IA não está configurada."
-
         messages = [{"role": "system", "content": self._get_system_prompt().strip()}]
-        
         if history:
             for item in history[-5:]:
                 if isinstance(item, dict) and item.get("role") in ("user", "assistant"):
                     messages.append({"role": item["role"], "content": item["content"][:2000]})
-
         messages.append({"role": "user", "content": [
             {"type": "text", "text": user_message},
             {"type": "image_url", "image_url": {"url": image_base64}}
         ]})
-        
-        payload = {
-            "model": self.vision_model,
-            "messages": messages,
-            "stream": False,
-        }
-        
+        payload = {"model": self.vision_model, "messages": messages, "stream": False}
         try:
             result = self._send_raw_request(payload)
             choices = result.get("choices", [])
@@ -171,167 +141,89 @@ Você pode e deve usar MÚLTIPLAS ferramentas em sequência se a tarefa for comp
                 content = choices[0].get("message", {}).get("content")
                 if isinstance(content, str) and content.strip():
                     return content.strip()
-            return "A IA não retornou uma descrição para a imagem."
+            return "A IA não retornou uma descrição."
         except Exception as e:
-            logger.error(f"FRIDAY AI: Erro na análise de visão: {str(e)}")
+            logger.error(f"Erro visão: {str(e)}")
             return f"Falha ao analisar imagem: {str(e)}"
 
     def chat_with_tools(self, user_message, history, tools):
         if not self.available():
             return {"error": "IA indisponível."}
-
-        formatted_tools = []
-        for name, spec in tools.items():
-            formatted_tools.append({
-                "type": "function",
-                "function": {
-                    "name": name,
-                    "description": spec.get("description", ""),
-                    "parameters": spec.get("parameters", {})
-                }
-            })
-
+        formatted_tools = [{
+            "type": "function",
+            "function": {"name": n, "description": s.get("description", ""), "parameters": s.get("parameters", {})}
+        } for n, s in tools.items()]
         messages = self._build_messages(user_message, history)
-        payload = {
-            "model": self.model,
-            "messages": messages,
-            "tools": formatted_tools,
-            "tool_choice": "auto",
-            "stream": False,
-        }
-
+        payload = {"model": self.model, "messages": messages, "tools": formatted_tools,
+                   "tool_choice": "auto", "stream": False}
         try:
             result = self._send_raw_request(payload)
             choices = result.get("choices", [])
             if not choices:
                 return {"text": "Não consegui obter uma resposta."}
-
             message = choices[0].get("message", {})
-            
             if "tool_calls" in message and message["tool_calls"]:
-                tool_call = message["tool_calls"][0]
-                function_data = tool_call.get("function", {})
-                
+                tc = message["tool_calls"][0]
+                fd = tc.get("function", {})
                 try:
-                    args = json.loads(function_data.get("arguments", "{}"))
+                    args = json.loads(fd.get("arguments", "{}"))
                 except json.JSONDecodeError:
                     args = {}
-
-                return {
-                    "tool_call": {
-                        "id": tool_call.get("id"),
-                        "name": function_data.get("name"),
-                        "arguments": args,
-                        "raw_arguments": function_data.get("arguments", "{}")
-                    }
-                }
-            
+                return {"tool_call": {"id": tc.get("id"), "name": fd.get("name"),
+                                      "arguments": args, "raw_arguments": fd.get("arguments", "{}")}}
             content = message.get("content")
             if isinstance(content, str) and content.strip():
                 return {"text": content.strip()}
-                
             return {"text": "Comando processado."}
-
         except Exception as e:
-            logger.error(f"Erro no chat_with_tools: {e}")
+            logger.error(f"Erro tools: {e}")
             return {"error": str(e)}
 
     def chat_with_tool_result(self, user_message, tool_name, tool_result, history, tool_call_id=None, raw_arguments="{}"):
         if not self.available():
             return None
-
         messages = self._build_messages(user_message, history)
-        
         messages.append({
-            "role": "assistant",
-            "content": None,
-            "tool_calls": [
-                {
-                    "id": tool_call_id or "call_unknown",
-                    "type": "function",
-                    "function": {
-                        "name": tool_name,
-                        "arguments": raw_arguments
-                    }
-                }
-            ]
+            "role": "assistant", "content": None,
+            "tool_calls": [{"id": tool_call_id or "call_unknown", "type": "function",
+                            "function": {"name": tool_name, "arguments": raw_arguments}}]
         })
-        
-        result_str = json.dumps(tool_result, ensure_ascii=False)
-        messages.append({
-            "role": "tool",
-            "tool_call_id": tool_call_id or "call_unknown",
-            "content": result_str
-        })
-
-        payload = {
-            "model": self.model,
-            "messages": messages,
-            "stream": False,
-        }
-
+        messages.append({"role": "tool", "tool_call_id": tool_call_id or "call_unknown",
+                         "content": json.dumps(tool_result, ensure_ascii=False)})
+        payload = {"model": self.model, "messages": messages, "stream": False}
         return self._execute_request(payload)
 
     def chat_with_full_history(self, messages, tools):
         if not self.available():
             return {"error": "IA indisponível."}
-
-        formatted_tools = []
-        for name, spec in tools.items():
-            formatted_tools.append({
-                "type": "function",
-                "function": {
-                    "name": name,
-                    "description": spec.get("description", ""),
-                    "parameters": spec.get("parameters", {})
-                }
-            })
-
-        full_messages = [{"role": "system", "content": self._get_system_prompt().strip()}]
-        full_messages.extend(messages)
-
-        payload = {
-            "model": self.model,
-            "messages": full_messages,
-            "tools": formatted_tools,
-            "tool_choice": "auto",
-            "stream": False,
-        }
-
+        formatted_tools = [{
+            "type": "function",
+            "function": {"name": n, "description": s.get("description", ""), "parameters": s.get("parameters", {})}
+        } for n, s in tools.items()]
+        full_messages = [{"role": "system", "content": self._get_system_prompt().strip()}] + messages
+        payload = {"model": self.model, "messages": full_messages, "tools": formatted_tools,
+                   "tool_choice": "auto", "stream": False}
         try:
             result = self._send_raw_request(payload)
             choices = result.get("choices", [])
             if not choices:
                 return {"text": "Não consegui obter uma resposta."}
-
             message = choices[0].get("message", {})
-            
             if "tool_calls" in message and message["tool_calls"]:
-                tool_call = message["tool_calls"][0]
-                function_data = tool_call.get("function", {})
-                
+                tc = message["tool_calls"][0]
+                fd = tc.get("function", {})
                 try:
-                    args = json.loads(function_data.get("arguments", "{}"))
+                    args = json.loads(fd.get("arguments", "{}"))
                 except json.JSONDecodeError:
                     args = {}
-
-                return {
-                    "tool_call": {
-                        "id": tool_call.get("id"),
-                        "name": function_data.get("name"),
-                        "arguments": args,
-                        "raw_arguments": function_data.get("arguments", "{}")
-                    }
-                }
-            
+                return {"tool_call": {"id": tc.get("id"), "name": fd.get("name"),
+                                      "arguments": args, "raw_arguments": fd.get("arguments", "{}")}}
             content = message.get("content")
             if isinstance(content, str) and content.strip():
                 return {"text": content.strip()}
-                
             return {"text": "Comando processado."}
-
         except Exception as e:
-            logger.error(f"Erro no chat_with_full_history: {e}")
+            logger.error(f"Erro full history: {e}")
             return {"error": str(e)}
 
     def _send_raw_request(self, payload):
@@ -352,33 +244,28 @@ Você pode e deve usar MÚLTIPLAS ferramentas em sequência se a tarefa for comp
         started_at = time.monotonic()
         outcome = "unknown"
         status_code = None
-
         try:
             result = self._send_raw_request(payload)
             choices = result.get("choices", [])
-            
             if choices:
                 content = choices[0].get("message", {}).get("content")
                 if isinstance(content, str) and content.strip():
                     outcome = "success"
                     return content.strip()
-
             outcome = "empty_response"
             return None
-
         except HTTPError as error:
             status_code = error.code
             outcome = "http_error"
             try:
-                error_body = error.read().decode('utf-8')
-                logger.error(f"FRIDAY AI: Erro HTTP {status_code} da Groq: {error_body}")
+                logger.error(f"Erro HTTP {status_code} Groq: {error.read().decode('utf-8')}")
             except Exception:
-                logger.error(f"FRIDAY AI: Erro HTTP {status_code} sem detalhes.")
+                logger.error(f"Erro HTTP {status_code} Groq.")
             return None
         except Exception as error:
             outcome = "connection_error"
-            logger.error(f"FRIDAY AI: Falha de conexão: {type(error).__name__} - {str(error)}")
+            logger.error(f"Falha conexão: {type(error).__name__} - {str(error)}")
             return None
         finally:
-            elapsed_ms = round((time.monotonic() - started_at) * 1000)
-            logger.info(f"AI_REQUEST provider=groq outcome={outcome} duration_ms={elapsed_ms}")
+            elapsed = round((time.monotonic() - started_at) * 1000)
+            logger.info(f"AI_REQUEST provider=groq outcome={outcome} duration_ms={elapsed}")
