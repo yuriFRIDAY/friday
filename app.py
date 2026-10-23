@@ -52,8 +52,7 @@ def _heartbeat_worker():
     time.sleep(30) # Espera inicial para o app subir
     while True:
         try:
-            # Aqui o código pode chamar a Gmail API para checar novos e-mails
-            # e injetar na NOTIFICATION_QUEUE se for urgente.
+            # Lógica futura: checar novos e-mails via Gmail API aqui
             print("FRIDAY WEB: Heartbeat checando e-mails...")
             time.sleep(600) # 10 minutos
         except Exception as e:
@@ -403,7 +402,7 @@ def _usable_calendar_access_token():
 
 
 # ========================================
-# CONSULTA DE EVENTOS (usada pelas ferramentas)
+# CONSULTA DE EVENTOS
 # ========================================
 
 def _calendar_events_query(access_token, time_min=None, time_max=None, max_results=10):
@@ -549,7 +548,6 @@ def _db_recall_memory(key):
         return None
 
 set_memory_context(save_func=_db_save_memory, recall_func=_db_recall_memory)
-# ----------------------------------
 
 # ========================================
 # LEITURA DO ARQUIVO HTML
@@ -974,6 +972,40 @@ class FridayHandler(BaseHTTPRequestHandler):
 
         return False, ""
 
+    def _try_direct_email_thread_intent(self, command, normalized):
+        triggers = ["conversa de e-mail", "conversa de email", "thread de e-mail", "histórico de e-mail"]
+        if not any(t in normalized for t in triggers):
+            return False, ""
+
+        query_parts = []
+        for word in ["friday", "leia", "minha", "última", "ultima", "conversa", "de", "e-mail", "email", "thread", "histórico", "historico", "com", "o", "a"]:
+            command = command.replace(word, "").replace(word.capitalize(), "").strip()
+        
+        target_name = command.strip()
+        if not target_name:
+            return True, "Com quem é a conversa que deseja ler, chefe?"
+
+        from core.friday_tools import _handler_read_emails, _handler_get_email_thread
+        emails_res = _handler_read_emails(query=f"from:{target_name}", max_results=1)
+        
+        if not emails_res or "error" in emails_res or not emails_res.get("emails"):
+            return True, f"Não encontrei nenhum e-mail recente de '{target_name}', chefe."
+            
+        thread_id = emails_res["emails"][0].get("thread_id")
+        if not thread_id:
+            return True, "Encontrei o e-mail, mas não consegui identificar a linha de conversa."
+
+        thread_res = _handler_get_email_thread(thread_id)
+        if not thread_res or "error" in thread_res:
+            return True, f"Encontrei um e-mail de '{target_name}', mas não consegui ler o histórico completo."
+
+        from core.ai_provider import FridayAIProvider
+        provider = FridayAIProvider()
+        prompt = f"O usuário pediu para ler a conversa de e-mail com '{target_name}'. Aqui está o histórico:\n\n{thread_res['history']}\n\nResuma a conversa de forma clara e concisa para ele."
+        resumo = provider.generate(message=prompt)
+        
+        return True, (resumo or thread_res['history'])
+
     def _try_direct_calendar_action(self, command, normalized, session):
         if not _calendar_is_connected():
             return False, ""
@@ -1020,6 +1052,10 @@ class FridayHandler(BaseHTTPRequestHandler):
     def _try_direct_calendar_intent(self, command, normalized, session):
         if not _calendar_is_connected():
             return False, ""
+
+        email_handled, email_reply = self._try_direct_email_thread_intent(command, normalized)
+        if email_handled:
+            return True, email_reply
 
         action_handled, action_reply = self._try_direct_calendar_action(command, normalized, session)
         if action_handled:
@@ -1081,7 +1117,6 @@ class FridayHandler(BaseHTTPRequestHandler):
         from core.ai_provider import FridayAIProvider
         provider = FridayAIProvider()
         
-        # Map-Reduce para PDFs Gigantes
         if len(text) > 20000:
             chunk_size = 15000
             chunks = [text[i:i+chunk_size] for i in range(0, len(text), chunk_size)]
@@ -1139,7 +1174,7 @@ class FridayHandler(BaseHTTPRequestHandler):
         if calendar_handled:
             return calendar_reply
 
-        force_llm = any(t in normalized for t in ["lembre-se", "salve na memória", "memorize", "qual é minha", "o que você sabe sobre", "reserva", "reserve", "email", "e-mail", "caixa de entrada", "cancela", "cancele", "muda", "altere", "remarque", "apaga", "deleta", "pesquise", "leia", "resuma", "artigo", "site"])
+        force_llm = any(t in normalized for t in ["lembre-se", "salve na memória", "memorize", "email", "e-mail", "caixa de entrada", "cancela", "cancele", "muda", "altere", "remarque", "apaga", "deleta", "pesquise", "leia", "resuma", "artigo", "site"])
         
         if not force_llm:
             intention = friday.interpret(clean_command)
