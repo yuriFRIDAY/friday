@@ -913,6 +913,10 @@ class FridayHandler(BaseHTTPRequestHandler):
                 
                 if tool_name == "create_calendar_event" and isinstance(payload, dict):
                     return True, f"Evento criado, chefe: '{payload.get('summary')}' de {payload.get('start')} até {payload.get('end')}."
+                if tool_name == "delete_calendar_event":
+                    return True, "Evento excluído com sucesso, chefe."
+                if tool_name == "update_calendar_event":
+                    return True, "Evento atualizado com sucesso, chefe."
                 if tool_name == "send_email":
                     return True, str(payload)
                     
@@ -925,10 +929,64 @@ class FridayHandler(BaseHTTPRequestHandler):
 
         return False, ""
 
+    def _try_direct_calendar_action(self, command, normalized):
+        if not _calendar_is_connected():
+            return False, ""
+
+        # Gatilhos para deletar
+        is_delete = any(t in normalized for t in ["cancele", "cancele o", "apague", "delete", "deletar", "remova"])
+        # Gatilhos para atualizar
+        is_update = any(t in normalized for t in ["mude", "mudar", "altere", "alterar", "remarque", "remarcar", "atualize"])
+
+        if not (is_delete or is_update):
+            return False, ""
+
+        try:
+            access_token = _usable_calendar_access_token()
+        except Exception:
+            return True, "Não consegui renovar o acesso ao calendário, chefe."
+
+        if not access_token:
+            return True, "O calendário não está conectado no momento."
+
+        # Busca os próximos 10 eventos para achar o alvo
+        events = _calendar_events_query(access_token, max_results=10)
+        if not events:
+            return True, "Não encontrei nenhum evento na sua agenda para alterar ou excluir."
+
+        # Tenta extrair o nome do evento do comando
+        target_event = None
+        for evt in events:
+            evt_name = evt.get("summary", "").casefold()
+            # Verifica se o nome do evento está dentro do comando do usuário
+            if evt_name and evt_name in normalized:
+                target_event = evt
+                break
+        
+        if not target_event:
+            return True, "Não consegui identificar qual evento você quer alterar. Por favor, seja mais específico com o nome."
+
+        if is_delete:
+            session.pending_tool = ("delete_calendar_event", {"event_id": target_event["id"]})
+            return True, f"Chefe, encontrei o evento '{target_event['summary']}'. Deseja confirmar a exclusão? (responda 'confirmar' ou 'cancelar')"
+        
+        if is_update:
+            # Para atualizar, precisamos que a IA descubra o novo horário. 
+            # Deixamos o Agent Loop cuidar disso, mas já damos o ID do evento mastigado.
+            pass
+
+        return False, ""
+
     def _try_direct_calendar_intent(self, command, normalized):
         if not _calendar_is_connected():
             return False, ""
 
+        # 1. Tenta achar uma ação (deletar/atualizar)
+        action_handled, action_reply = self._try_direct_calendar_action(command, normalized)
+        if action_handled:
+            return True, action_reply
+
+        # 2. Consultas de agenda
         triggers_today = ("agenda de hoje", "o que tenho hoje", "compromissos de hoje", "eventos de hoje", "tenho algo hoje")
         triggers_upcoming = ("próximos compromissos", "proximos compromissos", "próximos eventos", "proximos eventos", "minha agenda", "o que está agendado")
 
