@@ -1,2 +1,4 @@
 # Projeto FRIDAY - Dependências
 # Utiliza apenas bibliotecas nativas do Python.
+
+PyPDF2==3.0.1
