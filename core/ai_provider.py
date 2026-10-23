@@ -23,6 +23,7 @@ class FridayAIProvider:
         self.api_key = os.getenv("GROQ_API_KEY", "")
         self.model = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
         self.base_url = "https://api.groq.com/openai/v1"
+        self.smtp_user = os.getenv("SMTP_USER", "")
 
     def available(self):
         return bool(self.api_key.strip())
@@ -45,6 +46,9 @@ Você tem acesso a ferramentas reais no sistema. NUNCA finja que salvou, lembrou
 RACIOCÍNIO EM MÚLTIPLOS PASSOS:
 Você pode e deve usar MÚLTIPLAS ferramentas em sequência se a tarefa for complexa.
 Exemplo: Se o usuário disser "Veja se chegou e-mail do Render e pesquise como resolver", você deve PRIMEIRO usar `read_emails`. Depois de receber o resultado, você deve usar `search_web` para buscar a solução do erro. Só então dê a resposta final.
+
+O seu próprio e-mail (do Chefe) é {self.smtp_user}. 
+Sempre que o Chefe pedir para enviar um e-mail para ele mesmo (ex: "me mande um e-mail"), use este endereço no campo "to_email".
 """
 
     def _build_messages(self, message, history=None):
