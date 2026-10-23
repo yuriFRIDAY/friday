@@ -27,7 +27,7 @@ class FridayAIProvider:
     def available(self):
         return bool(self.api_key.strip())
 
-        def _get_system_prompt(self):
+    def _get_system_prompt(self):
         return """
 Você é FRIDAY, a inteligência artificial pessoal do Chefe, inspirada no JARVIS.
 Sua personalidade é formal, leal, proativa, precisa e levemente espirituosa.
@@ -141,6 +141,42 @@ Exemplo: Se o usuário disser "Veja se chegou e-mail do Render e pesquise como r
             logger.error(f"Erro no chat_with_tools: {e}")
             return {"error": str(e)}
 
+    def chat_with_tool_result(self, user_message, tool_name, tool_result, history, tool_call_id=None, raw_arguments="{}"):
+        if not self.available():
+            return None
+
+        messages = self._build_messages(user_message, history)
+        
+        messages.append({
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": tool_call_id or "call_unknown",
+                    "type": "function",
+                    "function": {
+                        "name": tool_name,
+                        "arguments": raw_arguments
+                    }
+                }
+            ]
+        })
+        
+        result_str = json.dumps(tool_result, ensure_ascii=False)
+        messages.append({
+            "role": "tool",
+            "tool_call_id": tool_call_id or "call_unknown",
+            "content": result_str
+        })
+
+        payload = {
+            "model": self.model,
+            "messages": messages,
+            "stream": False,
+        }
+
+        return self._execute_request(payload)
+
     def chat_with_full_history(self, messages, tools):
         """Permite à IA raciocinar em múltiplos passos (Agent Loop)."""
         if not self.available():
@@ -157,7 +193,6 @@ Exemplo: Se o usuário disser "Veja se chegou e-mail do Render e pesquise como r
                 }
             })
 
-        # Adiciona o System Prompt no início da conversa
         full_messages = [{"role": "system", "content": self._get_system_prompt().strip()}]
         full_messages.extend(messages)
 
@@ -204,42 +239,6 @@ Exemplo: Se o usuário disser "Veja se chegou e-mail do Render e pesquise como r
         except Exception as e:
             logger.error(f"Erro no chat_with_full_history: {e}")
             return {"error": str(e)}
-
-    def chat_with_tool_result(self, user_message, tool_name, tool_result, history, tool_call_id=None, raw_arguments="{}"):
-        if not self.available():
-            return None
-
-        messages = self._build_messages(user_message, history)
-        
-        messages.append({
-            "role": "assistant",
-            "content": None,
-            "tool_calls": [
-                {
-                    "id": tool_call_id or "call_unknown",
-                    "type": "function",
-                    "function": {
-                        "name": tool_name,
-                        "arguments": raw_arguments
-                    }
-                }
-            ]
-        })
-        
-        result_str = json.dumps(tool_result, ensure_ascii=False)
-        messages.append({
-            "role": "tool",
-            "tool_call_id": tool_call_id or "call_unknown",
-            "content": result_str
-        })
-
-        payload = {
-            "model": self.model,
-            "messages": messages,
-            "stream": False,
-        }
-
-        return self._execute_request(payload)
 
     def _send_raw_request(self, payload):
         request = Request(
