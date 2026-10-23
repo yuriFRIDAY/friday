@@ -886,7 +886,6 @@ class FridayHandler(BaseHTTPRequestHandler):
         provider = FridayAIProvider()
 
         if len(text) > 50000:
-            # Q&A: busca por trechos relevantes com base em palavras-chave
             keywords = [w.lower() for w in re.findall(r"\w+", command) if len(w) > 3]
             blocks = [text[i:i+3000] for i in range(0, len(text), 3000)]
             scored = []
@@ -924,14 +923,13 @@ Se for um pedido de resumo, sintetize em tópicos.
         normalized = clean_command.casefold()
         response = None
 
-               if "briefing" in normalized or "resumo matinal" in normalized:
+        if "briefing" in normalized or "resumo matinal" in normalized:
             _push_status("Gerando briefing matinal...")
             exec_res = execute_tool("get_morning_briefing", {"city": "Criciúma"}, user_role="owner")
             if exec_res.get("ok"):
                 return str(exec_res.get("result"))
-            # MOSTRA O ERRO EXATO EM VEZ DE ESCONDER
             return f"Não consegui acessar os dados do briefing: {exec_res.get('error', 'Erro desconhecido')}"
-                   
+
         if any(k in normalized for k in ["toque", "música", "musica", "play"]):
             query = clean_command
             for word in ["FRIDAY,", "FRIDAY", "toque", "a música", "a musica", "música", "musica", "coloque", "play"]:
@@ -1034,7 +1032,6 @@ Se for um pedido de resumo, sintetize em tópicos.
         return "Desculpe, chefe. Não consegui concluir desta vez."
 
     def _maybe_send_pdf_by_email(self, command, normalized, pdf_base64, pdf_name):
-        """Se o usuário pedir para enviar o PDF por e-mail, faz o envio direto."""
         if not pdf_base64:
             return None
         if not any(k in normalized for k in ["envie", "envia", "mande", "manda", "encaminhe"]):
@@ -1099,7 +1096,6 @@ Se for um pedido de resumo, sintetize em tópicos.
                 if history is None or session is None:
                     return self.send_json(401, {"error": "Sessão inválida."}, clear_cookie=True)
 
-                # Atalho: envio de PDF por e-mail
                 email_result = self._maybe_send_pdf_by_email(clean, clean.casefold(), pdf, pdf_name)
                 if email_result is not None:
                     return self.send_json(200, {"response": email_result, "closed": False})
