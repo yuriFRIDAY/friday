@@ -2,6 +2,8 @@ import json
 import logging
 import os
 import time
+import sqlite3
+from datetime import datetime
 from urllib.request import Request, urlopen
 from urllib.error import URLError, HTTPError
 
@@ -22,15 +24,42 @@ class FridayAIProvider:
     def __init__(self):
         self.api_key = os.getenv("GROQ_API_KEY", "")
         self.model = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
-        # Modelo com suporte a visão
         self.vision_model = "llama-3.2-11b-vision-preview"
         self.base_url = "https://api.groq.com/openai/v1"
         self.smtp_user = os.getenv("SMTP_USER", "")
+        self.data_dir = os.getenv("DATA_DIR", ".")
+        if os.path.exists("/data") and os.access("/data", os.W_OK):
+            self.data_dir = "/data"
+        self.db_path = os.path.join(self.data_dir, "friday.db")
 
     def available(self):
         return bool(self.api_key.strip())
 
+    def _get_current_time_context(self):
+        now = datetime.now()
+        dias_semana = ["segunda-feira", "terça-feira", "quarta-feira", "quinta-feira", "sexta-feira", "sábado", "domingo"]
+        dia_semana = dias_semana[now.weekday()]
+        return f"Hoje é {dia_semana}, {now.strftime('%d/%m/%Y')} e agora são {now.strftime('%H:%M')}."
+
+    def _get_recent_memories(self):
+        try:
+            if not os.path.exists(self.db_path):
+                return ""
+            with sqlite3.connect(self.db_path) as conn:
+                conn.execute("CREATE TABLE IF NOT EXISTS ai_memory (key TEXT PRIMARY KEY, value TEXT)")
+                rows = conn.execute("SELECT key, value FROM ai_memory ORDER BY rowid DESC LIMIT 10").fetchall()
+                if rows:
+                    mem_text = "\nAqui estão as coisas que você lembra sobre o Chefe:\n"
+                    for r in rows:
+                        mem_text += f"- {r[0]}: {r[1]}\n"
+                    return mem_text
+        except Exception:
+            pass
+        return ""
+
     def _get_system_prompt(self):
+        memories = self._get_recent_memories()
+        time_context = self._get_current_time_context()
         return f"""
 Você é FRIDAY, a inteligência artificial pessoal do Chefe, inspirada no JARVIS.
 Sua personalidade é formal, leal, proativa, precisa e levemente espirituosa.
@@ -38,23 +67,26 @@ Trate o usuário por "chefe" ou "senhor".
 Responda sempre em português brasileiro.
 O seu próprio e-mail (do Chefe) é {self.smtp_user}. 
 
+CONTEXTO DE TEMPO:
+{time_context}
+Use isso para calcular datas relativas (ex: "amanhã", "próxima sexta"). Se precisar usar a agenda, calcule o formato ISO 8601 com base nessa data.
+
 REGRA DE OURO PARA CONCISÃO:
-Seja direto e conciso. A menos que o usuário peça explicitamente um resumo detalhado ou uma explicação longa, limite suas respostas a no máximo 2 ou 3 frases curtas. O JARVIS não enrola.
+Seja direto e conciso. A menos que o usuário peça explicitamente um resumo detalhado ou uma explicação longa, limite suas respostas a no máximo 2 ou 3 frases curtas.
 
 REGRA DE OURO PARA FERRAMENTAS:
 Você tem acesso a ferramentas reais no sistema. NUNCA finja que salvou, lembrou ou reservou algo sem executar a ferramenta.
 1. Para lembrar de algo, use `save_memory`.
-2. Para recordar, use `recall_memory`. Se a ferramenta retornar várias memórias, leia todas e deduza a resposta correta.
-3. Para fatos recentes, use `search_web`. Se precisar ler o conteúdo completo de um link, use `read_webpage`.
-4. Para ler e-mails, use `read_emails`. NUNCA invente nomes, assuntos ou trechos de e-mail.
-5. Para enviar um e-mail novo, use `send_email`. Para responder mantendo a thread, use `reply_to_email`.
+2. Para consultar e-mails, use `read_emails`. Para ler a conversa inteira, use `get_email_thread`.
+3. Para responder e-mails, use `reply_to_email`. O sistema vai redigir o corpo (body) da resposta automaticamente com base no contexto, mas você deve passar o assunto e o destinatário corretos.
+4. Para fatos recentes, use `search_web`. Para ler o conteúdo completo de um link, use `read_webpage`.
 
-RACIOCÍNIO EM MÚLTIPLOS PASSOS (FEW-SHOT EXEMPLOS):
+RACIOCÍNIO EM MÚLTIPLOS PASSOS:
 Você pode e deve usar MÚLTIPLAS ferramentas em sequência se a tarefa for complexa.
-- Exemplo 1 (E-mail e Web): "Veja se chegou e-mail do Render e pesquise como resolver". PRIMEIRO use `read_emails`. Depois use `search_web`. Só então responda.
-- Exemplo 2 (Detecção de Conflito): "Crie uma reunião amanhã às 15h". Passo 1: Use `get_calendar_events`. Passo 2: Verifique se há conflito. Passo 3: Se houver, avise. Passo 4: Se não, use `create_calendar_event`.
-- Exemplo 3 (Atualizar Evento): "Mude a reunião X para as 15h". Passo 1: Use `get_calendar_events` para achar o ID. Passo 2: Calcule o novo ISO 8601. Passo 3: Use `update_calendar_event`.
-- Exemplo 4 (Ler Artigo): "Pesquise sobre as notícias da NASA e leia o primeiro link". Passo 1: Use `search_web`. Passo 2: Use `read_webpage`. Passo 3: Resuma.
+- Exemplo 1: "Veja se chegou e-mail do Render e pesquise como resolver". PRIMEIRO use `read_emails`. Depois use `search_web`.
+- Exemplo 2 (Conflito): "Crie uma reunião amanhã às 15h". Passo 1: Use `get_calendar_events`. Passo 2: Verifique se há conflito. Passo 3: Avise ou crie.
+
+{memories}
 """
 
     def _build_messages(self, message, history=None):
@@ -91,18 +123,22 @@ Você pode e deve usar MÚLTIPLAS ferramentas em sequência se a tarefa for comp
         }
         return self._execute_request(payload)
 
-    def chat_with_vision(self, user_message, image_base64):
-        """Envia uma imagem em Base64 junto com o prompt para o modelo de visão."""
+    def chat_with_vision(self, user_message, image_base64, history=None):
         if not self.available():
             return "A IA não está configurada."
 
-        messages = [
-            {"role": "system", "content": self._get_system_prompt().strip()},
-            {"role": "user", "content": [
-                {"type": "text", "text": user_message},
-                {"type": "image_url", "image_url": {"url": image_base64}}
-            ]}
-        ]
+        messages = [{"role": "system", "content": self._get_system_prompt().strip()}]
+        
+        if history:
+            for item in history[-5:]:
+                if isinstance(item, dict) and item.get("role") in ("user", "assistant"):
+                    messages.append({"role": item["role"], "content": item["content"][:2000]})
+
+        messages.append({"role": "user", "content": [
+            {"type": "text", "text": user_message},
+            {"type": "image_url", "image_url": {"url": image_base64}}
+        ]})
+        
         payload = {
             "model": self.vision_model,
             "messages": messages,
