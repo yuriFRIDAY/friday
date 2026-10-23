@@ -27,27 +27,24 @@ class FridayAIProvider:
     def available(self):
         return bool(self.api_key.strip())
 
-    def _get_system_prompt(self):
+        def _get_system_prompt(self):
         return """
 Você é FRIDAY, a inteligência artificial pessoal do Chefe, inspirada no JARVIS.
 Sua personalidade é formal, leal, proativa, precisa e levemente espirituosa.
 Trate o usuário por "chefe" ou "senhor".
-Mantenha respostas concisas e acionáveis. Responda sempre em português brasileiro.
+Responda sempre em português brasileiro.
 
 REGRA DE OURO PARA FERRAMENTAS:
 Você tem acesso a ferramentas reais no sistema. NUNCA finja que salvou, lembrou ou reservou algo sem executar a ferramenta.
 1. Para lembrar de algo, use `save_memory`.
 2. Para recordar, use `recall_memory`.
 3. Para fatos recentes ou telefones/endereços, use `search_web`.
-4. Para ler os e-mails mais recentes, use `read_emails`. Use quando o usuário perguntar "tem algum e-mail novo?" ou "o que chegou na caixa de entrada?".
-5. VOCÊ PODE FAZER RESERVAS REAIS usando a ferramenta `make_reservation` (se configurada) ou enviando e-mail.
-6. Pode usar `send_email` para enviar e-mails.
+4. Para ler e-mails, use `read_emails`.
+5. Para enviar e-mail, use `send_email`.
 
-COMPORTAMENTO PROATIVO E ANTECIPAÇÃO:
-Você é uma assistente de inteligência. Antecipe as necessidades do usuário e sugira ações com base nas ferramentas disponíveis.
-Exemplos de sugestões proativas:
-- Se salvar uma pizzaria, sugira: "Deseja que eu pesquise o telefone ou crie um evento na sua agenda?"
-- Se o usuário perguntar sobre e-mails, resuma e pergunte se deseja responder ou arquivar.
+RACIOCÍNIO EM MÚLTIPLOS PASSOS:
+Você pode e deve usar MÚLTIPLAS ferramentas em sequência se a tarefa for complexa.
+Exemplo: Se o usuário disser "Veja se chegou e-mail do Render e pesquise como resolver", você deve PRIMEIRO usar `read_emails`. Depois de receber o resultado, você deve usar `search_web` para buscar a solução do erro. Só então dê a resposta final.
 """
 
     def _build_messages(self, message, history=None):
@@ -142,6 +139,70 @@ Exemplos de sugestões proativas:
 
         except Exception as e:
             logger.error(f"Erro no chat_with_tools: {e}")
+            return {"error": str(e)}
+
+    def chat_with_full_history(self, messages, tools):
+        """Permite à IA raciocinar em múltiplos passos (Agent Loop)."""
+        if not self.available():
+            return {"error": "IA indisponível."}
+
+        formatted_tools = []
+        for name, spec in tools.items():
+            formatted_tools.append({
+                "type": "function",
+                "function": {
+                    "name": name,
+                    "description": spec.get("description", ""),
+                    "parameters": spec.get("parameters", {})
+                }
+            })
+
+        # Adiciona o System Prompt no início da conversa
+        full_messages = [{"role": "system", "content": self._get_system_prompt().strip()}]
+        full_messages.extend(messages)
+
+        payload = {
+            "model": self.model,
+            "messages": full_messages,
+            "tools": formatted_tools,
+            "tool_choice": "auto",
+            "stream": False,
+        }
+
+        try:
+            result = self._send_raw_request(payload)
+            choices = result.get("choices", [])
+            if not choices:
+                return {"text": "Não consegui obter uma resposta."}
+
+            message = choices[0].get("message", {})
+            
+            if "tool_calls" in message and message["tool_calls"]:
+                tool_call = message["tool_calls"][0]
+                function_data = tool_call.get("function", {})
+                
+                try:
+                    args = json.loads(function_data.get("arguments", "{}"))
+                except json.JSONDecodeError:
+                    args = {}
+
+                return {
+                    "tool_call": {
+                        "id": tool_call.get("id"),
+                        "name": function_data.get("name"),
+                        "arguments": args,
+                        "raw_arguments": function_data.get("arguments", "{}")
+                    }
+                }
+            
+            content = message.get("content")
+            if isinstance(content, str) and content.strip():
+                return {"text": content.strip()}
+                
+            return {"text": "Comando processado."}
+
+        except Exception as e:
+            logger.error(f"Erro no chat_with_full_history: {e}")
             return {"error": str(e)}
 
     def chat_with_tool_result(self, user_message, tool_name, tool_result, history, tool_call_id=None, raw_arguments="{}"):
