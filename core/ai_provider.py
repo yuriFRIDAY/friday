@@ -7,7 +7,6 @@ from datetime import datetime, timezone, timedelta
 from urllib.request import Request, urlopen
 from urllib.error import URLError, HTTPError
 
-# Tenta importar ZoneInfo com fallback
 try:
     from zoneinfo import ZoneInfo
     HAS_ZONEINFO = True
@@ -43,7 +42,7 @@ class FridayAIProvider:
         return bool(self.api_key.strip())
 
     def _get_current_time_context(self):
-        # Tenta usar fuso de Brasília; se falhar, usa UTC-3 fixo
+        # Usa o fuso de Brasília; fallback para UTC-3 caso o servidor não tenha tzdata
         try:
             if HAS_ZONEINFO:
                 now = datetime.now(ZoneInfo("America/Sao_Paulo"))
@@ -93,7 +92,7 @@ REGRA DE OURO PARA FERRAMENTAS:
 Você tem acesso a ferramentas reais no sistema. NUNCA finja que salvou, lembrou ou reservou algo sem executar a ferramenta.
 1. Para lembrar de algo, use `save_memory`.
 2. Para consultar e-mails, use `read_emails`. Para ler a conversa inteira, use `get_email_thread`.
-3. Para responder e-mails, use `reply_to_email`.
+3. Para responder e-mails, use `reply_to_email` (usando o message_id retornado por read_emails).
 4. Para fatos recentes, use `search_web`. Para ler o conteúdo completo de um link, use `read_webpage`.
 
 REGRA CRÍTICA DE AGENDA VS MEMÓRIA:
