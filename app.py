@@ -924,13 +924,14 @@ Se for um pedido de resumo, sintetize em tópicos.
         normalized = clean_command.casefold()
         response = None
 
-        if "briefing" in normalized or "resumo matinal" in normalized:
+               if "briefing" in normalized or "resumo matinal" in normalized:
             _push_status("Gerando briefing matinal...")
             exec_res = execute_tool("get_morning_briefing", {"city": "Criciúma"}, user_role="owner")
             if exec_res.get("ok"):
                 return str(exec_res.get("result"))
-            return "Não consegui acessar os dados do briefing."
-
+            # MOSTRA O ERRO EXATO EM VEZ DE ESCONDER
+            return f"Não consegui acessar os dados do briefing: {exec_res.get('error', 'Erro desconhecido')}"
+                   
         if any(k in normalized for k in ["toque", "música", "musica", "play"]):
             query = clean_command
             for word in ["FRIDAY,", "FRIDAY", "toque", "a música", "a musica", "música", "musica", "coloque", "play"]:
