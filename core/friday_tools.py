@@ -9,9 +9,16 @@ import smtplib
 import re
 from html.parser import HTMLParser
 from email.mime.text import MIMEText
-from datetime import datetime
+from email.utils import parseaddr
+from datetime import datetime, timedelta
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
+
+try:
+    from zoneinfo import ZoneInfo
+    HAS_ZONEINFO = True
+except ImportError:
+    HAS_ZONEINFO = False
 
 logger = logging.getLogger("friday.tools")
 if not logger.handlers:
@@ -20,27 +27,62 @@ if not logger.handlers:
     logger.addHandler(handler)
     logger.setLevel(logging.INFO)
 
+# ========================================
+# UTILITÁRIOS
+# ========================================
+def _get_tz():
+    if HAS_ZONEINFO:
+        return ZoneInfo("America/Sao_Paulo")
+    return None
 
 class _HTMLTextExtractor(HTMLParser):
     def __init__(self):
         super().__init__()
         self.result = []
         self.skip = False
+        self.ignore_tags = {'script', 'style', 'nav', 'footer', 'header', 'aside', 'noscript'}
     def handle_starttag(self, tag, attrs):
-        if tag in ['script', 'style']:
+        if tag in self.ignore_tags:
             self.skip = True
     def handle_endtag(self, tag):
-        if tag in ['script', 'style']:
+        if tag in self.ignore_tags:
             self.skip = False
     def handle_data(self, data):
         if not self.skip:
-            self.result.append(data)
+            text = data.strip()
+            if text:
+                self.result.append(text)
     def get_text(self):
-        return " ".join("".join(self.result).split())
+        return " ".join(self.result)
 
+def _truncate_text(text, max_len=5000):
+    if len(text) <= max_len:
+        return text
+    # Corta na última palavra inteira antes do limite
+    truncated = text[:max_len]
+    last_space = truncated.rfind(' ')
+    if last_space > 0:
+        truncated = truncated[:last_space]
+    return truncated + "..."
+
+def _format_iso_to_br(iso_str):
+    try:
+        dt = datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
+        if HAS_ZONEINFO:
+            dt = dt.astimezone(_get_tz())
+        return dt.strftime("%d/%m/%Y às %H:%M")
+    except Exception:
+        return iso_str
+
+# ========================================
+# HANDLERS
+# ========================================
 
 def _handler_get_current_time():
-    return time.strftime("%d/%m/%Y %H:%M:%S")
+    tz = _get_tz()
+    now = datetime.now(tz) if tz else datetime.now()
+    dias = ["segunda-feira", "terça-feira", "quarta-feira", "quinta-feira", "sexta-feira", "sábado", "domingo"]
+    return now.strftime(f"Hoje é {dias[now.weekday()]}, %d/%m/%Y. Agora são %H:%M (Horário de Brasília).")
 
 def _handler_get_weather(city="São Paulo"):
     city_encoded = urllib.parse.quote(city)
@@ -51,18 +93,24 @@ def _handler_get_weather(city="São Paulo"):
             data = json.loads(response.read().decode("utf-8"))
         current = data["current_condition"][0]
         temp = current["temp_C"]
+        feels_like = current.get("FeelsLikeC", temp)
+        humidity = current.get("humidity", "N/A")
         desc = current["lang_pt"][0]["value"] if "lang_pt" in current and current["lang_pt"] else current["weatherDesc"][0]["value"]
-        return f"A temperatura em {city} é de {temp}°C com {desc}."
+        
+        return f"Em {city}: {desc}, {temp}°C (sensação de {feels_like}°C). Umidade: {humidity}%."
     except Exception as e:
         return {"error": f"Não foi possível obter o clima: {str(e)}"}
 
 def _handler_get_system_status():
     try:
+        # CPU
         try:
             load1, load5, load15 = os.getloadavg()
-            cpu_info = f"Carga da CPU (1min): {load1:.2f}"
+            cpu_info = f"CPU (carga 1m/5m/15m): {load1:.2f} / {load5:.2f} / {load15:.2f}"
         except OSError:
-            cpu_info = "Carga da CPU: indisponível"
+            cpu_info = "CPU: indisponível"
+        
+        # RAM
         try:
             with open('/proc/meminfo', 'r') as f:
                 lines = f.readlines()
@@ -70,9 +118,11 @@ def _handler_get_system_status():
             mem_free = int(lines[1].split()[1])
             mem_percent = round((mem_total - mem_free) / mem_total * 100, 1)
             mem_total_gb = round(mem_total / (1024**2), 2)
-            mem_info = f"Memória RAM: {mem_percent}% em uso (Total: {mem_total_gb} GB)"
+            mem_info = f"RAM: {mem_percent}% em uso (Total: {mem_total_gb} GB)"
         except Exception:
-            mem_info = "Memória RAM: indisponível"
+            mem_info = "RAM: indisponível"
+        
+        # Disco
         try:
             total, used, free = shutil.disk_usage("/")
             disk_percent = round((used / total) * 100, 1)
@@ -80,7 +130,8 @@ def _handler_get_system_status():
             disk_info = f"Disco: {disk_percent}% em uso (Total: {disk_total_gb} GB)"
         except Exception:
             disk_info = "Disco: indisponível"
-        return f"Status do Sistema:\n- {cpu_info}\n- {mem_info}\n- {disk_info}"
+            
+        return f"Status do Servidor:\n- {cpu_info}\n- {mem_info}\n- {disk_info}"
     except Exception as e:
         return {"error": f"Falha ao ler status do sistema: {str(e)}"}
 
@@ -92,7 +143,7 @@ def _handler_search_web(query, max_results=3):
             req = Request("https://api.tavily.com/search", data=payload, headers={"Content-Type": "application/json", "Authorization": f"Bearer {tavily_key}"}, method="POST")
             with urlopen(req, timeout=15) as response:
                 data = json.loads(response.read().decode("utf-8"))
-            results = [{"title": item.get("title", ""), "url": item.get("url", ""), "snippet": item.get("content", "")[:500]} for item in data.get("results", [])[:max_results]]
+            results = [{"title": item.get("title", ""), "url": item.get("url", ""), "snippet": _truncate_text(item.get("content", ""), 500)} for item in data.get("results", [])[:max_results]]
             if results:
                 return {"query": query, "results": results, "source": "tavily"}
         except Exception:
@@ -105,9 +156,10 @@ def _handler_search_web(query, max_results=3):
             data = json.loads(response.read().decode("utf-8"))
         abstract = data.get("AbstractText") or data.get("Answer")
         if abstract:
-            return {"query": query, "results": [{"title": data.get("Heading", "Resultado"), "url": data.get("AbstractURL", ""), "snippet": abstract[:800]}], "source": "duckduckgo"}
+            return {"query": query, "results": [{"title": data.get("Heading", "Resultado"), "url": data.get("AbstractURL", ""), "snippet": _truncate_text(abstract, 800)}], "source": "duckduckgo"}
+        
         related = data.get("RelatedTopics", [])
-        results = [{"title": "Tópico relacionado", "url": topic.get("FirstURL", ""), "snippet": topic["Text"][:300]} for topic in related[:max_results] if isinstance(topic, dict) and "Text" in topic]
+        results = [{"title": "Tópico relacionado", "url": topic.get("FirstURL", ""), "snippet": _truncate_text(topic["Text"], 300)} for topic in related[:max_results] if isinstance(topic, dict) and "Text" in topic]
         if results:
             return {"query": query, "results": results, "source": "duckduckgo"}
         return {"error": "Nenhum resultado encontrado."}
@@ -122,9 +174,7 @@ def _handler_read_webpage(url):
         parser = _HTMLTextExtractor()
         parser.feed(html)
         text = parser.get_text()
-        if len(text) > 5000:
-            text = text[:5000] + "... (texto truncado)"
-        return f"Conteúdo extraído de {url}:\n\n{text}"
+        return f"Conteúdo de {url}:\n\n{_truncate_text(text, 6000)}"
     except Exception as e:
         return {"error": f"Falha ao ler a página: {str(e)}"}
 
@@ -135,7 +185,7 @@ def _handler_send_email(to_email, subject, body):
     smtp_pass = os.getenv("SMTP_PASSWORD")
 
     if not all([smtp_server, smtp_user, smtp_pass]):
-        return {"error": "Credenciais de e-mail não configuradas no sistema."}
+        return {"error": "Credenciais de e-mail não configuradas."}
 
     msg = MIMEText(body)
     msg['Subject'] = subject
@@ -143,7 +193,7 @@ def _handler_send_email(to_email, subject, body):
     msg['To'] = to_email
 
     try:
-        with smtplib.SMTP(smtp_server, smtp_port) as server:
+        with smtplib.SMTP(smtp_server, smtp_port, timeout=15) as server:
             server.starttls()
             server.login(smtp_user, smtp_pass)
             server.send_message(msg)
@@ -158,10 +208,13 @@ def _handler_reply_to_email(to_email, subject, in_reply_to="", body=None, origin
     smtp_pass = os.getenv("SMTP_PASSWORD")
 
     if not all([smtp_server, smtp_user, smtp_pass]):
-        return {"error": "Credenciais de e-mail não configuradas no sistema."}
+        return {"error": "Credenciais de e-mail não configuradas."}
         
     if not body:
         body = f"Olá,\n\nRespondendo sobre: {original_body[:200]}...\n\nAtenciosamente,\nChefe"
+
+    if not subject.lower().startswith("re:"):
+        subject = f"Re: {subject}"
 
     msg = MIMEText(body)
     msg['Subject'] = subject
@@ -173,7 +226,7 @@ def _handler_reply_to_email(to_email, subject, in_reply_to="", body=None, origin
         msg['References'] = in_reply_to
 
     try:
-        with smtplib.SMTP(smtp_server, smtp_port) as server:
+        with smtplib.SMTP(smtp_server, smtp_port, timeout=15) as server:
             server.starttls()
             server.login(smtp_user, smtp_pass)
             server.send_message(msg)
@@ -192,7 +245,7 @@ def _handler_read_emails(query="", max_results=5):
         return {"error": f"Falha ao obter token: {exc}"}
     
     if not access_token:
-        return {"error": "Google não conectado. Autorize o Calendar novamente."}
+        return {"error": "Google não conectado."}
 
     params = {"maxResults": str(max_results), "labelIds": "INBOX"}
     if query:
@@ -225,18 +278,21 @@ def _handler_read_emails(query="", max_results=5):
                 detail = json.loads(resp.read().decode("utf-8"))
                 headers = detail.get("payload", {}).get("headers", [])
                 subject = next((h["value"] for h in headers if h["name"] == "Subject"), "(sem assunto)")
-                sender = next((h["value"] for h in headers if h["name"] == "From"), "(remetente desconhecido)")
+                raw_from = next((h["value"] for h in headers if h["name"] == "From"), "")
+                # Separa Nome <email@domain.com> para melhor visualização
+                sender_name, sender_email = parseaddr(raw_from)
+                sender = f"{sender_name} ({sender_email})" if sender_name else sender_email
+                if not sender:
+                    sender = "(remetente desconhecido)"
+                    
                 date = next((h["value"] for h in headers if h["name"] == "Date"), "")
                 message_id = next((h["value"] for h in headers if h["name"] == "Message-ID"), "")
-                snippet = detail.get("snippet", "")
+                snippet = _truncate_text(detail.get("snippet", ""), 300)
                 thread_id = detail.get("threadId", "")
+                
                 emails.append({
-                    "subject": subject, 
-                    "from": sender, 
-                    "date": date,
-                    "snippet": snippet,
-                    "message_id": message_id,
-                    "thread_id": thread_id
+                    "subject": subject, "from": sender, "date": date,
+                    "snippet": snippet, "message_id": message_id, "thread_id": thread_id
                 })
         except Exception:
             pass
@@ -271,9 +327,12 @@ def _handler_get_email_thread(thread_id):
     for msg in messages:
         headers = msg.get("payload", {}).get("headers", [])
         subject = next((h["value"] for h in headers if h["name"] == "Subject"), "(sem assunto)")
-        sender = next((h["value"] for h in headers if h["name"] == "From"), "(remetente desconhecido)")
+        raw_from = next((h["value"] for h in headers if h["name"] == "From"), "")
+        sender_name, sender_email = parseaddr(raw_from)
+        sender = sender_name or sender_email or "Desconhecido"
+        date = next((h["value"] for h in headers if h["name"] == "Date"), "")
         snippet = msg.get("snippet", "")
-        thread_content.append(f"De: {sender} | Assunto: {subject}\nResumo: {snippet}\n")
+        thread_content.append(f"Data: {date}\nDe: {sender}\nAssunto: {subject}\nResumo: {snippet}\n")
         
     return {"thread_id": thread_id, "total_messages": len(messages), "history": "\n---\n".join(thread_content)}
 
@@ -329,28 +388,25 @@ def _handler_play_music(query):
 
 def _handler_get_morning_briefing(city="Criciúma"):
     briefing = []
+    
     clima = _handler_get_weather(city)
     if isinstance(clima, str):
         briefing.append(clima)
-    elif isinstance(clima, dict) and "error" in clima:
-        briefing.append("Não consegui obter a previsão do tempo agora.")
+    else:
+        briefing.append("Clima indisponível.")
         
     agenda = _handler_get_calendar_events("today")
-    if isinstance(agenda, dict) and "events" in agenda:
+    if isinstance(agenda, dict) and agenda.get("events"):
         evts = agenda["events"]
-        if evts:
-            briefing.append(f"Você tem {len(evts)} compromissos hoje. O primeiro é: {evts[0]['summary']} às {evts[0]['start'].split()[-1]}.")
-        else:
-            briefing.append("Sua agenda está livre hoje.")
+        briefing.append(f"Agenda: {len(evts)} compromissos. O primeiro é '{evts[0]['summary']}' às {evts[0]['start'].split(' às ')[-1]}.")
     else:
-        briefing.append("Não consegui acessar a sua agenda neste momento.")
+        briefing.append("Sua agenda está livre hoje.")
             
     news = _handler_search_web("últimas notícias do mundo hoje", max_results=1)
-    if isinstance(news, dict) and "results" in news and news["results"]:
-        snippet = news["results"][0].get("snippet", "")
-        if len(snippet) > 150:
-            snippet = snippet[:147].rsplit(' ', 1)[0] + "..."
-        briefing.append(f"Nas notícias: {snippet}")
+    if isinstance(news, dict) and news.get("results"):
+        snippet = _truncate_text(news["results"][0].get("snippet", ""), 200)
+        briefing.append(f"Notícias: {snippet}")
+
     return " ".join(briefing)
 
 def _handler_get_calendar_events(range_value="upcoming"):
@@ -373,7 +429,7 @@ def _handler_get_calendar_events(range_value="upcoming"):
         label = "hoje"
     else:
         events = query(access_token, max_results=10)
-        label = "próximos dias"
+        label = "nos próximos dias"
 
     if events is None:
         return {"error": "Não foi possível consultar o calendário."}
@@ -381,12 +437,12 @@ def _handler_get_calendar_events(range_value="upcoming"):
     formatted = []
     for evt in events:
         start_raw = evt.get("start", "")
-        try:
-            dt = datetime.fromisoformat(start_raw.replace("Z", "+00:00"))
-            start_label = dt.strftime("%d/%m/%Y %H:%M")
-        except Exception:
-            start_label = start_raw or "horário não definido"
-        formatted.append({"id": evt.get("id", ""), "summary": evt.get("summary", "(sem título)"), "start": start_label})
+        formatted.append({
+            "id": evt.get("id", ""),
+            "summary": evt.get("summary", "(sem título)"),
+            "start": _format_iso_to_br(start_raw)
+        })
+
     return {"range": label, "events": formatted, "count": len(formatted)}
 
 def _handler_create_calendar_event(summary, start_iso, end_iso, description="", location=""):
@@ -401,7 +457,11 @@ def _handler_create_calendar_event(summary, start_iso, end_iso, description="", 
     if not access_token:
         return {"error": "Calendário não conectado."}
 
-    payload = {"summary": summary, "start": {"dateTime": start_iso, "timeZone": "America/Sao_Paulo"}, "end": {"dateTime": end_iso, "timeZone": "America/Sao_Paulo"}}
+    payload = {
+        "summary": summary, 
+        "start": {"dateTime": start_iso, "timeZone": "America/Sao_Paulo"}, 
+        "end": {"dateTime": end_iso, "timeZone": "America/Sao_Paulo"}
+    }
     if description: payload["description"] = description
     if location: payload["location"] = location
 
@@ -451,6 +511,9 @@ def _handler_update_calendar_event(event_id, summary=None, start_iso=None, end_i
     return {"ok": True, "updated": True, "summary": summary, "start": start_iso, "end": end_iso}
 
 
+# ========================================
+# CONTEXTOS E REGISTRO
+# ========================================
 _CALENDAR_CONTEXT = {}
 _MEMORY_CONTEXT = {}
 
