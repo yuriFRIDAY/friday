@@ -1082,7 +1082,6 @@
                   setWaveformState('idle');
                   URL.revokeObjectURL(audioUrl);
                   
-                  // Conversação Contínua
                   if ($("autoSpeak").checked) {
                       setTimeout(() => {
                           if (!$("assistant").classList.contains("hidden") && !listening) {
@@ -1236,10 +1235,43 @@
           
           const reader = new FileReader();
           reader.onload = (event) => {
-              currentAttachment = event.target.result;
-              currentAttachmentType = type;
-              $('attachmentName').textContent = `Anexo: ${file.name}`;
-              $('attachmentPreview').classList.remove('hidden');
+              if (type === 'image') {
+                  const img = new Image();
+                  img.onload = () => {
+                      const canvas = document.createElement('canvas');
+                      const MAX_WIDTH = 1024;
+                      const MAX_HEIGHT = 1024;
+                      let width = img.width;
+                      let height = img.height;
+
+                      if (width > height) {
+                          if (width > MAX_WIDTH) {
+                              height *= MAX_WIDTH / width;
+                              width = MAX_WIDTH;
+                          }
+                      } else {
+                          if (height > MAX_HEIGHT) {
+                              width *= MAX_HEIGHT / height;
+                              height = MAX_HEIGHT;
+                          }
+                      }
+                      canvas.width = width;
+                      canvas.height = height;
+                      const ctx = canvas.getContext('2d');
+                      ctx.drawImage(img, 0, 0, width, height);
+                      
+                      currentAttachment = canvas.toDataURL('image/jpeg', 0.8);
+                      currentAttachmentType = type;
+                      $('attachmentName').textContent = `Anexo: ${file.name}`;
+                      $('attachmentPreview').classList.remove('hidden');
+                  };
+                  img.src = event.target.result;
+              } else {
+                  currentAttachment = event.target.result;
+                  currentAttachmentType = type;
+                  $('attachmentName').textContent = `Anexo: ${file.name}`;
+                  $('attachmentPreview').classList.remove('hidden');
+              }
           };
           reader.readAsDataURL(file);
           e.target.value = '';
@@ -1643,7 +1675,6 @@
         5 * 60 * 1000
       );
 
-      // --- NOVO: POLLING DE NOTIFICAÇÕES PROATIVAS ---
       setInterval(async () => {
           if ($("assistant").classList.contains("hidden")) return;
           try {
