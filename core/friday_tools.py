@@ -7,6 +7,7 @@ import time
 import urllib.parse
 import smtplib
 import re
+from html.parser import HTMLParser
 from email.mime.text import MIMEText
 from datetime import datetime
 from urllib.request import Request, urlopen
@@ -20,7 +21,27 @@ if not logger.handlers:
     logger.setLevel(logging.INFO)
 
 # ========================================
-# HANDLERS (implementações reais)
+# HTML TEXT EXTRACTOR (para o read_webpage)
+# ========================================
+class _HTMLTextExtractor(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.result = []
+        self.skip = False
+    def handle_starttag(self, tag, attrs):
+        if tag in ['script', 'style']:
+            self.skip = True
+    def handle_endtag(self, tag):
+        if tag in ['script', 'style']:
+            self.skip = False
+    def handle_data(self, data):
+        if not self.skip:
+            self.result.append(data)
+    def get_text(self):
+        return " ".join("".join(self.result).split())
+
+# ========================================
+# HANDLERS
 # ========================================
 
 def _handler_get_current_time():
@@ -98,6 +119,23 @@ def _handler_search_web(query, max_results=3):
     except Exception as e:
         return {"error": f"Falha na pesquisa web: {str(e)}"}
 
+def _handler_read_webpage(url):
+    try:
+        req = Request(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+        with urlopen(req, timeout=15) as response:
+            html = response.read().decode("utf-8", errors="replace")
+        
+        parser = _HTMLTextExtractor()
+        parser.feed(html)
+        text = parser.get_text()
+        
+        if len(text) > 5000:
+            text = text[:5000] + "... (texto truncado)"
+            
+        return f"Conteúdo extraído de {url}:\n\n{text}"
+    except Exception as e:
+        return {"error": f"Falha ao ler a página: {str(e)}"}
+
 def _handler_send_email(to_email, subject, body):
     smtp_server = os.getenv("SMTP_SERVER")
     smtp_port = int(os.getenv("SMTP_PORT", "587"))
@@ -120,6 +158,33 @@ def _handler_send_email(to_email, subject, body):
         return f"E-mail enviado com sucesso para {to_email}."
     except Exception as e:
         return {"error": f"Falha ao enviar e-mail: {str(e)}"}
+
+def _handler_reply_to_email(to_email, subject, body, in_reply_to=""):
+    smtp_server = os.getenv("SMTP_SERVER")
+    smtp_port = int(os.getenv("SMTP_PORT", "587"))
+    smtp_user = os.getenv("SMTP_USER")
+    smtp_pass = os.getenv("SMTP_PASSWORD")
+
+    if not all([smtp_server, smtp_user, smtp_pass]):
+        return {"error": "Credenciais de e-mail não configuradas no sistema."}
+
+    msg = MIMEText(body)
+    msg['Subject'] = subject
+    msg['From'] = smtp_user
+    msg['To'] = to_email
+    
+    if in_reply_to:
+        msg['In-Reply-To'] = in_reply_to
+        msg['References'] = in_reply_to
+
+    try:
+        with smtplib.SMTP(smtp_server, smtp_port) as server:
+            server.starttls()
+            server.login(smtp_user, smtp_pass)
+            server.send_message(msg)
+        return f"Resposta enviada com sucesso para {to_email}."
+    except Exception as e:
+        return {"error": f"Falha ao enviar resposta: {str(e)}"}
 
 def _handler_read_emails(query="", max_results=5):
     ctx = _CALENDAR_CONTEXT.get("access_token_provider")
@@ -161,8 +226,7 @@ def _handler_read_emails(query="", max_results=5):
     emails = []
     for msg in messages[:max_results]:
         msg_id = msg["id"]
-        # Adicionado o parâmetro format=metadata e o snippet
-        detail_url = f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{msg_id}?format=metadata&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=Date"
+        detail_url = f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{msg_id}?format=metadata&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=Date&metadataHeaders=Message-ID"
         req_detail = Request(detail_url, headers={"Authorization": "Bearer " + access_token})
         try:
             with urlopen(req_detail, timeout=10) as resp:
@@ -171,16 +235,17 @@ def _handler_read_emails(query="", max_results=5):
                 subject = next((h["value"] for h in headers if h["name"] == "Subject"), "(sem assunto)")
                 sender = next((h["value"] for h in headers if h["name"] == "From"), "(remetente desconhecido)")
                 date = next((h["value"] for h in headers if h["name"] == "Date"), "")
-                # O snippet traz o resumo do corpo do e-mail que o Google já processa
+                message_id = next((h["value"] for h in headers if h["name"] == "Message-ID"), "")
                 snippet = detail.get("snippet", "")
                 emails.append({
                     "subject": subject, 
                     "from": sender, 
                     "date": date,
-                    "snippet": snippet
+                    "snippet": snippet,
+                    "message_id": message_id
                 })
         except Exception:
-            emails.append({"subject": "(falha ao ler)", "from": "", "date": "", "snippet": ""})
+            emails.append({"subject": "(falha ao ler)", "from": "", "date": "", "snippet": "", "message_id": ""})
 
     return {"ok": True, "emails": emails}
 
@@ -199,7 +264,6 @@ def _handler_recall_memory(key):
     if not callable(recall_func):
         return {"error": "Sistema de memória indisponível."}
     try:
-        # A função recall agora faz busca por aproximação (LIKE) em vez de exata
         value = recall_func(key)
         return value if value else {"error": f"Nenhuma memória encontrada para: {key}"}
     except Exception as e:
@@ -410,6 +474,17 @@ TOOL_REGISTRY = {
         "parameters": {"type": "object", "properties": {"query": {"type": "string", "description": "Termo a ser pesquisado."}}, "required": ["query"], "additionalProperties": False},
         "requires_confirmation": False, "allowed_roles": ["owner"], "handler": _handler_search_web,
     },
+    "read_webpage": {
+        "description": "Extrai o texto completo de uma página da web a partir de uma URL.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "url": {"type": "string", "description": "A URL completa da página (ex: https://exemplo.com)."}
+            },
+            "required": ["url"], "additionalProperties": False,
+        },
+        "requires_confirmation": False, "allowed_roles": ["owner"], "handler": _handler_read_webpage,
+    },
     "send_email": {
         "description": "Envia um e-mail em nome do usuário.",
         "parameters": {
@@ -423,8 +498,22 @@ TOOL_REGISTRY = {
         },
         "requires_confirmation": True, "allowed_roles": ["owner"], "handler": _handler_send_email,
     },
+    "reply_to_email": {
+        "description": "Responde a um e-mail mantendo a mesma linha de conversa (thread).",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "to_email": {"type": "string", "description": "Endereço de e-mail do destinatário."},
+                "subject": {"type": "string", "description": "Assunto do e-mail (ex: 'Re: Assunto original')."},
+                "body": {"type": "string", "description": "Corpo da resposta."},
+                "in_reply_to": {"type": "string", "description": "O Message-ID do e-mail original (fornecido pela ferramenta read_emails)."}
+            },
+            "required": ["to_email", "subject", "body"], "additionalProperties": False,
+        },
+        "requires_confirmation": True, "allowed_roles": ["owner"], "handler": _handler_reply_to_email,
+    },
     "read_emails": {
-        "description": "Lê os e-mails mais recentes da caixa de entrada do Gmail. Retorna assunto, remetente, data e um resumo do corpo (snippet).",
+        "description": "Lê os e-mails mais recentes da caixa de entrada do Gmail. Retorna assunto, remetente, data, snippet e message_id.",
         "parameters": {
             "type": "object",
             "properties": {
