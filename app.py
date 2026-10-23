@@ -21,11 +21,8 @@ from core.assistant import FridayAssistant
 from core.auth import FridayAuth
 from core.sessions import SessionStore
 from core.friday_tools import (
-    TOOL_REGISTRY,
-    execute_tool,
-    public_tool_specs,
-    set_calendar_context,
-    set_memory_context,
+    TOOL_REGISTRY, execute_tool, public_tool_specs,
+    set_calendar_context, set_memory_context,
 )
 
 SESSION_COOKIE = "friday_session"
@@ -49,12 +46,13 @@ NOTIFICATION_QUEUE = []
 def _heartbeat_worker():
     """Verifica e-mails em background a cada 10 minutos."""
     print("FRIDAY WEB: Heartbeat thread iniciada.")
-    time.sleep(30) # Espera inicial para o app subir
+    time.sleep(30)
     while True:
         try:
             # Lógica futura: checar novos e-mails via Gmail API aqui
+            # e injetar na NOTIFICATION_QUEUE
             print("FRIDAY WEB: Heartbeat checando e-mails...")
-            time.sleep(600) # 10 minutos
+            time.sleep(600)
         except Exception as e:
             print(f"FRIDAY WEB: Erro no heartbeat: {e}")
             time.sleep(60)
