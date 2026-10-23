@@ -29,9 +29,9 @@ class FridayAIProvider:
 
     def __init__(self):
         self.api_key = os.getenv("GROQ_API_KEY", "")
-        # Llama 3 70B é o modelo mais estável da Groq para Function Calling
-        self.model = os.getenv("GROQ_MODEL", "llama3-70b-8192")
-        self.vision_model = "llama3-70b-8192" 
+        # Modelo oficial da Groq que suporta function calling e visão
+        self.model = os.getenv("GROQ_MODEL", "qwen/qwen3.8-27b")
+        self.vision_model = "qwen/qwen3.8-27b"
         self.base_url = "https://api.groq.com/openai/v1"
         self.smtp_user = os.getenv("SMTP_USER", "")
         self.data_dir = os.getenv("DATA_DIR", ".")
@@ -81,22 +81,18 @@ CONCISÃO:
 Seja direto. Máximo 2-3 frases, salvo quando pedirem resumo detalhado.
 
 FERRAMENTAS:
-NUNCA finja que salvou/lembrou/executou algo sem chamar a ferramenta.
 Você DEVE usar EXATAMENTE os nomes das ferramentas fornecidas no schema JSON. 
 NÃO invente nomes como 'websearch' ou 'weather'. Use 'search_web' e 'get_weather'.
 
-1. `save_memory` / `recall_memory` / `delete_memory` para memória.
-2. `read_emails` para listar; `read_email_full` (com message_id) para ler corpo completo; `get_email_thread` (com thread_id) para conversa inteira.
-3. `reply_to_email` para responder mantendo thread.
-4. `send_email`.
-5. `search_web` para links; `deep_search` para já ler o conteúdo do topo.
-6. `read_webpage` para uma URL específica.
-7. `get_calendar_events`, `create_calendar_event`, `update_calendar_event`, `delete_calendar_event`.
-8. `find_free_slots` para achar horários livres.
-9. `play_music`.
+1. `save_memory` / `recall_memory` / `delete_memory`
+2. `read_emails`, `read_email_full`, `get_email_thread`
+3. `reply_to_email`, `send_email`
+4. `search_web`, `deep_search`, `read_webpage`
+5. `get_calendar_events`, `create_calendar_event`, `update_calendar_event`, `delete_calendar_event`, `find_free_slots`
+6. `play_music`
 
 REGRA CRÍTICA DE AGENDA:
-- Compromissos que estão em MEMÓRIAS abaixo: responda direto da memória, sem consultar a agenda.
+- Compromissos em MEMÓRIAS: responda direto da memória, sem consultar a agenda.
 - Só use `get_calendar_events` quando o usuário pedir a agenda explicitamente.
 
 {memories}
@@ -120,8 +116,29 @@ REGRA CRÍTICA DE AGENDA:
         return self._execute_request(payload)
 
     def chat_with_vision(self, user_message, image_base64, history=None):
-        # Como o Llama3-70b não tem visão, usamos uma mensagem de fallback amigável se necessário
-        return "Desculpe, chefe. Meu módulo de visão está temporariamente em manutenção."
+        if not self.available():
+            return "A IA não está configurada."
+        messages = [{"role": "system", "content": self._get_system_prompt().strip()}]
+        if history:
+            for item in history[-5:]:
+                if isinstance(item, dict) and item.get("role") in ("user", "assistant"):
+                    messages.append({"role": item["role"], "content": item["content"][:2000]})
+        messages.append({"role": "user", "content": [
+            {"type": "text", "text": user_message},
+            {"type": "image_url", "image_url": {"url": image_base64}}
+        ]})
+        payload = {"model": self.vision_model, "messages": messages, "stream": False}
+        try:
+            result = self._send_raw_request(payload)
+            choices = result.get("choices", [])
+            if choices:
+                content = choices[0].get("message", {}).get("content")
+                if isinstance(content, str) and content.strip():
+                    return content.strip()
+            return "A IA não retornou uma descrição."
+        except Exception as e:
+            logger.error(f"Erro visão: {str(e)}")
+            return f"Falha ao analisar imagem: {str(e)}"
 
     def chat_with_tools(self, user_message, history, tools):
         if not self.available():
