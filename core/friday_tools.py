@@ -20,9 +20,6 @@ if not logger.handlers:
     logger.addHandler(handler)
     logger.setLevel(logging.INFO)
 
-# ========================================
-# HTML TEXT EXTRACTOR (para o read_webpage)
-# ========================================
 class _HTMLTextExtractor(HTMLParser):
     def __init__(self):
         super().__init__()
@@ -39,10 +36,6 @@ class _HTMLTextExtractor(HTMLParser):
             self.result.append(data)
     def get_text(self):
         return " ".join("".join(self.result).split())
-
-# ========================================
-# HANDLERS
-# ========================================
 
 def _handler_get_current_time():
     return time.strftime("%d/%m/%Y %H:%M:%S")
@@ -124,14 +117,11 @@ def _handler_read_webpage(url):
         req = Request(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
         with urlopen(req, timeout=15) as response:
             html = response.read().decode("utf-8", errors="replace")
-        
         parser = _HTMLTextExtractor()
         parser.feed(html)
         text = parser.get_text()
-        
         if len(text) > 5000:
             text = text[:5000] + "... (texto truncado)"
-            
         return f"Conteúdo extraído de {url}:\n\n{text}"
     except Exception as e:
         return {"error": f"Falha ao ler a página: {str(e)}"}
@@ -159,7 +149,7 @@ def _handler_send_email(to_email, subject, body):
     except Exception as e:
         return {"error": f"Falha ao enviar e-mail: {str(e)}"}
 
-def _handler_reply_to_email(to_email, subject, body, in_reply_to=""):
+def _handler_reply_to_email(to_email, subject, in_reply_to="", body=None, original_body=""):
     smtp_server = os.getenv("SMTP_SERVER")
     smtp_port = int(os.getenv("SMTP_PORT", "587"))
     smtp_user = os.getenv("SMTP_USER")
@@ -167,6 +157,10 @@ def _handler_reply_to_email(to_email, subject, body, in_reply_to=""):
 
     if not all([smtp_server, smtp_user, smtp_pass]):
         return {"error": "Credenciais de e-mail não configuradas no sistema."}
+        
+    if not body:
+        # Auto-Draft caso a IA não tenha enviado o corpo (Item 4)
+        body = f"Olá,\n\nRespondendo sobre: {original_body[:200]}...\n\nAtenciosamente,\nChefe"
 
     msg = MIMEText(body)
     msg['Subject'] = subject
@@ -199,10 +193,7 @@ def _handler_read_emails(query="", max_results=5):
     if not access_token:
         return {"error": "Google não conectado. Autorize o Calendar novamente."}
 
-    params = {
-        "maxResults": str(max_results),
-        "labelIds": "INBOX",
-    }
+    params = {"maxResults": str(max_results), "labelIds": "INBOX"}
     if query:
         params["q"] = query
 
@@ -237,17 +228,50 @@ def _handler_read_emails(query="", max_results=5):
                 date = next((h["value"] for h in headers if h["name"] == "Date"), "")
                 message_id = next((h["value"] for h in headers if h["name"] == "Message-ID"), "")
                 snippet = detail.get("snippet", "")
+                thread_id = detail.get("threadId", "")
                 emails.append({
                     "subject": subject, 
                     "from": sender, 
                     "date": date,
                     "snippet": snippet,
-                    "message_id": message_id
+                    "message_id": message_id,
+                    "thread_id": thread_id
                 })
         except Exception:
-            emails.append({"subject": "(falha ao ler)", "from": "", "date": "", "snippet": "", "message_id": ""})
-
+            pass
     return {"ok": True, "emails": emails}
+
+def _handler_get_email_thread(thread_id):
+    ctx = _CALENDAR_CONTEXT.get("access_token_provider")
+    if not callable(ctx):
+        return {"error": "Integração com o Google indisponível."}
+    try:
+        access_token = ctx()
+    except Exception:
+        return {"error": "Falha ao obter token."}
+        
+    if not access_token:
+        return {"error": "Google não conectado."}
+
+    url = f"https://gmail.googleapis.com/gmail/v1/users/me/threads/{thread_id}?format=metadata&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=Date"
+    req = Request(url, headers={"Authorization": "Bearer " + access_token})
+    
+    try:
+        with urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except Exception as e:
+        return {"error": f"Falha ao ler thread: {str(e)}"}
+
+    messages = data.get("messages", [])
+    thread_content = []
+    for msg in messages:
+        headers = msg.get("payload", {}).get("headers", [])
+        subject = next((h["value"] for h in headers if h["name"] == "Subject"), "(sem assunto)")
+        sender = next((h["value"] for h in headers if h["name"] == "From"), "(remetente desconhecido)")
+        snippet = msg.get("snippet", "")
+        thread_content.append(f"De: {sender} | Assunto: {subject}\nResumo: {snippet}\n")
+        
+    return {"thread_id": thread_id, "total_messages": len(messages), "history": "\n---\n".join(thread_content)}
 
 def _handler_save_memory(key, value):
     save_func = _MEMORY_CONTEXT.get("save")
@@ -301,7 +325,6 @@ def _handler_play_music(query):
 
 def _handler_get_morning_briefing(city="Criciúma"):
     briefing = []
-    
     clima = _handler_get_weather(city)
     if isinstance(clima, str):
         briefing.append(clima)
@@ -324,7 +347,6 @@ def _handler_get_morning_briefing(city="Criciúma"):
         if len(snippet) > 150:
             snippet = snippet[:147].rsplit(' ', 1)[0] + "..."
         briefing.append(f"Nas notícias: {snippet}")
-
     return " ".join(briefing)
 
 def _handler_get_calendar_events(range_value="upcoming"):
@@ -361,7 +383,6 @@ def _handler_get_calendar_events(range_value="upcoming"):
         except Exception:
             start_label = start_raw or "horário não definido"
         formatted.append({"id": evt.get("id", ""), "summary": evt.get("summary", "(sem título)"), "start": start_label})
-
     return {"range": label, "events": formatted, "count": len(formatted)}
 
 def _handler_create_calendar_event(summary, start_iso, end_iso, description="", location=""):
@@ -383,7 +404,6 @@ def _handler_create_calendar_event(summary, start_iso, end_iso, description="", 
     result = create(access_token, payload)
     if result is None:
         return {"error": "O Google recusou a criação do evento."}
-
     return {"ok": True, "created": True, "summary": summary, "start": start_iso, "end": end_iso, "link": result.get("htmlLink", "")}
 
 def _handler_delete_calendar_event(event_id):
@@ -401,7 +421,6 @@ def _handler_delete_calendar_event(event_id):
     result = delete(access_token, event_id)
     if result is None:
         return {"error": "O Google recusou a exclusão do evento (verifique o ID)."}
-
     return {"ok": True, "deleted": True, "message": "Evento excluído com sucesso."}
 
 def _handler_update_calendar_event(event_id, summary=None, start_iso=None, end_iso=None, description=None):
@@ -425,14 +444,12 @@ def _handler_update_calendar_event(event_id, summary=None, start_iso=None, end_i
     result = update(access_token, event_id, payload)
     if result is None:
         return {"error": "O Google recusou a atualização do evento."}
-
     return {"ok": True, "updated": True, "summary": summary, "start": start_iso, "end": end_iso}
 
 
 # ========================================
-# CONTEXTOS INJETÁVEIS
+# CONTEXTOS E REGISTRO
 # ========================================
-
 _CALENDAR_CONTEXT = {}
 _MEMORY_CONTEXT = {}
 
@@ -448,175 +465,28 @@ def set_memory_context(save_func, recall_func):
     _MEMORY_CONTEXT["save"] = save_func
     _MEMORY_CONTEXT["recall"] = recall_func
 
-
-# ========================================
-# REGISTRO DE FERRAMENTAS
-# ========================================
-
 TOOL_REGISTRY = {
-    "get_current_time": {
-        "description": "Retorna a data e hora atuais do sistema.",
-        "parameters": {"type": "object", "properties": {}, "additionalProperties": False},
-        "requires_confirmation": False, "allowed_roles": ["owner"], "handler": _handler_get_current_time,
-    },
-    "get_weather": {
-        "description": "Consulta a previsão do tempo atual para uma cidade específica.",
-        "parameters": {"type": "object", "properties": {"city": {"type": "string", "description": "Nome da cidade."}}, "required": ["city"], "additionalProperties": False},
-        "requires_confirmation": False, "allowed_roles": ["owner"], "handler": _handler_get_weather,
-    },
-    "get_system_status": {
-        "description": "Retorna o status de CPU, memória RAM e disco do servidor.",
-        "parameters": {"type": "object", "properties": {}, "additionalProperties": False},
-        "requires_confirmation": False, "allowed_roles": ["owner"], "handler": _handler_get_system_status,
-    },
-    "search_web": {
-        "description": "Pesquisa informações atualizadas na internet.",
-        "parameters": {"type": "object", "properties": {"query": {"type": "string", "description": "Termo a ser pesquisado."}}, "required": ["query"], "additionalProperties": False},
-        "requires_confirmation": False, "allowed_roles": ["owner"], "handler": _handler_search_web,
-    },
-    "read_webpage": {
-        "description": "Extrai o texto completo de uma página da web a partir de uma URL.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "url": {"type": "string", "description": "A URL completa da página (ex: https://exemplo.com)."}
-            },
-            "required": ["url"], "additionalProperties": False,
-        },
-        "requires_confirmation": False, "allowed_roles": ["owner"], "handler": _handler_read_webpage,
-    },
-    "send_email": {
-        "description": "Envia um e-mail em nome do usuário.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "to_email": {"type": "string", "description": "Endereço de e-mail do destinatário."},
-                "subject": {"type": "string", "description": "Assunto do e-mail."},
-                "body": {"type": "string", "description": "Corpo do e-mail."}
-            },
-            "required": ["to_email", "subject", "body"], "additionalProperties": False,
-        },
-        "requires_confirmation": True, "allowed_roles": ["owner"], "handler": _handler_send_email,
-    },
-    "reply_to_email": {
-        "description": "Responde a um e-mail mantendo a mesma linha de conversa (thread).",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "to_email": {"type": "string", "description": "Endereço de e-mail do destinatário."},
-                "subject": {"type": "string", "description": "Assunto do e-mail (ex: 'Re: Assunto original')."},
-                "body": {"type": "string", "description": "Corpo da resposta."},
-                "in_reply_to": {"type": "string", "description": "O Message-ID do e-mail original (fornecido pela ferramenta read_emails)."}
-            },
-            "required": ["to_email", "subject", "body"], "additionalProperties": False,
-        },
-        "requires_confirmation": True, "allowed_roles": ["owner"], "handler": _handler_reply_to_email,
-    },
-    "read_emails": {
-        "description": "Lê os e-mails mais recentes da caixa de entrada do Gmail. Retorna assunto, remetente, data, snippet e message_id.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "query": {"type": "string", "description": "Filtro opcional (ex: 'from:chefe@empresa.com is:unread')."},
-                "max_results": {"type": "integer", "description": "Número de e-mails a retornar (padrão 5)."}
-            },
-            "additionalProperties": False,
-        },
-        "requires_confirmation": False, "allowed_roles": ["owner"], "handler": _handler_read_emails,
-    },
-    "save_memory": {
-        "description": "Salva uma informação importante de longo prazo sobre o usuário (ex: preferências, nomes, fatos).",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "key": {"type": "string", "description": "A chave/assunto da memória."},
-                "value": {"type": "string", "description": "O valor a ser salvo."}
-            },
-            "required": ["key", "value"], "additionalProperties": False,
-        },
-        "requires_confirmation": False, "allowed_roles": ["owner"], "handler": _handler_save_memory,
-    },
-    "recall_memory": {
-        "description": "Recupera uma informação de longo prazo previamente salva. Suporta busca por aproximação.",
-        "parameters": {
-            "type": "object",
-            "properties": {"key": {"type": "string", "description": "A chave da memória a ser recuperada."}},
-            "required": ["key"], "additionalProperties": False,
-        },
-        "requires_confirmation": False, "allowed_roles": ["owner"], "handler": _handler_recall_memory,
-    },
-    "play_music": {
-        "description": "Abre o YouTube para tocar uma música ou playlist.",
-        "parameters": {
-            "type": "object",
-            "properties": {"query": {"type": "string", "description": "Nome da música ou artista."}},
-            "required": ["query"], "additionalProperties": False,
-        },
-        "requires_confirmation": False, "allowed_roles": ["owner"], "handler": _handler_play_music,
-    },
-    "get_morning_briefing": {
-        "description": "Gera um resumo matinal completo com clima, agenda do dia e notícias.",
-        "parameters": {
-            "type": "object",
-            "properties": {"city": {"type": "string", "description": "Cidade para o clima."}},
-            "required": ["city"], "additionalProperties": False,
-        },
-        "requires_confirmation": False, "allowed_roles": ["owner"], "handler": _handler_get_morning_briefing,
-    },
-    "get_calendar_events": {
-        "description": "Consulta os próximos compromissos ou os eventos de hoje na agenda. Retorna o ID de cada evento para futuras alterações.",
-        "parameters": {"type": "object", "properties": {"range": {"type": "string", "enum": ["today", "upcoming"]}}, "required": ["range"], "additionalProperties": False},
-        "requires_confirmation": False, "allowed_roles": ["owner"], "handler": _handler_get_calendar_events,
-    },
-    "create_calendar_event": {
-        "description": "Cria um novo evento no Google Calendar. Requer confirmação.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "summary": {"type": "string", "description": "Título do evento."},
-                "start_iso": {"type": "string", "description": "Início em ISO 8601."},
-                "end_iso": {"type": "string", "description": "Fim em ISO 8601."},
-                "description": {"type": "string"}, "location": {"type": "string"},
-            },
-            "required": ["summary", "start_iso", "end_iso"], "additionalProperties": False,
-        },
-        "requires_confirmation": True, "allowed_roles": ["owner"], "handler": _handler_create_calendar_event,
-    },
-    "delete_calendar_event": {
-        "description": "Exclui um evento do Google Calendar usando o ID do evento. Requer confirmação.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "event_id": {"type": "string", "description": "O ID do evento a ser excluído."}
-            },
-            "required": ["event_id"], "additionalProperties": False,
-        },
-        "requires_confirmation": True, "allowed_roles": ["owner"], "handler": _handler_delete_calendar_event,
-    },
-    "update_calendar_event": {
-        "description": "Atualiza um evento existente no Google Calendar usando o ID. Requer confirmação.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "event_id": {"type": "string", "description": "O ID do evento a ser atualizado."},
-                "summary": {"type": "string", "description": "Novo título."},
-                "start_iso": {"type": "string", "description": "Novo início em ISO 8601."},
-                "end_iso": {"type": "string", "description": "Novo fim em ISO 8601."},
-                "description": {"type": "string"}
-            },
-            "required": ["event_id"], "additionalProperties": False,
-        },
-        "requires_confirmation": True, "allowed_roles": ["owner"], "handler": _handler_update_calendar_event,
-    },
+    "get_current_time": {"description": "Retorna data e hora.", "parameters": {"type": "object", "properties": {}}, "requires_confirmation": False, "handler": _handler_get_current_time},
+    "get_weather": {"description": "Consulta o clima.", "parameters": {"type": "object", "properties": {"city": {"type": "string"}}, "required": ["city"]}, "requires_confirmation": False, "handler": _handler_get_weather},
+    "get_system_status": {"description": "Status da CPU/RAM.", "parameters": {"type": "object", "properties": {}}, "requires_confirmation": False, "handler": _handler_get_system_status},
+    "search_web": {"description": "Pesquisa na web.", "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}, "requires_confirmation": False, "handler": _handler_search_web},
+    "read_webpage": {"description": "Lê texto de uma URL.", "parameters": {"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]}, "requires_confirmation": False, "handler": _handler_read_webpage},
+    "send_email": {"description": "Envia e-mail.", "parameters": {"type": "object", "properties": {"to_email": {"type": "string"}, "subject": {"type": "string"}, "body": {"type": "string"}}, "required": ["to_email", "subject", "body"]}, "requires_confirmation": True, "handler": _handler_send_email},
+    "reply_to_email": {"description": "Responde e-mail mantendo thread.", "parameters": {"type": "object", "properties": {"to_email": {"type": "string"}, "subject": {"type": "string"}, "in_reply_to": {"type": "string"}, "body": {"type": "string"}, "original_body": {"type": "string"}}, "required": ["to_email", "subject"]}, "requires_confirmation": True, "handler": _handler_reply_to_email},
+    "read_emails": {"description": "Lê e-mails recentes.", "parameters": {"type": "object", "properties": {"query": {"type": "string"}, "max_results": {"type": "integer"}}}, "requires_confirmation": False, "handler": _handler_read_emails},
+    "get_email_thread": {"description": "Lê toda a conversa de um e-mail (thread).", "parameters": {"type": "object", "properties": {"thread_id": {"type": "string"}}, "required": ["thread_id"]}, "requires_confirmation": False, "handler": _handler_get_email_thread},
+    "save_memory": {"description": "Salva memória.", "parameters": {"type": "object", "properties": {"key": {"type": "string"}, "value": {"type": "string"}}, "required": ["key", "value"]}, "requires_confirmation": False, "handler": _handler_save_memory},
+    "recall_memory": {"description": "Recupera memória.", "parameters": {"type": "object", "properties": {"key": {"type": "string"}}, "required": ["key"]}, "requires_confirmation": False, "handler": _handler_recall_memory},
+    "play_music": {"description": "Toca música.", "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}, "requires_confirmation": False, "handler": _handler_play_music},
+    "get_morning_briefing": {"description": "Gera briefing matinal.", "parameters": {"type": "object", "properties": {"city": {"type": "string"}}, "required": ["city"]}, "requires_confirmation": False, "handler": _handler_get_morning_briefing},
+    "get_calendar_events": {"description": "Consulta agenda.", "parameters": {"type": "object", "properties": {"range": {"type": "string", "enum": ["today", "upcoming"]}}, "required": ["range"]}, "requires_confirmation": False, "handler": _handler_get_calendar_events},
+    "create_calendar_event": {"description": "Cria evento.", "parameters": {"type": "object", "properties": {"summary": {"type": "string"}, "start_iso": {"type": "string"}, "end_iso": {"type": "string"}, "description": {"type": "string"}, "location": {"type": "string"}}, "required": ["summary", "start_iso", "end_iso"]}, "requires_confirmation": True, "handler": _handler_create_calendar_event},
+    "delete_calendar_event": {"description": "Exclui evento.", "parameters": {"type": "object", "properties": {"event_id": {"type": "string"}}, "required": ["event_id"]}, "requires_confirmation": True, "handler": _handler_delete_calendar_event},
+    "update_calendar_event": {"description": "Atualiza evento.", "parameters": {"type": "object", "properties": {"event_id": {"type": "string"}, "summary": {"type": "string"}, "start_iso": {"type": "string"}, "end_iso": {"type": "string"}, "description": {"type": "string"}}, "required": ["event_id"]}, "requires_confirmation": True, "handler": _handler_update_calendar_event},
 }
 
 def public_tool_specs():
     return {name: {k: v for k, v in spec.items() if k != "handler"} for name, spec in TOOL_REGISTRY.items()}
-
-
-# ========================================
-# EXECUÇÃO CONTROLADA
-# ========================================
 
 def _validate_required(schema, arguments):
     required = schema.get("parameters", {}).get("required", [])
@@ -642,7 +512,7 @@ def execute_tool(tool_name, arguments, user_role="owner", session=None, confirme
         return {"error": validation_error}
 
     if tool.get("requires_confirmation") and not confirmed:
-        return {"status": "pending_confirmation", "tool": tool_name, "arguments": arguments, "message": f"A ferramenta '{tool_name}' tem efeito colateral. Confirma a execução? (responda 'confirmar' ou 'cancelar')"}
+        return {"status": "pending_confirmation", "tool": tool_name, "arguments": arguments, "message": f"A ferramenta '{tool_name}' tem efeito colateral. Confirma? (responda 'confirmar' ou 'cancelar')"}
 
     handler = tool.get("handler")
     if not callable(handler):
