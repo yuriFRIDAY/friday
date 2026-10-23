@@ -29,9 +29,7 @@ class FridayAIProvider:
 
     def __init__(self):
         self.api_key = os.getenv("GROQ_API_KEY", "")
-        # Modelo de texto oficial e estável da Groq
         self.model = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
-        # Modelo de visão oficial da Groq
         self.vision_model = "llama-3.2-11b-vision-preview"
         self.base_url = "https://api.groq.com/openai/v1"
         self.smtp_user = os.getenv("SMTP_USER", "")
@@ -81,10 +79,9 @@ Use para calcular datas relativas.
 CONCISÃO:
 Seja direto. Máximo 2-3 frases, salvo quando pedirem resumo detalhado.
 
-FERRAMENTAS DISPONÍVEIS:
-Você TEM acesso a TODAS as ferramentas listadas abaixo. NUNCA diga que não possui uma ferramenta se ela estiver nesta lista.
+FERRAMENTAS DISPONÍVEIS (VOCÊ TEM ACESSO A TODAS):
 1. `get_current_time` (data e hora)
-2. `get_weather` (clima e previsão do tempo)
+2. `get_weather` (clima e previsão do tempo) -> USE ESTA FERRAMENTA PARA PERGUNTAS DE CLIMA.
 3. `get_system_status` (status do servidor)
 4. `search_web` (pesquisa na web)
 5. `deep_search` (pesquisa e leitura de página)
@@ -95,7 +92,9 @@ Você TEM acesso a TODAS as ferramentas listadas abaixo. NUNCA diga que não pos
 10. `get_morning_briefing`
 11. `get_calendar_events`, `create_calendar_event`, `update_calendar_event`, `delete_calendar_event`, `find_free_slots`
 
-REGRA CRÍTICA DE AGENDA:
+REGRA CRÍTICA:
+- NUNCA diga "Não tenho uma ferramenta" ou "Minha lista não inclui". Você TEM todas as ferramentas acima.
+- Se o usuário perguntar do clima, chame `get_weather`.
 - Compromissos em MEMÓRIAS: responda direto da memória.
 - Só use `get_calendar_events` quando o usuário pedir a agenda explicitamente.
 
