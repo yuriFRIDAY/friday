@@ -90,14 +90,6 @@ class _HTMLTextExtractor(HTMLParser):
     def get_text(self):
         return " ".join(self.result)
 
-def _truncate_text(text, max_len=5000):
-    if len(text) <= max_len:
-        return text
-    truncated = text[:max_len]
-    last_space = truncated.rfind(' ')
-    if last_space > 0:
-        truncated = truncated[:last_space]
-    return truncated + "..."
 
 def _format_iso_to_br(iso_str):
     try:
@@ -530,20 +522,47 @@ def _handler_play_music(query, is_playlist=False):
         pass
     return {"error": "Não consegui encontrar o vídeo."}
 
+def _truncate_text(text, max_len=5000):
+    if not text:
+        return ""
+    text = str(text)
+    if len(text) <= max_len:
+        return text
+    truncated = text[:max_len]
+    last_space = truncated.rfind(' ')
+    if last_space > 0:
+        truncated = truncated[:last_space]
+    return truncated + "..."
+
 def _handler_get_morning_briefing(city="Criciúma"):
-    parts = []
+    briefing = []
+    
     clima = _handler_get_weather(city)
-    parts.append(clima if isinstance(clima, str) else "Clima indisponível.")
+    if isinstance(clima, str):
+        briefing.append(clima)
+    elif isinstance(clima, dict) and "error" in clima:
+        briefing.append("Não consegui obter a previsão do tempo agora.")
+        
     agenda = _handler_get_calendar_events("today")
-    if isinstance(agenda, dict) and agenda.get("events"):
+    if isinstance(agenda, dict) and "events" in agenda:
         evts = agenda["events"]
-        parts.append(f"Agenda: {len(evts)} compromissos. O primeiro é '{evts[0]['summary']}' às {evts[0]['start'].split(' às ')[-1]}.")
+        if evts:
+            start_str = evts[0].get('start', '')
+            time_str = start_str.split(' às ')[-1] if ' às ' in start_str else 'horário não definido'
+            briefing.append(f"Você tem {len(evts)} compromissos hoje. O primeiro é: {evts[0].get('summary', 'Evento')} às {time_str}.")
+        else:
+            briefing.append("Sua agenda está livre hoje.")
     else:
-        parts.append("Sua agenda está livre hoje.")
+        briefing.append("Não consegui acessar a sua agenda neste momento.")
+            
     news = _handler_search_web("últimas notícias do mundo hoje", max_results=1)
-    if isinstance(news, dict) and news.get("results"):
-        parts.append(f"Notícias: {_truncate_text(news['results'][0].get('snippet', ''), 200)}")
-    return " ".join(parts)
+    if isinstance(news, dict) and "results" in news and news["results"]:
+        snippet = news["results"][0].get("snippet", "") or ""
+        if len(snippet) > 150:
+            snippet = snippet[:147].rsplit(' ', 1)[0] + "..."
+        briefing.append(f"Nas notícias: {snippet}")
+
+    return " ".join(briefing)
 
 def _handler_get_calendar_events(range_value="upcoming"):
     ctx = _CALENDAR_CONTEXT.get("access_token_provider")
