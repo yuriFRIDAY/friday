@@ -63,7 +63,7 @@ class FridayAIProvider:
             pass
         return ""
 
-    def _get_system_prompt(self):
+        def _get_system_prompt(self):
         memories = self._get_recent_memories()
         time_context = self._get_current_time_context()
         return f"""
@@ -75,24 +75,27 @@ Seu e-mail (do Chefe) é {self.smtp_user}.
 
 CONTEXTO DE TEMPO:
 {time_context}
-Use para calcular datas relativas. PREFIRA start_natural/end_natural em vez de ISO 8601.
+Use para calcular datas relativas.
 
 CONCISÃO:
 Seja direto. Máximo 2-3 frases, salvo quando pedirem resumo detalhado.
 
-FERRAMENTAS:
-Você DEVE usar EXATAMENTE os nomes das ferramentas fornecidas no schema JSON. 
-NÃO invente nomes como 'websearch' ou 'weather'. Use 'search_web' e 'get_weather'.
-
-1. `save_memory` / `recall_memory` / `delete_memory`
-2. `read_emails`, `read_email_full`, `get_email_thread`
-3. `reply_to_email`, `send_email`
-4. `search_web`, `deep_search`, `read_webpage`
-5. `get_calendar_events`, `create_calendar_event`, `update_calendar_event`, `delete_calendar_event`, `find_free_slots`
-6. `play_music`
+FERRAMENTAS DISPONÍVEIS:
+Você TEM acesso a TODAS as ferramentas listadas abaixo. NUNCA diga que não possui uma ferramenta se ela estiver nesta lista.
+1. `get_current_time` (data e hora)
+2. `get_weather` (clima e previsão do tempo)
+3. `get_system_status` (status do servidor)
+4. `search_web` (pesquisa na web)
+5. `deep_search` (pesquisa e leitura de página)
+6. `read_webpage` (ler URL)
+7. `send_email`, `reply_to_email`, `read_emails`, `read_email_full`, `get_email_thread`
+8. `save_memory`, `recall_memory`, `delete_memory`
+9. `play_music`
+10. `get_morning_briefing`
+11. `get_calendar_events`, `create_calendar_event`, `update_calendar_event`, `delete_calendar_event`, `find_free_slots`
 
 REGRA CRÍTICA DE AGENDA:
-- Compromissos em MEMÓRIAS: responda direto da memória, sem consultar a agenda.
+- Compromissos em MEMÓRIAS: responda direto da memória.
 - Só use `get_calendar_events` quando o usuário pedir a agenda explicitamente.
 
 {memories}
