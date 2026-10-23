@@ -161,6 +161,7 @@ def _handler_read_emails(query="", max_results=5):
     emails = []
     for msg in messages[:max_results]:
         msg_id = msg["id"]
+        # Adicionado o parâmetro format=metadata e o snippet
         detail_url = f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{msg_id}?format=metadata&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=Date"
         req_detail = Request(detail_url, headers={"Authorization": "Bearer " + access_token})
         try:
@@ -170,9 +171,16 @@ def _handler_read_emails(query="", max_results=5):
                 subject = next((h["value"] for h in headers if h["name"] == "Subject"), "(sem assunto)")
                 sender = next((h["value"] for h in headers if h["name"] == "From"), "(remetente desconhecido)")
                 date = next((h["value"] for h in headers if h["name"] == "Date"), "")
-                emails.append({"subject": subject, "from": sender, "date": date})
+                # O snippet traz o resumo do corpo do e-mail que o Google já processa
+                snippet = detail.get("snippet", "")
+                emails.append({
+                    "subject": subject, 
+                    "from": sender, 
+                    "date": date,
+                    "snippet": snippet
+                })
         except Exception:
-            emails.append({"subject": "(falha ao ler)", "from": "", "date": ""})
+            emails.append({"subject": "(falha ao ler)", "from": "", "date": "", "snippet": ""})
 
     return {"ok": True, "emails": emails}
 
@@ -191,6 +199,7 @@ def _handler_recall_memory(key):
     if not callable(recall_func):
         return {"error": "Sistema de memória indisponível."}
     try:
+        # A função recall agora faz busca por aproximação (LIKE) em vez de exata
         value = recall_func(key)
         return value if value else {"error": f"Nenhuma memória encontrada para: {key}"}
     except Exception as e:
@@ -287,7 +296,7 @@ def _handler_get_calendar_events(range_value="upcoming"):
             start_label = dt.strftime("%d/%m/%Y %H:%M")
         except Exception:
             start_label = start_raw or "horário não definido"
-        formatted.append({"summary": evt.get("summary", "(sem título)"), "start": start_label})
+        formatted.append({"id": evt.get("id", ""), "summary": evt.get("summary", "(sem título)"), "start": start_label})
 
     return {"range": label, "events": formatted, "count": len(formatted)}
 
@@ -313,6 +322,48 @@ def _handler_create_calendar_event(summary, start_iso, end_iso, description="", 
 
     return {"ok": True, "created": True, "summary": summary, "start": start_iso, "end": end_iso, "link": result.get("htmlLink", "")}
 
+def _handler_delete_calendar_event(event_id):
+    ctx = _CALENDAR_CONTEXT.get("access_token_provider")
+    delete = _CALENDAR_CONTEXT.get("delete_event")
+    if not callable(ctx) or not callable(delete):
+        return {"error": "Integração indisponível."}
+    try:
+        access_token = ctx()
+    except Exception as exc:
+        return {"error": f"Falha no token: {exc}"}
+    if not access_token:
+        return {"error": "Calendário não conectado."}
+
+    result = delete(access_token, event_id)
+    if result is None:
+        return {"error": "O Google recusou a exclusão do evento (verifique o ID)."}
+
+    return {"ok": True, "deleted": True, "message": "Evento excluído com sucesso."}
+
+def _handler_update_calendar_event(event_id, summary=None, start_iso=None, end_iso=None, description=None):
+    ctx = _CALENDAR_CONTEXT.get("access_token_provider")
+    update = _CALENDAR_CONTEXT.get("update_event")
+    if not callable(ctx) or not callable(update):
+        return {"error": "Integração indisponível."}
+    try:
+        access_token = ctx()
+    except Exception as exc:
+        return {"error": f"Falha no token: {exc}"}
+    if not access_token:
+        return {"error": "Calendário não conectado."}
+
+    payload = {}
+    if summary: payload["summary"] = summary
+    if start_iso: payload["start"] = {"dateTime": start_iso, "timeZone": "America/Sao_Paulo"}
+    if end_iso: payload["end"] = {"dateTime": end_iso, "timeZone": "America/Sao_Paulo"}
+    if description: payload["description"] = description
+
+    result = update(access_token, event_id, payload)
+    if result is None:
+        return {"error": "O Google recusou a atualização do evento."}
+
+    return {"ok": True, "updated": True, "summary": summary, "start": start_iso, "end": end_iso}
+
 
 # ========================================
 # CONTEXTOS INJETÁVEIS
@@ -321,11 +372,13 @@ def _handler_create_calendar_event(summary, start_iso, end_iso, description="", 
 _CALENDAR_CONTEXT = {}
 _MEMORY_CONTEXT = {}
 
-def set_calendar_context(access_token_provider, events_query, today_events, create_event):
+def set_calendar_context(access_token_provider, events_query, today_events, create_event, delete_event, update_event):
     _CALENDAR_CONTEXT["access_token_provider"] = access_token_provider
     _CALENDAR_CONTEXT["events_query"] = events_query
     _CALENDAR_CONTEXT["today_events"] = today_events
     _CALENDAR_CONTEXT["create_event"] = create_event
+    _CALENDAR_CONTEXT["delete_event"] = delete_event
+    _CALENDAR_CONTEXT["update_event"] = update_event
 
 def set_memory_context(save_func, recall_func):
     _MEMORY_CONTEXT["save"] = save_func
@@ -371,7 +424,7 @@ TOOL_REGISTRY = {
         "requires_confirmation": True, "allowed_roles": ["owner"], "handler": _handler_send_email,
     },
     "read_emails": {
-        "description": "Lê os e-mails mais recentes da caixa de entrada do Gmail.",
+        "description": "Lê os e-mails mais recentes da caixa de entrada do Gmail. Retorna assunto, remetente, data e um resumo do corpo (snippet).",
         "parameters": {
             "type": "object",
             "properties": {
@@ -395,7 +448,7 @@ TOOL_REGISTRY = {
         "requires_confirmation": False, "allowed_roles": ["owner"], "handler": _handler_save_memory,
     },
     "recall_memory": {
-        "description": "Recupera uma informação de longo prazo previamente salva.",
+        "description": "Recupera uma informação de longo prazo previamente salva. Suporta busca por aproximação.",
         "parameters": {
             "type": "object",
             "properties": {"key": {"type": "string", "description": "A chave da memória a ser recuperada."}},
@@ -422,7 +475,7 @@ TOOL_REGISTRY = {
         "requires_confirmation": False, "allowed_roles": ["owner"], "handler": _handler_get_morning_briefing,
     },
     "get_calendar_events": {
-        "description": "Consulta os próximos compromissos ou os eventos de hoje na agenda.",
+        "description": "Consulta os próximos compromissos ou os eventos de hoje na agenda. Retorna o ID de cada evento para futuras alterações.",
         "parameters": {"type": "object", "properties": {"range": {"type": "string", "enum": ["today", "upcoming"]}}, "required": ["range"], "additionalProperties": False},
         "requires_confirmation": False, "allowed_roles": ["owner"], "handler": _handler_get_calendar_events,
     },
@@ -439,6 +492,32 @@ TOOL_REGISTRY = {
             "required": ["summary", "start_iso", "end_iso"], "additionalProperties": False,
         },
         "requires_confirmation": True, "allowed_roles": ["owner"], "handler": _handler_create_calendar_event,
+    },
+    "delete_calendar_event": {
+        "description": "Exclui um evento do Google Calendar usando o ID do evento. Requer confirmação.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "event_id": {"type": "string", "description": "O ID do evento a ser excluído."}
+            },
+            "required": ["event_id"], "additionalProperties": False,
+        },
+        "requires_confirmation": True, "allowed_roles": ["owner"], "handler": _handler_delete_calendar_event,
+    },
+    "update_calendar_event": {
+        "description": "Atualiza um evento existente no Google Calendar usando o ID. Requer confirmação.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "event_id": {"type": "string", "description": "O ID do evento a ser atualizado."},
+                "summary": {"type": "string", "description": "Novo título."},
+                "start_iso": {"type": "string", "description": "Novo início em ISO 8601."},
+                "end_iso": {"type": "string", "description": "Novo fim em ISO 8601."},
+                "description": {"type": "string"}
+            },
+            "required": ["event_id"], "additionalProperties": False,
+        },
+        "requires_confirmation": True, "allowed_roles": ["owner"], "handler": _handler_update_calendar_event,
     },
 }
 
