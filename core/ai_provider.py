@@ -3,9 +3,16 @@ import logging
 import os
 import time
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from urllib.request import Request, urlopen
 from urllib.error import URLError, HTTPError
+
+# Tenta importar ZoneInfo com fallback
+try:
+    from zoneinfo import ZoneInfo
+    HAS_ZONEINFO = True
+except ImportError:
+    HAS_ZONEINFO = False
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -24,7 +31,7 @@ class FridayAIProvider:
     def __init__(self):
         self.api_key = os.getenv("GROQ_API_KEY", "")
         self.model = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
-        self.vision_model = "llama-3.2-11b-vision-preview"
+        self.vision_model = "meta-llama/llama-4-scout-17b-16e-instruct"
         self.base_url = "https://api.groq.com/openai/v1"
         self.smtp_user = os.getenv("SMTP_USER", "")
         self.data_dir = os.getenv("DATA_DIR", ".")
@@ -36,10 +43,18 @@ class FridayAIProvider:
         return bool(self.api_key.strip())
 
     def _get_current_time_context(self):
-        now = datetime.now()
+        # Tenta usar fuso de Brasília; se falhar, usa UTC-3 fixo
+        try:
+            if HAS_ZONEINFO:
+                now = datetime.now(ZoneInfo("America/Sao_Paulo"))
+            else:
+                now = datetime.now(timezone(timedelta(hours=-3)))
+        except Exception:
+            now = datetime.now(timezone(timedelta(hours=-3)))
+            
         dias_semana = ["segunda-feira", "terça-feira", "quarta-feira", "quinta-feira", "sexta-feira", "sábado", "domingo"]
         dia_semana = dias_semana[now.weekday()]
-        return f"Hoje é {dia_semana}, {now.strftime('%d/%m/%Y')} e agora são {now.strftime('%H:%M')}."
+        return f"Hoje é {dia_semana}, {now.strftime('%d/%m/%Y')} e agora são {now.strftime('%H:%M')} (Horário de Brasília)."
 
     def _get_recent_memories(self):
         try:
@@ -72,19 +87,24 @@ CONTEXTO DE TEMPO:
 Use isso para calcular datas relativas (ex: "amanhã", "próxima sexta"). Se precisar usar a agenda, calcule o formato ISO 8601 com base nessa data.
 
 REGRA DE OURO PARA CONCISÃO:
-Seja direto e conciso. A menos que o usuário peça explicitamente um resumo detalhado ou uma explicação longa, limite suas respostas a no máximo 2 ou 3 frases curtas.
+Seja direto e conciso. A menos que o usuário peça explicitamente um resumo detalhado ou uma explicação longa, limite suas respostas a no máximo 2 ou 3 frases curtas. O JARVIS não enrola.
 
 REGRA DE OURO PARA FERRAMENTAS:
 Você tem acesso a ferramentas reais no sistema. NUNCA finja que salvou, lembrou ou reservou algo sem executar a ferramenta.
 1. Para lembrar de algo, use `save_memory`.
 2. Para consultar e-mails, use `read_emails`. Para ler a conversa inteira, use `get_email_thread`.
-3. Para responder e-mails, use `reply_to_email`. O sistema vai redigir o corpo (body) da resposta automaticamente com base no contexto, mas você deve passar o assunto e o destinatário corretos.
+3. Para responder e-mails, use `reply_to_email`.
 4. Para fatos recentes, use `search_web`. Para ler o conteúdo completo de um link, use `read_webpage`.
 
-RACIOCÍNIO EM MÚLTIPLOS PASSOS:
+REGRA CRÍTICA DE AGENDA VS MEMÓRIA:
+- Se o Chefe perguntar sobre um compromisso que está na sua lista de MEMÓRIAS (abaixo), responda diretamente com a informação da memória. NÃO chame `get_calendar_events` para isso.
+- Só use `get_calendar_events` se ele pedir explicitamente para checar a agenda do Google, ou se for criar/alterar um evento real.
+
+RACIOCÍNIO EM MÚLTIPLOS PASSOS (FEW-SHOT EXEMPLOS):
 Você pode e deve usar MÚLTIPLAS ferramentas em sequência se a tarefa for complexa.
-- Exemplo 1: "Veja se chegou e-mail do Render e pesquise como resolver". PRIMEIRO use `read_emails`. Depois use `search_web`.
+- Exemplo 1 (E-mail e Web): "Veja se chegou e-mail do Render e pesquise como resolver". PRIMEIRO use `read_emails`. Depois use `search_web`. Só então responda.
 - Exemplo 2 (Conflito): "Crie uma reunião amanhã às 15h". Passo 1: Use `get_calendar_events`. Passo 2: Verifique se há conflito. Passo 3: Avise ou crie.
+- Exemplo 3 (Atualizar Evento): "Mude a reunião X para as 15h". Passo 1: Use `get_calendar_events` para achar o ID. Passo 2: Calcule o novo ISO 8601. Passo 3: Use `update_calendar_event`.
 
 {memories}
 """
@@ -144,8 +164,18 @@ Você pode e deve usar MÚLTIPLAS ferramentas em sequência se a tarefa for comp
             "messages": messages,
             "stream": False,
         }
-        result = self._execute_request(payload)
-        return result if result else "Não consegui analisar a imagem."
+        
+        try:
+            result = self._send_raw_request(payload)
+            choices = result.get("choices", [])
+            if choices:
+                content = choices[0].get("message", {}).get("content")
+                if isinstance(content, str) and content.strip():
+                    return content.strip()
+            return "A IA não retornou uma descrição para a imagem."
+        except Exception as e:
+            logger.error(f"FRIDAY AI: Erro na análise de visão: {str(e)}")
+            return f"Falha ao analisar imagem: {str(e)}"
 
     def chat_with_tools(self, user_message, history, tools):
         if not self.available():
