@@ -22,6 +22,8 @@ class FridayAIProvider:
     def __init__(self):
         self.api_key = os.getenv("GROQ_API_KEY", "")
         self.model = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
+        # Modelo com suporte a visão
+        self.vision_model = "llama-3.2-11b-vision-preview"
         self.base_url = "https://api.groq.com/openai/v1"
         self.smtp_user = os.getenv("SMTP_USER", "")
 
@@ -42,30 +44,17 @@ Seja direto e conciso. A menos que o usuário peça explicitamente um resumo det
 REGRA DE OURO PARA FERRAMENTAS:
 Você tem acesso a ferramentas reais no sistema. NUNCA finja que salvou, lembrou ou reservou algo sem executar a ferramenta.
 1. Para lembrar de algo, use `save_memory`.
-2. Para recordar, use `recall_memory`. Se a ferramenta retornar várias memórias, leia todas e deduza a resposta correta para o usuário.
+2. Para recordar, use `recall_memory`. Se a ferramenta retornar várias memórias, leia todas e deduza a resposta correta.
 3. Para fatos recentes, use `search_web`. Se precisar ler o conteúdo completo de um link, use `read_webpage`.
-4. Para ler e-mails, use `read_emails`. NUNCA invente nomes, assuntos ou trechos de e-mail. Use EXATAMENTE o que a ferramenta retornou.
-5. Para enviar um e-mail novo, use `send_email`. Para responder a um e-mail existente mantendo a thread, use `reply_to_email` (usando o message_id retornado por read_emails).
+4. Para ler e-mails, use `read_emails`. NUNCA invente nomes, assuntos ou trechos de e-mail.
+5. Para enviar um e-mail novo, use `send_email`. Para responder mantendo a thread, use `reply_to_email`.
 
 RACIOCÍNIO EM MÚLTIPLOS PASSOS (FEW-SHOT EXEMPLOS):
 Você pode e deve usar MÚLTIPLAS ferramentas em sequência se a tarefa for complexa.
 - Exemplo 1 (E-mail e Web): "Veja se chegou e-mail do Render e pesquise como resolver". PRIMEIRO use `read_emails`. Depois use `search_web`. Só então responda.
-- Exemplo 2 (Detecção de Conflito): "Crie uma reunião amanhã às 15h".
-  Passo 1: Use `get_calendar_events` para listar os eventos de amanhã.
-  Passo 2: Verifique se há algum evento que termine depois das 15h e comece antes das 16h.
-  Passo 3: Se houver conflito, avise o usuário: "Chefe, você tem outro compromisso neste horário. Deseja agendar mesmo assim?"
-  Passo 4: Se não houver conflito (ou o usuário confirmar), use `create_calendar_event`.
-- Exemplo 3 (Atualizar Evento): "Mude a reunião X para as 15h". 
-  Passo 1: Use `get_calendar_events` para achar o ID e a data. 
-  Passo 2: Calcule o novo horário ISO 8601. Defina o fim como 1 hora depois do início. 
-  Passo 3: Use `update_calendar_event`.
-- Exemplo 4 (Ler Artigo Completo): "Pesquise sobre as notícias da NASA e leia o primeiro link".
-  Passo 1: Use `search_web`. 
-  Passo 2: Use `read_webpage` no primeiro link retornado. 
-  Passo 3: Resuma o conteúdo.
-
-COMPORTAMENTO PROATIVO E ANTECIPAÇÃO:
-Você é uma assistente de inteligência. Antecipe as necessidades do usuário e sugira ações com base nas ferramentas disponíveis.
+- Exemplo 2 (Detecção de Conflito): "Crie uma reunião amanhã às 15h". Passo 1: Use `get_calendar_events`. Passo 2: Verifique se há conflito. Passo 3: Se houver, avise. Passo 4: Se não, use `create_calendar_event`.
+- Exemplo 3 (Atualizar Evento): "Mude a reunião X para as 15h". Passo 1: Use `get_calendar_events` para achar o ID. Passo 2: Calcule o novo ISO 8601. Passo 3: Use `update_calendar_event`.
+- Exemplo 4 (Ler Artigo): "Pesquise sobre as notícias da NASA e leia o primeiro link". Passo 1: Use `search_web`. Passo 2: Use `read_webpage`. Passo 3: Resuma.
 """
 
     def _build_messages(self, message, history=None):
@@ -101,6 +90,26 @@ Você é uma assistente de inteligência. Antecipe as necessidades do usuário e
             "stream": False,
         }
         return self._execute_request(payload)
+
+    def chat_with_vision(self, user_message, image_base64):
+        """Envia uma imagem em Base64 junto com o prompt para o modelo de visão."""
+        if not self.available():
+            return "A IA não está configurada."
+
+        messages = [
+            {"role": "system", "content": self._get_system_prompt().strip()},
+            {"role": "user", "content": [
+                {"type": "text", "text": user_message},
+                {"type": "image_url", "image_url": {"url": image_base64}}
+            ]}
+        ]
+        payload = {
+            "model": self.vision_model,
+            "messages": messages,
+            "stream": False,
+        }
+        result = self._execute_request(payload)
+        return result if result else "Não consegui analisar a imagem."
 
     def chat_with_tools(self, user_message, history, tools):
         if not self.available():
@@ -199,7 +208,6 @@ Você é uma assistente de inteligência. Antecipe as necessidades do usuário e
         return self._execute_request(payload)
 
     def chat_with_full_history(self, messages, tools):
-        """Permite à IA raciocinar em múltiplos passos (Agent Loop)."""
         if not self.available():
             return {"error": "IA indisponível."}
 
