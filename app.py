@@ -927,10 +927,64 @@ class FridayHandler(BaseHTTPRequestHandler):
 
         return False, ""
 
-    def _try_direct_calendar_intent(self, command, normalized):
+    def _try_direct_calendar_action(self, command, normalized, session):
         if not _calendar_is_connected():
             return False, ""
 
+        # Gatilhos para deletar
+        is_delete = any(t in normalized for t in ["cancele", "cancele o", "apague", "delete", "deletar", "remova"])
+        if not is_delete:
+            return False, ""
+
+        try:
+            access_token = _usable_calendar_access_token()
+        except Exception:
+            return True, "Não consegui renovar o acesso ao calendário, chefe."
+
+        if not access_token:
+            return True, "O calendário não está conectado no momento."
+
+        # Busca os próximos 20 eventos para achar o alvo
+        events = _calendar_events_query(access_token, max_results=20)
+        if not events:
+            return True, "Não encontrei nenhum evento na sua agenda para alterar ou excluir."
+
+        # Remove palavras comuns para achar o alvo
+        ignore_words = ["friday", "friday,", "cancele", "cancele o", "apague", "delete", "deletar", "remova", "a", "o", "reunião", "reuniao", "de", "da", "do", "meu", "minha"]
+        query_words = [w for w in normalized.replace(",", "").replace(".", "").split() if w not in ignore_words]
+        
+        target_event = None
+        for evt in events:
+            evt_name = evt.get("summary", "").casefold()
+            # Verifica se ALGUMA palavra do comando está no nome do evento
+            if evt_name and any(w in evt_name for w in query_words):
+                target_event = evt
+                break
+        
+        # Se não achar por palavras, tenta o nome inteiro
+        if not target_event:
+            for evt in events:
+                evt_name = evt.get("summary", "").casefold()
+                if evt_name and evt_name in normalized:
+                    target_event = evt
+                    break
+
+        if target_event:
+            session.pending_tool = ("delete_calendar_event", {"event_id": target_event["id"]})
+            return True, f"Chefe, encontrei o evento '{target_event['summary']}'. Deseja confirmar a exclusão? (responda 'confirmar' ou 'cancelar')"
+        
+        return True, "Não consegui identificar qual evento você quer cancelar. Por favor, verifique o nome na sua agenda."
+
+    def _try_direct_calendar_intent(self, command, normalized, session):
+        if not _calendar_is_connected():
+            return False, ""
+
+        # 1. Tenta achar uma ação (deletar)
+        action_handled, action_reply = self._try_direct_calendar_action(command, normalized, session)
+        if action_handled:
+            return True, action_reply
+
+        # 2. Consultas de agenda
         triggers_today = ("agenda de hoje", "o que tenho hoje", "compromissos de hoje", "eventos de hoje", "tenho algo hoje")
         triggers_upcoming = ("próximos compromissos", "proximos compromissos", "próximos eventos", "proximos eventos", "minha agenda", "o que está agendado")
 
@@ -1004,7 +1058,7 @@ class FridayHandler(BaseHTTPRequestHandler):
         if pending_handled:
             return pending_reply
 
-        calendar_handled, calendar_reply = self._try_direct_calendar_intent(clean_command, normalized)
+        calendar_handled, calendar_reply = self._try_direct_calendar_intent(clean_command, normalized, session)
         if calendar_handled:
             return calendar_reply
 
