@@ -20,6 +20,7 @@ if not logger.handlers:
     logger.addHandler(handler)
     logger.setLevel(logging.INFO)
 
+
 class _HTMLTextExtractor(HTMLParser):
     def __init__(self):
         super().__init__()
@@ -36,6 +37,7 @@ class _HTMLTextExtractor(HTMLParser):
             self.result.append(data)
     def get_text(self):
         return " ".join("".join(self.result).split())
+
 
 def _handler_get_current_time():
     return time.strftime("%d/%m/%Y %H:%M:%S")
@@ -159,7 +161,6 @@ def _handler_reply_to_email(to_email, subject, in_reply_to="", body=None, origin
         return {"error": "Credenciais de e-mail não configuradas no sistema."}
         
     if not body:
-        # Auto-Draft caso a IA não tenha enviado o corpo (Item 4)
         body = f"Olá,\n\nRespondendo sobre: {original_body[:200]}...\n\nAtenciosamente,\nChefe"
 
     msg = MIMEText(body)
@@ -242,6 +243,9 @@ def _handler_read_emails(query="", max_results=5):
     return {"ok": True, "emails": emails}
 
 def _handler_get_email_thread(thread_id):
+    if not thread_id or not isinstance(thread_id, str):
+        return {"error": "ID da conversa inválido."}
+
     ctx = _CALENDAR_CONTEXT.get("access_token_provider")
     if not callable(ctx):
         return {"error": "Integração com o Google indisponível."}
@@ -447,9 +451,6 @@ def _handler_update_calendar_event(event_id, summary=None, start_iso=None, end_i
     return {"ok": True, "updated": True, "summary": summary, "start": start_iso, "end": end_iso}
 
 
-# ========================================
-# CONTEXTOS E REGISTRO
-# ========================================
 _CALENDAR_CONTEXT = {}
 _MEMORY_CONTEXT = {}
 
