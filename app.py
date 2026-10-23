@@ -518,9 +518,10 @@ def _db_recall_memory(key):
         if row:
             return f"{row[0]}: {row[1]}"
         
-        rows = conn.execute("SELECT key, value FROM ai_memory").fetchall()
+        # Se não achar, puxa no máximo 5 memórias mais recentes
+        rows = conn.execute("SELECT key, value FROM ai_memory ORDER BY rowid DESC LIMIT 5").fetchall()
         if rows:
-            return "Não encontrei correspondência exata, mas aqui estão TODAS as memórias salvas:\n" + "\n".join([f"- {r[0]}: {r[1]}" for r in rows])
+            return "Não encontrei correspondência exata, mas aqui estão as memórias mais recentes:\n" + "\n".join([f"- {r[0]}: {r[1]}" for r in rows])
         return None
 
 set_memory_context(save_func=_db_save_memory, recall_func=_db_recall_memory)
@@ -915,7 +916,7 @@ class FridayHandler(BaseHTTPRequestHandler):
                     return True, "Evento excluído com sucesso, chefe."
                 if tool_name == "update_calendar_event":
                     return True, "Evento atualizado com sucesso, chefe."
-                if tool_name == "send_email":
+                if tool_name in ("send_email", "reply_to_email"):
                     return True, str(payload)
                     
                 return True, f"Ferramenta '{tool_name}' executada com sucesso."
@@ -931,7 +932,6 @@ class FridayHandler(BaseHTTPRequestHandler):
         if not _calendar_is_connected():
             return False, ""
 
-        # Gatilhos para deletar
         is_delete = any(t in normalized for t in ["cancele", "cancele o", "apague", "delete", "deletar", "remova"])
         if not is_delete:
             return False, ""
@@ -944,24 +944,20 @@ class FridayHandler(BaseHTTPRequestHandler):
         if not access_token:
             return True, "O calendário não está conectado no momento."
 
-        # Busca os próximos 20 eventos para achar o alvo
         events = _calendar_events_query(access_token, max_results=20)
         if not events:
             return True, "Não encontrei nenhum evento na sua agenda para alterar ou excluir."
 
-        # Remove palavras comuns para achar o alvo
         ignore_words = ["friday", "friday,", "cancele", "cancele o", "apague", "delete", "deletar", "remova", "a", "o", "reunião", "reuniao", "de", "da", "do", "meu", "minha"]
         query_words = [w for w in normalized.replace(",", "").replace(".", "").split() if w not in ignore_words]
         
         target_event = None
         for evt in events:
             evt_name = evt.get("summary", "").casefold()
-            # Verifica se ALGUMA palavra do comando está no nome do evento
             if evt_name and any(w in evt_name for w in query_words):
                 target_event = evt
                 break
         
-        # Se não achar por palavras, tenta o nome inteiro
         if not target_event:
             for evt in events:
                 evt_name = evt.get("summary", "").casefold()
@@ -979,12 +975,10 @@ class FridayHandler(BaseHTTPRequestHandler):
         if not _calendar_is_connected():
             return False, ""
 
-        # 1. Tenta achar uma ação (deletar)
         action_handled, action_reply = self._try_direct_calendar_action(command, normalized, session)
         if action_handled:
             return True, action_reply
 
-        # 2. Consultas de agenda
         triggers_today = ("agenda de hoje", "o que tenho hoje", "compromissos de hoje", "eventos de hoje", "tenho algo hoje")
         triggers_upcoming = ("próximos compromissos", "proximos compromissos", "próximos eventos", "proximos eventos", "minha agenda", "o que está agendado")
 
@@ -1031,7 +1025,6 @@ class FridayHandler(BaseHTTPRequestHandler):
         normalized = clean_command.casefold()
         response = None
 
-        # --- ATALHO DIRETO PARA O BRIEFING ---
         if "briefing" in normalized or "resumo matinal" in normalized:
             exec_res = execute_tool("get_morning_briefing", {"city": "Criciúma"}, user_role="owner")
             if exec_res.get("ok"):
@@ -1039,7 +1032,6 @@ class FridayHandler(BaseHTTPRequestHandler):
             else:
                 return "Não consegui acessar os dados para o briefing matinal, chefe."
 
-        # --- ATALHO DIRETO PARA MÚSICA ---
         if "toque" in normalized or "música" in normalized or "musica" in normalized or "play" in normalized:
             query = clean_command
             for word in ["FRIDAY,", "FRIDAY", "toque", "a música", "a musica", "música", "musica", "coloque", "play"]:
@@ -1062,8 +1054,7 @@ class FridayHandler(BaseHTTPRequestHandler):
         if calendar_handled:
             return calendar_reply
 
-        # --- NOVO: Ignora o cérebro antigo para comandos complexos ---
-        force_llm = any(t in normalized for t in ["lembre-se", "salve na memória", "memorize", "qual é minha", "o que você sabe sobre", "reserva", "reserve", "email", "e-mail", "caixa de entrada", "cancela", "cancele", "muda", "altere", "remarque", "apaga", "deleta"])
+        force_llm = any(t in normalized for t in ["lembre-se", "salve na memória", "memorize", "qual é minha", "o que você sabe sobre", "reserva", "reserve", "email", "e-mail", "caixa de entrada", "cancela", "cancele", "muda", "altere", "remarque", "apaga", "deleta", "pesquise", "leia", "resuma", "artigo", "site"])
         
         if not force_llm:
             intention = friday.interpret(clean_command)
@@ -1088,14 +1079,12 @@ class FridayHandler(BaseHTTPRequestHandler):
 
             if intention != "unknown":
                 return str(response)
-        # ------------------------------------------------------------------------------------------
 
         from core.ai_provider import FridayAIProvider
         provider = FridayAIProvider()
         if not provider.available():
             return str(response) if response else "A IA não está configurada."
 
-        # --- INÍCIO DO AGENT LOOP (MÚLTIPLOS PASSOS) ---
         current_messages = list(history)
         current_messages.append({"role": "user", "content": clean_command})
         
@@ -1128,11 +1117,9 @@ class FridayHandler(BaseHTTPRequestHandler):
                 else:
                     tool_result = exec_result.get("result")
                 
-                # Prevenção de erro: se a ferramenta falhou internamente e retornou None
                 if tool_result is None:
                     tool_result = {"error": "A ferramenta não retornou dados (falha na execução)."}
 
-                # Adiciona a chamada da ferramenta e o resultado ao histórico temporário para a IA pensar de novo
                 current_messages.append({
                     "role": "assistant",
                     "content": None,
@@ -1157,7 +1144,6 @@ class FridayHandler(BaseHTTPRequestHandler):
             else:
                 break
 
-        # Fallback se o loop falhar
         history.append({"role": "user", "content": clean_command})
         fallback_text = provider.generate(message=clean_command, history=history)
         if fallback_text:
@@ -1166,7 +1152,6 @@ class FridayHandler(BaseHTTPRequestHandler):
             return fallback_text
 
         return "Desculpe, chefe. Não consegui concluir o raciocínio complexo desta vez."
-        # --- FIM DO AGENT LOOP ---
 
     def do_POST(self):
         path = urlsplit(self.path).path
