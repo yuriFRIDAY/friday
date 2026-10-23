@@ -30,7 +30,7 @@ class FridayAIProvider:
     def __init__(self):
         self.api_key = os.getenv("GROQ_API_KEY", "")
         # Modelo oficial da Groq que suporta function calling e visão
-        self.model = os.getenv("GROQ_MODEL", "qwen/qwen3.8-27b")
+                self.model = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
         self.vision_model = "qwen/qwen3.8-27b"
         self.base_url = "https://api.groq.com/openai/v1"
         self.smtp_user = os.getenv("SMTP_USER", "")
