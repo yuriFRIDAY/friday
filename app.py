@@ -12,6 +12,9 @@ import secrets
 import time
 import fcntl
 import sqlite3
+import base64
+import io
+import PyPDF2
 
 from core.assistant import FridayAssistant
 from core.auth import FridayAuth
@@ -25,7 +28,7 @@ from core.friday_tools import (
 )
 
 SESSION_COOKIE = "friday_session"
-MAX_BODY = 8192
+MAX_BODY = 20 * 1024 * 1024  # Aumentado para 20MB (suportar imagens e PDFs)
 MAX_HISTORY_MESSAGES = 10
 
 # ========================================
@@ -518,7 +521,6 @@ def _db_recall_memory(key):
         if row:
             return f"{row[0]}: {row[1]}"
         
-        # Se não achar, puxa no máximo 5 memórias mais recentes
         rows = conn.execute("SELECT key, value FROM ai_memory ORDER BY rowid DESC LIMIT 5").fetchall()
         if rows:
             return "Não encontrei correspondência exata, mas aqui estão as memórias mais recentes:\n" + "\n".join([f"- {r[0]}: {r[1]}" for r in rows])
@@ -595,7 +597,7 @@ class FridayHandler(BaseHTTPRequestHandler):
 
         payload = json.dumps({
             "text": text,
-            "model_id": "eleven_turbo_v2_5", 
+            "model_id": "eleven_flash_v2_5",
             "voice_settings": {
                 "stability": 0.3,          
                 "similarity_boost": 0.85,  
@@ -611,16 +613,29 @@ class FridayHandler(BaseHTTPRequestHandler):
         }, method="POST")
 
         try:
+            # Implementação de Streaming (Chunked Transfer Encoding)
             with urlopen(req, timeout=30) as response:
-                audio_data = response.read()
-            self.send_response(200)
-            self.send_header("Content-Type", "audio/mpeg")
-            self.send_header("Content-Length", str(len(audio_data)))
-            self.end_headers()
-            self.wfile.write(audio_data)
+                self.send_response(200)
+                self.send_header("Content-Type", "audio/mpeg")
+                self.send_header("Transfer-Encoding", "chunked")
+                self.end_headers()
+
+                while True:
+                    chunk = response.read(4096)
+                    if not chunk:
+                        break
+                    self.wfile.write(f"{len(chunk):X}\r\n".encode("utf-8"))
+                    self.wfile.write(chunk)
+                    self.wfile.write(b"\r\n")
+                
+                # Sinaliza o fim do stream
+                self.wfile.write(b"0\r\n\r\n")
         except Exception as e:
             print(f"FRIDAY WEB: Falha na ElevenLabs: {e}")
-            self.send_json(500, {"error": f"Falha na ElevenLabs: {str(e)}"})
+            try:
+                self.send_json(500, {"error": f"Falha na ElevenLabs: {str(e)}"})
+            except:
+                pass
 
     def get_session(self):
         token = _read_session_cookie(self.headers.get("Cookie", ""))
@@ -1021,9 +1036,42 @@ class FridayHandler(BaseHTTPRequestHandler):
             lines.append(f"• {evt['summary']} — {when}")
         return True, "\n".join(lines)
 
-    def _handle_chat_with_tools(self, clean_command, history, session):
+    def _handle_pdf(self, pdf_base64, command):
+        import PyPDF2
+        import io
+        import base64
+        
+        if "," in pdf_base64:
+            pdf_base64 = pdf_base64.split(",")[1]
+            
+        pdf_bytes = base64.b64decode(pdf_base64)
+        reader = PyPDF2.PdfReader(io.BytesIO(pdf_bytes))
+        text = ""
+        for page in reader.pages:
+            text += (page.extract_text() or "") + "\n"
+            
+        from core.ai_provider import FridayAIProvider
+        provider = FridayAIProvider()
+        # Injeta o texto do PDF como contexto para a IA
+        context_msg = f"O usuário anexou um PDF. Aqui está o conteúdo extraído:\n\n{text[:20000]}\n\nComando do usuário: {command}"
+        return provider.generate(message=context_msg) or "Não consegui ler o PDF."
+
+    def _handle_vision(self, image_base64, command):
+        from core.ai_provider import FridayAIProvider
+        provider = FridayAIProvider()
+        return provider.chat_with_vision(command, image_base64)
+
+    def _handle_chat_with_tools(self, clean_command, history, session, image=None, pdf=None):
         normalized = clean_command.casefold()
         response = None
+
+        # Se tiver imagem, vai direto para o cérebro de visão
+        if image:
+            return self._handle_vision(image, clean_command)
+            
+        # Se tiver PDF, extrai o texto e manda para o cérebro normal
+        if pdf:
+            return self._handle_pdf(pdf, clean_command)
 
         if "briefing" in normalized or "resumo matinal" in normalized:
             exec_res = execute_tool("get_morning_briefing", {"city": "Criciúma"}, user_role="owner")
@@ -1163,7 +1211,7 @@ class FridayHandler(BaseHTTPRequestHandler):
         data = self.read_json()
 
         if data is None:
-            self.send_json(400, {"error": "Solicitação inválida."})
+            self.send_json(400, {"error": "Solicitação inválida ou muito grande (limite 20MB)."})
             return
 
         if path == "/login":
@@ -1202,8 +1250,10 @@ class FridayHandler(BaseHTTPRequestHandler):
 
         if path == "/chat":
             command = data.get("command")
+            image = data.get("image")
+            pdf = data.get("pdf")
 
-            if not isinstance(command, str) or not command.strip() or len(command) > 2000:
+            if not command or not isinstance(command, str) or len(command) > 2000:
                 self.send_json(400, {"error": "Comando vazio ou muito longo."})
                 return
 
@@ -1216,7 +1266,7 @@ class FridayHandler(BaseHTTPRequestHandler):
                     self.send_json(401, {"error": "Sessão inválida. Entre novamente."}, clear_cookie=True)
                     return
 
-                response_text = self._handle_chat_with_tools(clean_command, history, session)
+                response_text = self._handle_chat_with_tools(clean_command, history, session, image=image, pdf=pdf)
 
                 if response_text is None:
                     SESSION_STORE.invalidate(token)
