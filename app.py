@@ -987,10 +987,13 @@ Se for um pedido de resumo, sintetize em tópicos.
             try:
                 ai_result = provider.chat_with_full_history(current, public_tool_specs())
             except Exception as e:
-                print(f"Erro loop IA: {e}")
-                break
-            if not ai_result or "error" in ai_result:
-                break
+                return f"Erro técnico na IA: {str(e)}"
+                
+            if not ai_result:
+                return "A IA não retornou resposta."
+                
+            if "error" in ai_result:
+                return f"Erro da Groq: {ai_result['error']}"
 
             if "tool_call" in ai_result:
                 name = ai_result["tool_call"].get("name")
