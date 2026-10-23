@@ -459,7 +459,7 @@ def _calendar_delete_event(access_token, event_id):
     )
     try:
         with urlopen(request, timeout=15) as response:
-            return {"ok": True} # O Google retorna 204 No Content para sucesso
+            return {"ok": True}
     except (HTTPError, URLError, TimeoutError, ValueError, json.JSONDecodeError):
         return None
 
@@ -524,6 +524,14 @@ def _db_recall_memory(key):
         if rows:
             return "Não encontrei correspondência exata, mas aqui estão TODAS as memórias salvas:\n" + "\n".join([f"- {r[0]}: {r[1]}" for r in rows])
         return None
+
+set_memory_context(save_func=_db_save_memory, recall_func=_db_recall_memory)
+# ----------------------------------
+
+# ========================================
+# LEITURA DO ARQUIVO HTML
+# ========================================
+HTML_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "index.html")
 
 def get_html():
     try:
@@ -965,6 +973,7 @@ class FridayHandler(BaseHTTPRequestHandler):
 
     def _handle_chat_with_tools(self, clean_command, history, session):
         normalized = clean_command.casefold()
+        response = None # <-- A CORREÇÃO ESTÁ AQUI
 
         # --- ATALHO DIRETO PARA O BRIEFING ---
         if "briefing" in normalized or "resumo matinal" in normalized:
