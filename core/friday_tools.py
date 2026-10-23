@@ -751,27 +751,40 @@ def set_memory_context(save_func, recall_func, delete_func=None):
         _MEMORY_CONTEXT["delete"] = delete_func
 
 TOOL_REGISTRY = {
-    "get_current_time": {"description": "Retorna data e hora no fuso de Brasília.", "parameters": {"type": "object", "properties": {}}, "requires_confirmation": False, "handler": _handler_get_current_time},
-    "get_weather": {"description": "Clima atual + previsão do dia (máx/mín/chuva).", "parameters": {"type": "object", "properties": {"city": {"type": "string"}}, "required": ["city"]}, "requires_confirmation": False, "handler": _handler_get_weather},
-    "get_system_status": {"description": "Status CPU/RAM/Disco do servidor.", "parameters": {"type": "object", "properties": {}}, "requires_confirmation": False, "handler": _handler_get_system_status},
-    "search_web": {"description": "Pesquisa na web (retorna links e snippets).", "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}, "requires_confirmation": False, "handler": _handler_search_web},
-    "deep_search": {"description": "Pesquisa na web E lê o conteúdo completo do primeiro resultado.", "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}, "requires_confirmation": False, "handler": _handler_deep_search},
-    "read_webpage": {"description": "Extrai o texto de uma URL.", "parameters": {"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]}, "requires_confirmation": False, "handler": _handler_read_webpage},
-    "send_email": {"description": "Envia e-mail. Pode incluir anexo.", "parameters": {"type": "object", "properties": {"to_email": {"type": "string"}, "subject": {"type": "string"}, "body": {"type": "string"}, "attachment_base64": {"type": "string"}, "attachment_name": {"type": "string"}}, "required": ["to_email", "subject", "body"]}, "requires_confirmation": True, "handler": _handler_send_email},
-    "reply_to_email": {"description": "Responde e-mail mantendo a thread.", "parameters": {"type": "object", "properties": {"to_email": {"type": "string"}, "subject": {"type": "string"}, "in_reply_to": {"type": "string"}, "body": {"type": "string"}, "original_body": {"type": "string"}}, "required": ["to_email", "subject"]}, "requires_confirmation": True, "handler": _handler_reply_to_email},
-    "read_emails": {"description": "Lista e-mails recentes (com nomes de anexos).", "parameters": {"type": "object", "properties": {"query": {"type": "string"}, "max_results": {"type": "integer"}}}, "requires_confirmation": False, "handler": _handler_read_emails},
-    "read_email_full": {"description": "Lê o CORPO COMPLETO de um e-mail (use o message_id de read_emails).", "parameters": {"type": "object", "properties": {"message_id": {"type": "string"}}, "required": ["message_id"]}, "requires_confirmation": False, "handler": _handler_read_email_full},
-    "get_email_thread": {"description": "Lê toda a conversa de um e-mail (thread).", "parameters": {"type": "object", "properties": {"thread_id": {"type": "string"}}, "required": ["thread_id"]}, "requires_confirmation": False, "handler": _handler_get_email_thread},
-    "save_memory": {"description": "Salva memória de longo prazo.", "parameters": {"type": "object", "properties": {"key": {"type": "string"}, "value": {"type": "string"}}, "required": ["key", "value"]}, "requires_confirmation": False, "handler": _handler_save_memory},
-    "recall_memory": {"description": "Recupera memória de longo prazo.", "parameters": {"type": "object", "properties": {"key": {"type": "string"}}, "required": ["key"]}, "requires_confirmation": False, "handler": _handler_recall_memory},
-    "delete_memory": {"description": "Apaga uma memória salva.", "parameters": {"type": "object", "properties": {"key": {"type": "string"}}, "required": ["key"]}, "requires_confirmation": True, "handler": _handler_delete_memory},
-    "play_music": {"description": "Toca música/vídeo/playlist no YouTube. Use is_playlist=true para playlists.", "parameters": {"type": "object", "properties": {"query": {"type": "string"}, "is_playlist": {"type": "boolean"}}, "required": ["query"]}, "requires_confirmation": False, "handler": _handler_play_music},
-    "get_morning_briefing": {"description": "Resumo matinal: clima, agenda, notícias.", "parameters": {"type": "object", "properties": {"city": {"type": "string"}}, "required": ["city"]}, "requires_confirmation": False, "handler": _handler_get_morning_briefing},
-    "get_calendar_events": {"description": "Consulta a agenda (retorna hangoutLink e location).", "parameters": {"type": "object", "properties": {"range": {"type": "string", "enum": ["today", "upcoming"]}}, "required": ["range"]}, "requires_confirmation": False, "handler": _handler_get_calendar_events},
-    "create_calendar_event": {"description": "Cria evento. PREFIRA start_natural (ex: 'próxima sexta às 15h') em vez de start_iso.", "parameters": {"type": "object", "properties": {"summary": {"type": "string"}, "start_iso": {"type": "string"}, "start_natural": {"type": "string"}, "end_iso": {"type": "string"}, "end_natural": {"type": "string"}, "description": {"type": "string"}, "location": {"type": "string"}}, "required": ["summary"]}, "requires_confirmation": True, "handler": _handler_create_calendar_event},
-    "delete_calendar_event": {"description": "Exclui evento pelo ID.", "parameters": {"type": "object", "properties": {"event_id": {"type": "string"}}, "required": ["event_id"]}, "requires_confirmation": True, "handler": _handler_delete_calendar_event},
-    "update_calendar_event": {"description": "Atualiza evento. Pode usar start_natural/end_natural.", "parameters": {"type": "object", "properties": {"event_id": {"type": "string"}, "summary": {"type": "string"}, "start_iso": {"type": "string"}, "start_natural": {"type": "string"}, "end_iso": {"type": "string"}, "end_natural": {"type": "string"}, "description": {"type": "string"}}, "required": ["event_id"]}, "requires_confirmation": True, "handler": _handler_update_calendar_event},
-    "find_free_slots": {"description": "Encontra horários livres na agenda em um dia específico. Use quando houver conflito.", "parameters": {"type": "object", "properties": {"date_iso": {"type": "string"}, "duration_minutes": {"type": "integer"}, "limit": {"type": "integer"}}, "required": ["date_iso"]}, "requires_confirmation": False, "handler": _handler_find_free_slots},
+        "send_email": {
+        "description": "Envia e-mail.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "to_email": {"type": "string"},
+                "subject": {"type": "string"},
+                "body": {"type": "string"}
+            },
+            "required": ["to_email", "subject", "body"]
+        },
+        "requires_confirmation": True,
+        "handler": _handler_send_email,
+    },
+    "play_music": {
+        "description": "Toca música ou playlist no YouTube.",
+        "parameters": {
+            "type": "object",
+            "properties": {"query": {"type": "string"}},
+            "required": ["query"]
+        },
+        "requires_confirmation": False,
+        "handler": _handler_play_music,
+    },
+    "find_free_slots": {
+        "description": "Encontra horários livres na agenda em um dia.",
+        "parameters": {
+            "type": "object",
+            "properties": {"date_iso": {"type": "string"}},
+            "required": ["date_iso"]
+        },
+        "requires_confirmation": False,
+        "handler": _handler_find_free_slots,
+    },
 }
 
 def public_tool_specs():
