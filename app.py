@@ -43,7 +43,6 @@ DB_PATH = os.path.join(DATA_DIR, "friday.db")
 GOOGLE_OAUTH_AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_OAUTH_TOKEN_URL = "https://oauth2.googleapis.com/token"
 
-# Escopo atualizado para incluir Calendar e Gmail
 GOOGLE_SCOPES = "https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/gmail.readonly"
 
 OAUTH_STATE_TTL_SECONDS = 600
@@ -548,9 +547,7 @@ class FridayHandler(BaseHTTPRequestHandler):
             self.send_json(500, {"error": "Chave da ElevenLabs não configurada."})
             return
 
-        # ID da Voz "Rachel" (Feminina, tom suave e profissional)
         voice_id = "21m00Tcm4TlvDq8ikWAM" 
-        
         url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}?output_format=mp3_44100_128"
 
         payload = json.dumps({
@@ -995,110 +992,76 @@ class FridayHandler(BaseHTTPRequestHandler):
         from core.ai_provider import FridayAIProvider
         provider = FridayAIProvider()
         if not provider.available():
-            return str(response) # Se não tiver chave, cai na resposta padrão
+            return str(response) if response else "A IA não está configurada."
 
-        # --- TENTATIVA 1: IA COM FERRAMENTAS ---
-        try:
-            ai_result = provider.chat_with_tools(user_message=clean_command, history=history, tools=public_tool_specs())
-        except Exception as e:
-            print(f"FRIDAY WEB: Erro na chamada de ferramentas: {e}")
-            ai_result = None
-
-        tool_call = ai_result.get("tool_call") if isinstance(ai_result, dict) else None
-        if tool_call and isinstance(tool_call, dict):
-            tool_name = tool_call.get("name", "")
-            tool_args = tool_call.get("arguments", {}) or {}
-
-            exec_result = execute_tool(tool_name, tool_args, user_role="owner", session=session)
-
-            if exec_result.get("status") == "pending_confirmation":
-                session.pending_tool = (tool_name, tool_args)
-                return exec_result.get("message", f"Preciso de confirmação para executar '{tool_name}'.")
-
-            if not exec_result.get("ok"):
-                return exec_result.get("error", "Não foi possível executar a ferramenta.")
-
-            tool_result = exec_result.get("result")
-            
-            if isinstance(tool_result, dict) and "error" in tool_result:
-                return tool_result["error"]
-
-            if tool_name == "create_calendar_event" and isinstance(tool_result, dict):
-                return f"Evento criado, chefe: '{tool_result.get('summary')}' de {tool_result.get('start')} até {tool_result.get('end')}."
-
+        # --- INÍCIO DO AGENT LOOP (MÚLTIPLOS PASSOS) ---
+        current_messages = list(history)
+        current_messages.append({"role": "user", "content": clean_command})
+        
+        max_iterations = 5
+        
+        for iteration in range(max_iterations):
             try:
-                final_text = provider.chat_with_tool_result(
-                    user_message=clean_command,
-                    tool_name=tool_name,
-                    tool_result=tool_result,
-                    history=history,
-                    tool_call_id=tool_call.get("id"),
-                    raw_arguments=tool_call.get("raw_arguments", "{}")
-                )
+                ai_result = provider.chat_with_full_history(current_messages, public_tool_specs())
             except Exception as e:
-                print(f"FRIDAY WEB: Erro no retorno da ferramenta: {e}")
-                final_text = None
-
-            if not final_text:
-                if tool_name == "get_morning_briefing" and isinstance(tool_result, str):
-                    return tool_result
-                if tool_name == "get_calendar_events" and isinstance(tool_result, dict):
-                    events = tool_result.get("events", [])
-                    label = tool_result.get("range", "próximos dias")
-                    if not events:
-                        return f"Nenhum compromisso para {label}, chefe."
-                    lines = [f"Seus compromissos para {label}:"]
-                    for evt in events[:7]:
-                        lines.append(f"• {evt['summary']} — {evt['start']}")
-                    return "\n".join(lines)
-                if tool_name == "get_current_time" and isinstance(tool_result, str):
-                    return f"Agora são {tool_result}, chefe."
-                if tool_name == "search_web" and isinstance(tool_result, dict):
-                    results = tool_result.get("results", [])
-                    if not results:
-                        return "Não encontrei informações relevantes na web, chefe."
-                    lines = ["Aqui estão os dados que encontrei na web:"]
-                    for res in results[:3]:
-                        lines.append(f"- {res.get('title')}: {res.get('snippet')}")
-                    return "\n".join(lines)
-                if tool_name == "play_music" and isinstance(tool_result, dict):
-                    return f"[PLAY_MUSIC:{tool_result.get('url', '')}] Tocando {tool_result.get('query', '')} no YouTube, chefe."
-                if tool_name == "read_emails" and isinstance(tool_result, dict):
-                    emails = tool_result.get("emails", [])
-                    if not emails:
-                        return "Sua caixa de entrada está vazia, chefe."
-                    lines = ["Aqui estão os e-mails mais recentes:"]
-                    for e in emails:
-                        lines.append(f"- De: {e.get('from')} | Assunto: {e.get('subject')}")
-                    return "\n".join(lines)
+                print(f"FRIDAY WEB: Erro no loop de IA: {e}")
+                break
+                
+            if not ai_result or "error" in ai_result:
+                break
+                
+            if "tool_call" in ai_result:
+                tool_name = ai_result["tool_call"].get("name")
+                tool_args = ai_result["tool_call"].get("arguments", {})
+                raw_args = ai_result["tool_call"].get("raw_arguments", "{}")
+                tool_id = ai_result["tool_call"].get("id", "call_unknown")
+                
+                exec_result = execute_tool(tool_name, tool_args, user_role="owner", session=session)
+                
+                if exec_result.get("status") == "pending_confirmation":
+                    session.pending_tool = (tool_name, tool_args)
+                    return exec_result.get("message", f"Preciso de confirmação para '{tool_name}'.")
                     
-                return "Ferramenta executada, chefe."
-
-            return str(final_text)
-
-        ai_text = ai_result.get("text") if isinstance(ai_result, dict) else None
-        if ai_text:
-            history.extend([
-                {"role": "user", "content": clean_command},
-                {"role": "assistant", "content": str(ai_text)},
-            ])
-            history[:] = history[-MAX_HISTORY_MESSAGES:]
-            return str(ai_text)
-
-        # --- TENTATIVA 2: FALLBACK (IA SEM FERRAMENTAS) ---
-        try:
-            fallback_text = provider.generate(message=clean_command, history=history)
-            if fallback_text:
-                history.extend([
-                    {"role": "user", "content": clean_command},
-                    {"role": "assistant", "content": str(fallback_text)},
-                ])
+                if not exec_result.get("ok"):
+                    tool_result = {"error": exec_result.get("error")}
+                else:
+                    tool_result = exec_result.get("result")
+                
+                # Adiciona a chamada da ferramenta e o resultado ao histórico temporário para a IA pensar de novo
+                current_messages.append({
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [{
+                        "id": tool_id,
+                        "type": "function",
+                        "function": {"name": tool_name, "arguments": raw_args}
+                    }]
+                })
+                current_messages.append({
+                    "role": "tool",
+                    "tool_call_id": tool_id,
+                    "content": json.dumps(tool_result, ensure_ascii=False)
+                })
+                
+            elif "text" in ai_result:
+                final_text = ai_result["text"]
+                history.append({"role": "user", "content": clean_command})
+                history.append({"role": "assistant", "content": final_text})
                 history[:] = history[-MAX_HISTORY_MESSAGES:]
-                return str(fallback_text)
-        except Exception as e:
-            print(f"FRIDAY WEB: Erro no fallback: {e}")
+                return final_text
+            else:
+                break
 
-        return "Não consegui obter uma resposta da IA agora."
+        # Fallback se o loop falhar
+        history.append({"role": "user", "content": clean_command})
+        fallback_text = provider.generate(message=clean_command, history=history)
+        if fallback_text:
+            history.append({"role": "assistant", "content": fallback_text})
+            history[:] = history[-MAX_HISTORY_MESSAGES:]
+            return fallback_text
+
+        return "Desculpe, chefe. Não consegui concluir o raciocínio complexo."
+        # --- FIM DO AGENT LOOP ---
 
     def do_POST(self):
         path = urlsplit(self.path).path
