@@ -513,18 +513,17 @@ def _db_save_memory(key, value):
 def _db_recall_memory(key):
     with sqlite3.connect(DB_PATH) as conn:
         conn.execute("CREATE TABLE IF NOT EXISTS ai_memory (key TEXT PRIMARY KEY, value TEXT)")
-        # Alterado para busca por aproximação (LIKE)
         search_term = f"%{key}%"
-        row = conn.execute("SELECT value FROM ai_memory WHERE key LIKE ? OR value LIKE ?", (search_term, search_term)).fetchone()
-        return row[0] if row else None
-
-set_memory_context(save_func=_db_save_memory, recall_func=_db_recall_memory)
-# ----------------------------------
-
-# ========================================
-# LEITURA DO ARQUIVO HTML
-# ========================================
-HTML_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "index.html")
+        # 1. Tenta achar uma correspondência exata/parcial
+        row = conn.execute("SELECT key, value FROM ai_memory WHERE key LIKE ? OR value LIKE ?", (search_term, search_term)).fetchone()
+        if row:
+            return f"{row[0]}: {row[1]}"
+        
+        # 2. Se não achar, puxa TODAS as memórias para a IA decidir
+        rows = conn.execute("SELECT key, value FROM ai_memory").fetchall()
+        if rows:
+            return "Não encontrei correspondência exata, mas aqui estão TODAS as memórias salvas:\n" + "\n".join([f"- {r[0]}: {r[1]}" for r in rows])
+        return None
 
 def get_html():
     try:
