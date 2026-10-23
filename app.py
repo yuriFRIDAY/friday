@@ -973,7 +973,7 @@ class FridayHandler(BaseHTTPRequestHandler):
 
     def _handle_chat_with_tools(self, clean_command, history, session):
         normalized = clean_command.casefold()
-        response = None # <-- A CORREÇÃO ESTÁ AQUI
+        response = None
 
         # --- ATALHO DIRETO PARA O BRIEFING ---
         if "briefing" in normalized or "resumo matinal" in normalized:
@@ -1072,6 +1072,10 @@ class FridayHandler(BaseHTTPRequestHandler):
                 else:
                     tool_result = exec_result.get("result")
                 
+                # Prevenção de erro: se a ferramenta falhou internamente e retornou None
+                if tool_result is None:
+                    tool_result = {"error": "A ferramenta não retornou dados (falha na execução)."}
+
                 # Adiciona a chamada da ferramenta e o resultado ao histórico temporário para a IA pensar de novo
                 current_messages.append({
                     "role": "assistant",
@@ -1105,7 +1109,7 @@ class FridayHandler(BaseHTTPRequestHandler):
             history[:] = history[-MAX_HISTORY_MESSAGES:]
             return fallback_text
 
-        return "Desculpe, chefe. Não consegui concluir o raciocínio complexo."
+        return "Desculpe, chefe. Não consegui concluir o raciocínio complexo desta vez."
         # --- FIM DO AGENT LOOP ---
 
     def do_POST(self):
