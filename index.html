@@ -33,7 +33,6 @@
         font-family: Inter, "Segoe UI", Arial, sans-serif;
         font-size: 14px;
         -webkit-font-smoothing: antialiased;
-        transition: background 0.5s ease;
       }
 
       body::before {
@@ -238,7 +237,6 @@
         border: 1px solid rgba(115, 237, 255, 0.64);
         border-radius: 50%;
         box-shadow: 0 0 24px rgba(37, 138, 255, 0.12), inset 0 0 22px rgba(37, 138, 255, 0.1);
-        transition: box-shadow 0.2s ease;
         background: var(--panel);
         z-index: 2;
       }
@@ -268,7 +266,6 @@
         border: 1px solid var(--cyan);
         border-radius: 50%;
         box-shadow: 0 0 20px rgba(115, 237, 255, 0.2), inset 0 0 18px rgba(115, 237, 255, 0.16);
-        transition: box-shadow 0.2s ease;
       }
 
       body.is-speaking .reactor-inner {
@@ -290,7 +287,6 @@
         inset: 0;
         border: 1px solid rgba(115, 237, 255, 0.14);
         border-radius: 50%;
-        transition: border-color 0.3s ease;
         z-index: 1;
       }
 
@@ -374,6 +370,7 @@
         border-left: 2px solid rgba(115, 237, 255, 0.65);
         font-size: 11px;
         line-height: 1.6;
+        transition: all 0.2s ease;
       }
 
       .waveform-container {
@@ -396,7 +393,6 @@
         background: linear-gradient(to top, var(--blue), var(--cyan));
         border-radius: 4px;
         box-shadow: 0 0 12px var(--cyan);
-        transition: height 0.15s ease;
       }
 
       .waveform-container.listening span { animation: wave-listen 1s ease-in-out infinite alternate; }
@@ -435,7 +431,6 @@
         padding: 12px 16px;
         background: rgba(3, 10, 19, 0.8);
         border: 1px solid rgba(104, 211, 255, 0.18);
-        border-radius: 0;
         border-left: 2px solid var(--cyan);
         align-self: flex-start;
         width: fit-content;
@@ -500,7 +495,7 @@
         overflow-y: auto;
         padding: 17px;
         background-color: rgba(3, 10, 19, 0.62);
-        background-image: linear-gradient(rgba(3, 10, 19, 0.85), rgba(3, 10, 19, 0.85)), 
+        background-image: linear-gradient(rgba(3, 10, 19, 0.85), rgba(3, 10, 19, 0.85)),
                           repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(115, 237, 255, 0.02) 2px, rgba(115, 237, 255, 0.02) 4px);
         border: 1px solid var(--line);
         border-radius: 12px;
@@ -530,7 +525,6 @@
         padding: 10px 14px;
         border: 1px solid rgba(115, 237, 255, 0.05);
         border-left: 2px solid var(--cyan);
-        border-radius: 0;
         background: linear-gradient(90deg, rgba(115, 237, 255, 0.03) 0%, transparent 100%);
         font-family: 'Courier New', Courier, monospace;
         font-size: 13px;
@@ -539,15 +533,9 @@
         white-space: pre-wrap;
       }
 
-      .msg strong {
-        color: var(--cyan);
-        font-size: 10px;
-        letter-spacing: 0.14em;
-      }
-
+      .msg strong { color: var(--cyan); font-size: 10px; letter-spacing: 0.14em; }
       .msg strong::before { content: "["; }
       .msg strong::after { content: "]"; }
-
       .bot span::before { content: "> "; color: var(--cyan); font-weight: bold; }
 
       .user {
@@ -555,7 +543,6 @@
         border-left: none;
         border-right: 2px solid var(--blue);
         background: linear-gradient(270deg, rgba(37, 138, 255, 0.03) 0%, transparent 100%);
-        text-align: left;
       }
 
       .user strong { color: var(--blue); }
@@ -564,7 +551,6 @@
       .composer { margin-top: 18px; padding: 17px; background: rgba(8, 20, 33, 0.68); border: 1px solid var(--line); border-radius: 12px; }
       .composer-title { margin-bottom: 12px; color: #94b4c9; font-size: 9px; letter-spacing: 0.16em; }
       #chatForm { display: grid; gap: 11px; }
-      
       .controls { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; gap: 9px; align-items: center; }
 
       .input-wrapper { position: relative; display: flex; align-items: center; height: 100%; }
@@ -578,7 +564,7 @@
         pointer-events: none;
       }
 
-      #command { 
+      #command {
         min-height: 46px;
         height: 100%;
         padding-left: 32px !important;
@@ -588,7 +574,7 @@
       }
 
       #voiceBtn.listening { color: #fff; background: rgba(150, 45, 60, 0.8); border-color: rgba(255, 130, 150, 0.55); }
-      
+
       .attach-btn { background: rgba(13, 43, 67, 0.5); border-color: transparent; padding: 8px; min-height: 46px; font-size: 18px; display: flex; align-items: center; justify-content: center; }
       .attach-btn:hover:not(:disabled) { background: rgba(19, 67, 99, 0.8); border-color: var(--line); }
       .attachment-preview { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; color: var(--cyan); font-size: 11px; font-family: 'Courier New', Courier, monospace; }
@@ -677,7 +663,7 @@
           </div>
         </div>
         <div class="system-chip">
-          <span class="status-dot"></span> INTERFACE V2.2
+          <span class="status-dot"></span> INTERFACE V2.3
         </div>
       </div>
 
@@ -703,7 +689,7 @@
           <div class="metric"><span class="metric-label">Interface</span><span class="metric-value">ONLINE</span></div>
           <div class="metric"><span class="metric-label">Canal de voz</span><span class="metric-value">STREAMING</span></div>
           <div class="metric"><span class="metric-label">Visão</span><span class="metric-value">ATIVA</span></div>
-          <div class="metric"><span class="metric-label">Leitor PDF</span><span class="metric-value">ATIVO</span></div>
+          <div class="metric"><span class="metric-label">Status em tempo real</span><span class="metric-value">ATIVO</span></div>
           <div class="sidebar-note">
             <span>PROJETO TONY STARK</span><br />
             Uma interface. Um sistema.<br />Novas capacidades em desenvolvimento.
@@ -773,7 +759,7 @@
                   <label for="autoSpeak">Leitura automática das respostas</label>
                   <input id="autoSpeak" type="checkbox" checked />
                 </div>
-                <small>Desative para receber respostas somente em texto. Você ainda pode pedir a leitura manual.</small>
+                <small>Desative para receber respostas somente em texto.</small>
               </div>
               <div class="setting">
                 <label for="speechRate">Velocidade: <strong id="rateValue">0,95×</strong></label>
@@ -787,7 +773,6 @@
                   <option value="formal">Formal e profissional</option>
                   <option value="cinematic">Mais grave e cinematográfica</option>
                 </select>
-                <small>O resultado depende das vozes instaladas no navegador.</small>
               </div>
               <div class="setting-buttons">
                 <button type="button" id="testVoiceBtn">🔊 Testar voz</button>
@@ -806,7 +791,7 @@
 
             <div class="composer">
               <div class="composer-title">/// NOVO COMANDO</div>
-              
+
               <div id="attachmentPreview" class="attachment-preview hidden">
                 <span id="attachmentName"></span>
                 <span class="close" id="removeAttachment">✖</span>
@@ -815,7 +800,7 @@
               <form id="chatForm">
                 <input type="file" id="fileInputImage" accept="image/*" class="hidden">
                 <input type="file" id="fileInputPdf" accept=".pdf,application/pdf" class="hidden">
-                
+
                 <div class="controls">
                   <button type="button" id="attachImgBtn" class="attach-btn" title="Anexar Imagem">🖼</button>
                   <button type="button" id="attachPdfBtn" class="attach-btn" title="Anexar PDF">📄</button>
@@ -853,15 +838,37 @@
 
       let currentAttachment = null;
       let currentAttachmentType = null;
+      let currentAttachmentName = null;
+
+      // --- STATUS EM TEMPO REAL ---
+      let statusPollingInterval = null;
+
+      function startStatusPolling() {
+          stopStatusPolling();
+          statusPollingInterval = setInterval(async () => {
+              try {
+                  const res = await fetch("/status", { credentials: "same-origin", cache: "no-store" });
+                  if (!res.ok) return;
+                  const data = await res.json();
+                  if (data.status && data.status.length > 0) {
+                      const last = data.status[data.status.length - 1];
+                      $("status").textContent = last;
+                  }
+              } catch (e) {}
+          }, 1500);
+      }
+
+      function stopStatusPolling() {
+          if (statusPollingInterval) {
+              clearInterval(statusPollingInterval);
+              statusPollingInterval = null;
+          }
+      }
+      // -----------------------------
 
       const SETTINGS_KEY = "friday_voice_settings_v1";
 
-      const defaultSettings = {
-        autoSpeak: true,
-        rate: 0.95,
-        style: "natural",
-      };
-
+      const defaultSettings = { autoSpeak: true, rate: 0.95, style: "natural" };
       let voiceSettings = { ...defaultSettings };
 
       let audioCtx = null;
@@ -869,40 +876,34 @@
           try {
               if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
               if (audioCtx.state === 'suspended') audioCtx.resume();
-
-              const oscillator = audioCtx.createOscillator();
-              const gainNode = audioCtx.createGain();
-              oscillator.type = type;
-              oscillator.frequency.setValueAtTime(freq, audioCtx.currentTime);
-              gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
-              gainNode.gain.exponentialRampToValueAtTime(0.00001, audioCtx.currentTime + duration);
-              oscillator.connect(gainNode);
-              gainNode.connect(audioCtx.destination);
-              oscillator.start();
-              oscillator.stop(audioCtx.currentTime + duration);
+              const osc = audioCtx.createOscillator();
+              const gain = audioCtx.createGain();
+              osc.type = type;
+              osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+              gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+              gain.gain.exponentialRampToValueAtTime(0.00001, audioCtx.currentTime + duration);
+              osc.connect(gain);
+              gain.connect(audioCtx.destination);
+              osc.start();
+              osc.stop(audioCtx.currentTime + duration);
           } catch(e) {}
       }
       function soundBoot() { playTone(400, 'sine', 0.1); setTimeout(() => playTone(800, 'sine', 0.2), 100); }
       function soundListen() { playTone(600, 'triangle', 0.15); }
-      function soundError() { playTone(200, 'sawtooth', 0.3); }
 
       function setWaveformState(state) {
         const wf = $('waveform');
         if (!wf) return;
         wf.className = 'waveform-container';
         document.body.classList.remove('is-speaking');
-
-        if (state === 'listening') {
-            wf.classList.add('active', 'listening');
-        } else if (state === 'speaking') {
+        if (state === 'listening') wf.classList.add('active', 'listening');
+        else if (state === 'speaking') {
             wf.classList.add('active', 'speaking');
             document.body.classList.add('is-speaking');
         }
       }
 
-      function status(text) {
-        $("status").textContent = text;
-      }
+      function status(text) { $("status").textContent = text; }
 
       function showTypingIndicator() {
           const el = document.createElement('div');
@@ -918,15 +919,11 @@
       }
 
       function formatEventDate(dateStr) {
-        if (!dateStr) return "Horário não definido";
+        if (!dateStr) return "Sem data";
         const date = new Date(dateStr);
         if (isNaN(date.getTime())) return dateStr;
-
         return new Intl.DateTimeFormat("pt-BR", {
-          day: "2-digit",
-          month: "2-digit",
-          hour: "2-digit",
-          minute: "2-digit",
+          day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit",
         }).format(date);
       }
 
@@ -934,63 +931,55 @@
         const panel = $("calendarPanel");
         const container = $("calendarEventsList");
         if (!panel || !container) return;
-
         panel.classList.remove("hidden");
         container.innerHTML = '<p class="awareness-note">Consultando agenda...</p>';
-
         try {
           const response = await fetch(`/calendar/events?range=${range}`, {
-            credentials: "same-origin",
-            cache: "no-store",
+            credentials: "same-origin", cache: "no-store",
           });
           const data = await response.json();
-
           if (!response.ok) {
-            container.innerHTML = `<p class="awareness-note" style="color: #ff8a8a;">${data.error || "Não foi possível carregar os eventos."}</p>`;
+            container.innerHTML = `<p class="awareness-note" style="color: #ff8a8a;">${data.error || "Erro."}</p>`;
             return;
           }
-
           if (!data.events || data.events.length === 0) {
             const label = range === "today" ? "hoje" : "nos próximos dias";
-            container.innerHTML = `<p class="awareness-note">Nenhum compromisso ${label}, chefe.</p>`;
+            container.innerHTML = `<p class="awareness-note">Nenhum compromisso ${label}.</p>`;
             return;
           }
-
           container.replaceChildren();
           data.events.forEach((evt) => {
             const item = document.createElement("div");
             item.className = "awareness-item";
-
             const title = document.createElement("strong");
             title.textContent = evt.summary;
-
             const timeSpan = document.createElement("span");
             timeSpan.textContent = formatEventDate(evt.start);
-
             item.append(title, timeSpan);
+            if (evt.hangoutLink) {
+                const link = document.createElement("a");
+                link.href = evt.hangoutLink;
+                link.target = "_blank";
+                link.textContent = "🔗 Meet";
+                link.style.color = "var(--cyan)";
+                link.style.fontSize = "10px";
+                link.style.marginLeft = "8px";
+                item.appendChild(link);
+            }
             container.appendChild(item);
           });
-        } catch (error) {
-          container.innerHTML = '<p class="awareness-note" style="color: #ff8a8a;">Erro ao conectar com o servidor.</p>';
+        } catch (e) {
+          container.innerHTML = '<p class="awareness-note" style="color: #ff8a8a;">Erro de conexão.</p>';
         }
       }
 
       function loadSettings() {
         try {
           const saved = localStorage.getItem(SETTINGS_KEY);
-          if (saved) {
-            const parsed = JSON.parse(saved);
-            voiceSettings = { ...defaultSettings, ...parsed };
-          }
-        } catch (error) {
-          voiceSettings = { ...defaultSettings };
-        }
-
+          if (saved) voiceSettings = { ...defaultSettings, ...JSON.parse(saved) };
+        } catch (e) { voiceSettings = { ...defaultSettings }; }
         voiceSettings.rate = Math.min(1.2, Math.max(0.75, Number(voiceSettings.rate) || 0.95));
-        if (!["natural", "formal", "cinematic"].includes(voiceSettings.style)) {
-          voiceSettings.style = "natural";
-        }
-
+        if (!["natural", "formal", "cinematic"].includes(voiceSettings.style)) voiceSettings.style = "natural";
         $("autoSpeak").checked = Boolean(voiceSettings.autoSpeak);
         $("speechRate").value = voiceSettings.rate;
         $("rateValue").textContent = voiceSettings.rate.toFixed(2).replace(".", ",") + "×";
@@ -1001,40 +990,29 @@
         voiceSettings.autoSpeak = $("autoSpeak").checked;
         voiceSettings.rate = Number($("speechRate").value);
         voiceSettings.style = $("voiceStyle").value;
-
         try {
           localStorage.setItem(SETTINGS_KEY, JSON.stringify(voiceSettings));
-          if (showNotice) $("settingsNotice").textContent = "Preferências salvas neste navegador.";
-        } catch (error) {
-          if (showNotice) $("settingsNotice").textContent = "Não foi possível salvar. As opções valem nesta sessão.";
+          if (showNotice) $("settingsNotice").textContent = "Preferências salvas.";
+        } catch (e) {
+          if (showNotice) $("settingsNotice").textContent = "Não foi possível salvar.";
         }
-
         $("rateValue").textContent = voiceSettings.rate.toFixed(2).replace(".", ",") + "×";
       }
 
       function stopVoice() {
         speechRunId++;
         speechQueue = [];
-
         if (wakeWordRecognition && wakeWordActive) {
             wakeWordActive = false;
             try { wakeWordRecognition.stop(); } catch(e) {}
         }
-
         if (currentUtterance instanceof Audio) {
             currentUtterance.pause();
             currentUtterance.currentTime = 0;
         }
         currentUtterance = null;
-
-        if (recognition && listening) {
-          try { recognition.stop(); } catch (error) {}
-        }
-
-        if ("speechSynthesis" in window) {
-          window.speechSynthesis.cancel();
-        }
-
+        if (recognition && listening) { try { recognition.stop(); } catch (e) {} }
+        if ("speechSynthesis" in window) window.speechSynthesis.cancel();
         speaking = false;
         setWaveformState('idle');
       }
@@ -1057,49 +1035,33 @@
         speechRunId++;
         const runId = speechRunId;
         if ('speechSynthesis' in window) window.speechSynthesis.cancel();
-
         status('FRIDAY está falando...');
 
         try {
           const response = await fetch(`/tts?text=${encodeURIComponent(cleanText)}`);
-          if (!response.ok) throw new Error('Falha na ElevenLabs');
-          
+          if (!response.ok) throw new Error('TTS falhou');
           const audioBlob = await response.blob();
           const audioUrl = URL.createObjectURL(audioBlob);
           const audio = new Audio(audioUrl);
-
-          audio.onplay = () => { 
-              if(runId === speechRunId) {
-                  speaking = true; 
-                  soundListen();
-                  setWaveformState('speaking');
-              }
+          audio.onplay = () => {
+              if (runId === speechRunId) { speaking = true; soundListen(); setWaveformState('speaking'); }
           };
-          audio.onended = () => { 
-              if(runId === speechRunId) { 
-                  speaking = false; 
-                  status('Sistema online.'); 
-                  setWaveformState('idle');
+          audio.onended = () => {
+              if (runId === speechRunId) {
+                  speaking = false; status('Sistema online.'); setWaveformState('idle');
                   URL.revokeObjectURL(audioUrl);
-                  
                   if ($("autoSpeak").checked) {
                       setTimeout(() => {
-                          if (!$("assistant").classList.contains("hidden") && !listening) {
-                              startVoice(true);
-                          }
+                          if (!$("assistant").classList.contains("hidden") && !listening) startVoice(true);
                       }, 500);
                   }
-              } 
+              }
           };
-          audio.onerror = () => {
-              browserSpeak(cleanText, runId); 
-          };
-
+          audio.onerror = () => { browserSpeak(cleanText, runId); };
           currentUtterance = audio;
           audio.play();
           return;
         } catch (e) {
-          console.warn('ElevenLabs indisponível, usando voz nativa:', e);
           browserSpeak(cleanText, runId);
         }
       }
@@ -1110,8 +1072,8 @@
         const sentences = text.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [text];
         let chunk = '';
         const queue = [];
-        for (const sentence of sentences) {
-          const part = sentence.trim();
+        for (const s of sentences) {
+          const part = s.trim();
           if (chunk && (chunk.length + part.length + 1 > 220)) { queue.push(chunk); chunk = ''; }
           chunk += (chunk ? ' ' : '') + part;
         }
@@ -1119,43 +1081,28 @@
 
         function speakNext() {
           if (runId !== speechRunId) return;
-          if (!queue.length) { 
-              speaking = false; 
-              status('Sistema online.'); 
-              setWaveformState('idle');
-              
+          if (!queue.length) {
+              speaking = false; status('Sistema online.'); setWaveformState('idle');
               if ($("autoSpeak").checked) {
                   setTimeout(() => {
-                      if (!$("assistant").classList.contains("hidden") && !listening) {
-                          startVoice(true);
-                      }
+                      if (!$("assistant").classList.contains("hidden") && !listening) startVoice(true);
                   }, 500);
               }
-              return; 
+              return;
           }
           const nextText = queue.shift();
           const utterance = new SpeechSynthesisUtterance(nextText);
           utterance.lang = 'pt-BR';
           utterance.rate = Number(voiceSettings.rate) || 0.95;
           utterance.pitch = voiceSettings.style === 'cinematic' ? 0.82 : 0.95;
-
-          utterance.onstart = () => { 
-              if(runId === speechRunId) {
-                  speaking = true; 
-                  soundListen();
-                  setWaveformState('speaking');
-              }
-          };
-          utterance.onend = () => { if(runId === speechRunId) speakNext(); };
+          utterance.onstart = () => { if (runId === speechRunId) { speaking = true; soundListen(); setWaveformState('speaking'); } };
+          utterance.onend = () => { if (runId === speechRunId) speakNext(); };
           synth.speak(utterance);
         }
         speakNext();
       }
 
-      function speakResponse(text) {
-        lastReply = String(text || "");
-        speakText(lastReply, false);
-      }
+      function speakResponse(text) { lastReply = String(text || ""); speakText(lastReply, false); }
 
       function addMessage(who, text) {
         const item = document.createElement("div");
@@ -1171,103 +1118,70 @@
 
       async function request(url, data) {
         const response = await fetch(url, {
-          method: "POST",
-          credentials: "same-origin",
+          method: "POST", credentials: "same-origin",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(data),
         });
-
         let result;
-        try {
-          result = await response.json();
-        } catch (error) {
-          const requestError = new Error("Resposta inválida do servidor.");
-          requestError.status = response.status;
-          requestError.remaining = 0;
-          throw requestError;
+        try { result = await response.json(); }
+        catch (e) {
+          const err = new Error("Resposta inválida.");
+          err.status = response.status;
+          throw err;
         }
-
         if (!response.ok) {
-          const requestError = new Error((result && result.error) || "Falha na solicitação.");
-          requestError.status = response.status;
-          requestError.remaining = result && result.remaining;
-          throw requestError;
+          const err = new Error((result && result.error) || "Falha.");
+          err.status = response.status;
+          err.remaining = result && result.remaining;
+          throw err;
         }
         return result;
       }
 
       function startLockout(remaining) {
-        const parsedSeconds = Number(remaining);
-        const seconds = Number.isFinite(parsedSeconds) ? Math.max(0, Math.ceil(parsedSeconds)) : 0;
+        const seconds = Math.max(0, Math.ceil(Number(remaining) || 0));
         const notice = $("lockoutNotice");
-
         window.clearInterval(lockoutInterval);
-        lockoutInterval = null;
-
-        if (seconds === 0) {
-          lockoutEndsAt = 0;
-          notice.classList.add("hidden");
-          return;
-        }
-
+        if (seconds === 0) { lockoutEndsAt = 0; notice.classList.add("hidden"); return; }
         lockoutEndsAt = Date.now() + seconds * 1000;
         notice.classList.remove("hidden");
-
-        const updateNotice = () => {
-          const secondsLeft = Math.max(0, Math.ceil((lockoutEndsAt - Date.now()) / 1000));
-          if (secondsLeft === 0) {
-            window.clearInterval(lockoutInterval);
-            lockoutInterval = null;
-            lockoutEndsAt = 0;
-            notice.textContent = "Bloqueio encerrado. Você pode tentar novamente.";
+        const upd = () => {
+          const left = Math.max(0, Math.ceil((lockoutEndsAt - Date.now()) / 1000));
+          if (left === 0) {
+            clearInterval(lockoutInterval); lockoutEndsAt = 0;
+            notice.textContent = "Bloqueio encerrado.";
             return;
           }
-          notice.textContent = `Acesso temporariamente bloqueado. Tente novamente em ${secondsLeft} s.`;
+          notice.textContent = `Acesso bloqueado. Tente em ${left}s.`;
         };
-
-        updateNotice();
-        lockoutInterval = window.setInterval(updateNotice, 1000);
+        upd();
+        lockoutInterval = window.setInterval(upd, 1000);
       }
 
       function handleFileSelect(e, type) {
           const file = e.target.files[0];
           if (!file) return;
-          
+          currentAttachmentName = file.name;
           const reader = new FileReader();
-          reader.onload = (event) => {
+          reader.onload = (ev) => {
               if (type === 'image') {
                   const img = new Image();
                   img.onload = () => {
                       const canvas = document.createElement('canvas');
-                      const MAX_WIDTH = 1024;
-                      const MAX_HEIGHT = 1024;
-                      let width = img.width;
-                      let height = img.height;
-
-                      if (width > height) {
-                          if (width > MAX_WIDTH) {
-                              height *= MAX_WIDTH / width;
-                              width = MAX_WIDTH;
-                          }
-                      } else {
-                          if (height > MAX_HEIGHT) {
-                              width *= MAX_HEIGHT / height;
-                              height = MAX_HEIGHT;
-                          }
-                      }
-                      canvas.width = width;
-                      canvas.height = height;
-                      const ctx = canvas.getContext('2d');
-                      ctx.drawImage(img, 0, 0, width, height);
-                      
+                      const MAX = 1024;
+                      let w = img.width, h = img.height;
+                      if (w > h) { if (w > MAX) { h *= MAX / w; w = MAX; } }
+                      else { if (h > MAX) { w *= MAX / h; h = MAX; } }
+                      canvas.width = w; canvas.height = h;
+                      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
                       currentAttachment = canvas.toDataURL('image/jpeg', 0.8);
                       currentAttachmentType = type;
                       $('attachmentName').textContent = `Anexo: ${file.name}`;
                       $('attachmentPreview').classList.remove('hidden');
                   };
-                  img.src = event.target.result;
+                  img.src = ev.target.result;
               } else {
-                  currentAttachment = event.target.result;
+                  currentAttachment = ev.target.result;
                   currentAttachmentType = type;
                   $('attachmentName').textContent = `Anexo: ${file.name}`;
                   $('attachmentPreview').classList.remove('hidden');
@@ -1281,10 +1195,8 @@
       $('attachPdfBtn').addEventListener('click', () => $('fileInputPdf').click());
       $('fileInputImage').addEventListener('change', (e) => handleFileSelect(e, 'image'));
       $('fileInputPdf').addEventListener('change', (e) => handleFileSelect(e, 'pdf'));
-
       $('removeAttachment').addEventListener('click', () => {
-          currentAttachment = null;
-          currentAttachmentType = null;
+          currentAttachment = null; currentAttachmentType = null; currentAttachmentName = null;
           $('attachmentPreview').classList.add('hidden');
           $('attachmentName').textContent = '';
       });
@@ -1293,38 +1205,33 @@
         event.preventDefault();
         const password = $("password").value;
         status("Verificando credenciais...");
-
         try {
           await request("/login", { password });
           $("password").value = "";
           $("login").classList.add("hidden");
           $("assistant").classList.remove("hidden");
           status("Autenticada. FRIDAY online.");
-
-          soundBoot(); 
-
-          $('messages').replaceChildren(); 
+          soundBoot();
+          $('messages').replaceChildren();
           addMessage('FRIDAY', 'Bom dia, chefe. Iniciando varredura de sistemas...');
-          status('Gerando resumo matinal...');
-
           showTypingIndicator();
-
+          startStatusPolling();
           request('/chat', {command: 'Gere o meu briefing matinal para a cidade de Criciúma usando a ferramenta get_morning_briefing'})
               .then(res => {
                   hideTypingIndicator();
+                  stopStatusPolling();
                   addMessage('FRIDAY', res.response);
                   speakResponse(res.response);
               })
               .catch(() => {
                   hideTypingIndicator();
-                  addMessage('FRIDAY', 'Bem-vindo de volta, chefe. Pronto para suas ordens.');
-                  speakResponse('Bem-vindo de volta, chefe. Pronto para suas ordens.');
+                  stopStatusPolling();
+                  addMessage('FRIDAY', 'Bem-vindo de volta, chefe.');
+                  speakResponse('Bem-vindo de volta, chefe.');
               });
-
           $("command").focus();
           checkCalendarConnection();
-          startWakeWordListener(); 
-          
+          startWakeWordListener();
         } catch (error) {
           status(error.message);
           $("password").value = "";
@@ -1341,28 +1248,31 @@
         $("command").value = "";
         let displayMsg = command || "Processando arquivo...";
         if (currentAttachment) displayMsg += " [Arquivo Anexado]";
-        
         addMessage("Você", displayMsg);
         $("sendBtn").disabled = true;
         $("voiceBtn").disabled = true;
         status("FRIDAY está processando...");
-
         showTypingIndicator();
+        startStatusPolling();
 
         try {
           const payload = { command: command || "Analise o arquivo anexado." };
           if (currentAttachment) {
               if (currentAttachmentType === 'image') payload.image = currentAttachment;
-              if (currentAttachmentType === 'pdf') payload.pdf = currentAttachment;
+              if (currentAttachmentType === 'pdf') {
+                  payload.pdf = currentAttachment;
+                  payload.pdf_name = currentAttachmentName || "documento.pdf";
+              }
           }
-
           currentAttachment = null;
           currentAttachmentType = null;
+          currentAttachmentName = null;
           $('attachmentPreview').classList.add('hidden');
           $('attachmentName').textContent = '';
 
           const result = await request("/chat", payload);
           hideTypingIndicator();
+          stopStatusPolling();
 
           const reply = result.response || "Comando concluído.";
           addMessage("FRIDAY", reply);
@@ -1373,25 +1283,19 @@
               if (match && match[1]) {
                   const videoUrl = match[1];
                   const player = $('musicPlayer');
-                  player.src = videoUrl; 
+                  player.src = videoUrl;
                   player.classList.remove('hidden');
-
-                  const cleanReply = reply.replace(/\[PLAY_MUSIC:.*?\]/, '').trim();
-                  const msgElements = $('messages').querySelectorAll('.bot span');
-                  if (msgElements.length > 0) {
-                      msgElements[msgElements.length - 1].textContent = cleanReply;
-                  }
+                  const clean = reply.replace(/\[PLAY_MUSIC:.*?\]/, '').trim();
+                  const els = $('messages').querySelectorAll('.bot span');
+                  if (els.length > 0) els[els.length - 1].textContent = clean;
               }
           }
 
-          if (result.closed) {
-            showLogin();
-            return;
-          }
-
+          if (result.closed) { showLogin(); return; }
           speakResponse(reply);
         } catch (error) {
           hideTypingIndicator();
+          stopStatusPolling();
           addMessage("FRIDAY", error.message);
           status("Verifique a conexão ou autenticação.");
           if (error.message.toLowerCase().includes("sessão")) showLogin();
@@ -1404,17 +1308,8 @@
 
       function startVoice(isContinuous = false) {
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-
-        if (!SpeechRecognition) {
-          status("Reconhecimento indisponível. Tente outro navegador compatível.");
-          return;
-        }
-
-        if (listening && recognition) {
-          recognition.stop();
-          return;
-        }
-
+        if (!SpeechRecognition) { status("Reconhecimento indisponível."); return; }
+        if (listening && recognition) { recognition.stop(); return; }
         stopVoice();
         recognition = new SpeechRecognition();
         recognition.lang = "pt-BR";
@@ -1430,25 +1325,21 @@
           $("voiceBtn").textContent = "⏹";
           status(isContinuous ? "Aguardando continuação..." : "Estou ouvindo, chefe...");
         };
-
         recognition.onresult = (event) => {
           const transcript = event.results[0][0].transcript;
           $("command").value = transcript;
           status("Voz reconhecida.");
           $("chatForm").requestSubmit();
         };
-
         recognition.onerror = (event) => {
           status("Falha no microfone: " + event.error);
           setWaveformState('idle');
         };
-
         recognition.onend = () => {
           listening = false;
           $("voiceBtn").classList.remove("listening");
           $("voiceBtn").textContent = "🎙";
           setWaveformState('idle');
-
           if (!isContinuous) {
               setTimeout(() => {
                   if (!$("assistant").classList.contains("hidden")) startWakeWordListener();
@@ -1459,30 +1350,22 @@
               }, 3000);
           }
         };
-
-        try {
-          recognition.start();
-        } catch (error) {
-          status("Não foi possível iniciar o microfone. Tente novamente.");
-          setWaveformState('idle');
-        }
+        try { recognition.start(); }
+        catch (e) { status("Não foi possível iniciar o microfone."); setWaveformState('idle'); }
       }
 
       $("voiceBtn").addEventListener("click", () => startVoice(false));
 
       async function checkCalendarConnection() {
         try {
-          const response = await fetch("/calendar/status", {
-            credentials: "same-origin",
-            cache: "no-store",
-          });
-          const data = await response.json();
-          if (response.ok && data.connected) {
+          const res = await fetch("/calendar/status", { credentials: "same-origin", cache: "no-store" });
+          const data = await res.json();
+          if (res.ok && data.connected) {
             $("calendarConnect").textContent = "📅 Calendário conectado";
             loadCalendarEvents("upcoming");
             return true;
           }
-        } catch (error) {}
+        } catch (e) {}
         return false;
       }
 
@@ -1493,52 +1376,43 @@
       $("settingsToggle").addEventListener("click", () => {
         const panel = $("settingsPanel");
         panel.classList.toggle("hidden");
-        $("settingsToggle").textContent = panel.classList.contains("hidden") ? "⚙ Configurações de voz" : "✖ Fechar configurações";
+        $("settingsToggle").textContent = panel.classList.contains("hidden")
+          ? "⚙ Configurações de voz"
+          : "✖ Fechar configurações";
       });
 
       $("speechRate").addEventListener("input", () => {
         $("rateValue").textContent = Number($("speechRate").value).toFixed(2).replace(".", ",") + "×";
       });
-
       $("autoSpeak").addEventListener("change", () => {
         saveSettings(false);
         if (!$("autoSpeak").checked) { stopVoice(); status("Leitura automática desativada."); }
         else status("Leitura automática ativada.");
       });
-
       $("speechRate").addEventListener("change", () => saveSettings(false));
       $("voiceStyle").addEventListener("change", () => saveSettings(false));
       $("saveSettingsBtn").addEventListener("click", () => saveSettings(true));
-
       $("testVoiceBtn").addEventListener("click", () => {
         saveSettings(false);
         speakText("Olá, chefe. Sou FRIDAY. Configurações de voz prontas.", true);
       });
-
       $("readLastBtn").addEventListener("click", () => {
-        if (!lastReply) { $("settingsNotice").textContent = "Ainda não existe uma resposta para ler."; return; }
+        if (!lastReply) { $("settingsNotice").textContent = "Sem resposta para ler."; return; }
         saveSettings(false);
         speakText(lastReply, true);
       });
-
       $("stopSpeakBtn").addEventListener("click", () => { stopVoice(); status("Fala interrompida."); });
       $("stopSpeakTop").addEventListener("click", () => { stopVoice(); status("Fala interrompida."); });
 
       function startWakeWordListener() {
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         if (!SpeechRecognition || wakeWordActive) return;
-
         wakeWordRecognition = new SpeechRecognition();
         wakeWordRecognition.lang = 'pt-BR';
         wakeWordRecognition.continuous = true;
         wakeWordRecognition.interimResults = true;
-
         wakeWordRecognition.onresult = (event) => {
-          const transcript = Array.from(event.results)
-            .map(result => result[0].transcript)
-            .join('')
-            .toLowerCase();
-
+          const transcript = Array.from(event.results).map(r => r[0].transcript).join('').toLowerCase();
           if (transcript.includes('hey friday') || transcript.includes('oi friday')) {
             wakeWordRecognition.stop();
             wakeWordActive = false;
@@ -1546,25 +1420,20 @@
             startVoice(false);
           }
         };
-
         wakeWordRecognition.onerror = (event) => {
           if (event.error === 'no-speech' || event.error === 'aborted') return;
         };
-
         wakeWordRecognition.onend = () => {
           if (!wakeWordActive && !$("assistant").classList.contains("hidden")) {
-            try { wakeWordRecognition.start(); } catch(e) {}
+            try { wakeWordRecognition.start(); } catch (e) {}
           }
         };
-
-        try {
-          wakeWordRecognition.start();
-          wakeWordActive = true;
-        } catch (e) {}
+        try { wakeWordRecognition.start(); wakeWordActive = true; } catch (e) {}
       }
 
       function showLogin() {
         stopVoice();
+        stopStatusPolling();
         $("assistant").classList.add("hidden");
         $("login").classList.remove("hidden");
         $("messages").replaceChildren();
@@ -1578,30 +1447,27 @@
 
       $("logout").addEventListener("click", async () => {
         stopVoice();
-        try { await request("/logout", {}); } catch (error) {}
+        try { await request("/logout", {}); } catch (e) {}
         showLogin();
       });
 
       async function checkSession() {
         try {
-          const response = await fetch("/session", {
-            credentials: "same-origin",
-            cache: "no-store",
-          });
-          const data = await response.json();
+          const res = await fetch("/session", { credentials: "same-origin", cache: "no-store" });
+          const data = await res.json();
 
           const calendarState = new URLSearchParams(location.search).get("calendar");
-          const calendarMessages = {
-            connected: "Google Calendar autorizado e salvo. Os próximos acessos reutilizam esta conexão.",
-            nosession: "Entre na FRIDAY antes de conectar o calendário.",
-            denied: "A autorização do Google foi cancelada.",
-            old: "Essa tentativa expirou. Clique em Google Calendar outra vez.",
-            state: "A sessão não confere com o retorno do Google. Entre de novo e repita a conexão.",
-            config: "OAuth incompleto. Confira o client id, o secret e a redirect URI.",
-            redirect: "A redirect URI do servidor não é a mesma cadastrada no Google Cloud.",
-            client: "O Google recusou o cliente OAuth. Confira o client id e o secret.",
-            token: "O Google não concluiu o acesso. Clique em Google Calendar e autorize de novo.",
-            incomplete: "A resposta de autorização veio incompleta.",
+          const msgs = {
+            connected: "Google Calendar conectado.",
+            nosession: "Entre antes de conectar.",
+            denied: "Autorização cancelada.",
+            old: "Tentativa expirou. Tente novamente.",
+            state: "Sessão não confere.",
+            config: "OAuth incompleto.",
+            redirect: "Redirect URI inválida.",
+            client: "Cliente OAuth recusado.",
+            token: "Google não concluiu.",
+            incomplete: "Resposta incompleta.",
           };
 
           if (data.authenticated) {
@@ -1610,87 +1476,77 @@
             status("Sessão ativa. FRIDAY online.");
             $('messages').replaceChildren();
             addMessage('FRIDAY', 'Bom dia, chefe. Iniciando varredura de sistemas...');
-            status('Gerando resumo matinal...');
-
             showTypingIndicator();
-
+            startStatusPolling();
             request('/chat', {command: 'Gere o meu briefing matinal para a cidade de Criciúma usando a ferramenta get_morning_briefing'})
                 .then(res => {
                     hideTypingIndicator();
+                    stopStatusPolling();
                     addMessage('FRIDAY', res.response);
                     speakResponse(res.response);
                 })
                 .catch(() => {
                     hideTypingIndicator();
-                    addMessage('FRIDAY', 'Bem-vindo de volta, chefe. Pronto para suas ordens.');
-                    speakResponse('Bem-vindo de volta, chefe. Pronto para suas ordens.');
+                    stopStatusPolling();
+                    addMessage('FRIDAY', 'Bem-vindo de volta, chefe.');
+                    speakResponse('Bem-vindo de volta, chefe.');
                 });
             checkCalendarConnection();
             startWakeWordListener();
           }
-
-          if (calendarMessages[calendarState]) {
-            status(calendarMessages[calendarState]);
+          if (msgs[calendarState]) {
+            status(msgs[calendarState]);
             history.replaceState({}, "", location.pathname);
           }
-        } catch (error) {
+        } catch (e) {
           status("Não foi possível verificar a sessão.");
         }
       }
 
       loadSettings();
-
-      setInterval(
-        async () => {
-          if ($("assistant").classList.contains("hidden")) return;
-
-          try {
-            const response = await fetch("/calendar/events?range=today", {
-              credentials: "same-origin",
-              cache: "no-store",
-            });
-            if (!response.ok) return;
-
-            const data = await response.json();
-            if (!data.events || data.events.length === 0) return;
-
-            const now = new Date();
-            data.events.forEach((evt) => {
-              if (!evt.start) return;
-              const evtTime = new Date(evt.start);
-              const diffMins = (evtTime - now) / 1000 / 60;
-
-              if (diffMins > 0 && diffMins <= 15) {
-                const alertKey = `alerted_${evt.summary}_${evt.start}`;
-                if (!localStorage.getItem(alertKey)) {
-                  localStorage.setItem(alertKey, "true");
-                  const msg = `Chefe, seu compromisso "${evt.summary}" começa em ${Math.round(diffMins)} minutos.`;
-                  addMessage("FRIDAY", msg);
-                  speakText(msg, true);
-                }
-              }
-            });
-          } catch (e) {}
-        },
-        5 * 60 * 1000
-      );
-
-      setInterval(async () => {
-          if ($("assistant").classList.contains("hidden")) return;
-          try {
-              const response = await fetch("/notifications", { credentials: "same-origin" });
-              if (!response.ok) return;
-              const data = await response.json();
-              if (data.notifications && data.notifications.length > 0) {
-                  data.notifications.forEach(msg => {
-                      addMessage("FRIDAY", msg);
-                      speakResponse(msg);
-                  });
-              }
-          } catch (e) {}
-      }, 30000);
-
       checkSession();
+
+      // Alertas de agenda a cada 5 minutos
+      setInterval(async () => {
+        if ($("assistant").classList.contains("hidden")) return;
+        try {
+          const res = await fetch("/calendar/events?range=today", { credentials: "same-origin", cache: "no-store" });
+          if (!res.ok) return;
+          const data = await res.json();
+          if (!data.events || !data.events.length) return;
+          const now = new Date();
+          data.events.forEach((evt) => {
+            if (!evt.start) return;
+            const evtTime = new Date(evt.start);
+            const diff = (evtTime - now) / 1000 / 60;
+            if (diff > 0 && diff <= 15) {
+              const key = `alerted_${evt.summary}_${evt.start}`;
+              if (!localStorage.getItem(key)) {
+                localStorage.setItem(key, "true");
+                const msg = `Chefe, seu compromisso "${evt.summary}" começa em ${Math.round(diff)} minutos.`;
+                addMessage("FRIDAY", msg);
+                speakText(msg, true);
+              }
+            }
+          });
+        } catch (e) {}
+      }, 5 * 60 * 1000);
+
+      // Notificações proativas
+      setInterval(async () => {
+        if ($("assistant").classList.contains("hidden")) return;
+        try {
+          const res = await fetch("/notifications", { credentials: "same-origin" });
+          if (!res.ok) return;
+          const data = await res.json();
+          if (data.notifications && data.notifications.length > 0) {
+            data.notifications.forEach((msg) => {
+              addMessage("FRIDAY", msg);
+              speakResponse(msg);
+            });
+          }
+        } catch (e) {}
+      }, 30000);
     </script>
   </body>
 </html>
