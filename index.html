@@ -565,7 +565,6 @@
       .composer-title { margin-bottom: 12px; color: #94b4c9; font-size: 9px; letter-spacing: 0.16em; }
       #chatForm { display: grid; gap: 11px; }
       
-      /* Ajuste do Grid para caber os 4 botões (Img, PDF, Input, Voz) */
       .controls { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; gap: 9px; align-items: center; }
 
       .input-wrapper { position: relative; display: flex; align-items: center; height: 100%; }
@@ -590,7 +589,6 @@
 
       #voiceBtn.listening { color: #fff; background: rgba(150, 45, 60, 0.8); border-color: rgba(255, 130, 150, 0.55); }
       
-      /* Estilos para o Botão de Anexo */
       .attach-btn { background: rgba(13, 43, 67, 0.5); border-color: transparent; padding: 8px; min-height: 46px; font-size: 18px; display: flex; align-items: center; justify-content: center; }
       .attach-btn:hover:not(:disabled) { background: rgba(19, 67, 99, 0.8); border-color: var(--line); }
       .attachment-preview { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; color: var(--cyan); font-size: 11px; font-family: 'Courier New', Courier, monospace; }
@@ -850,11 +848,9 @@
       let lockoutInterval = null;
       let lockoutEndsAt = 0;
 
-      // Variáveis do Wake Word
       let wakeWordRecognition = null;
       let wakeWordActive = false;
 
-      // Variáveis de Anexo
       let currentAttachment = null;
       let currentAttachmentType = null;
 
@@ -1065,7 +1061,6 @@
         status('FRIDAY está falando...');
 
         try {
-          // O novo sistema de Streaming Chunked Transfer
           const response = await fetch(`/tts?text=${encodeURIComponent(cleanText)}`);
           if (!response.ok) throw new Error('Falha na ElevenLabs');
           
@@ -1086,6 +1081,15 @@
                   status('Sistema online.'); 
                   setWaveformState('idle');
                   URL.revokeObjectURL(audioUrl);
+                  
+                  // Conversação Contínua
+                  if ($("autoSpeak").checked) {
+                      setTimeout(() => {
+                          if (!$("assistant").classList.contains("hidden") && !listening) {
+                              startVoice(true);
+                          }
+                      }, 500);
+                  }
               } 
           };
           audio.onerror = () => {
@@ -1120,6 +1124,14 @@
               speaking = false; 
               status('Sistema online.'); 
               setWaveformState('idle');
+              
+              if ($("autoSpeak").checked) {
+                  setTimeout(() => {
+                      if (!$("assistant").classList.contains("hidden") && !listening) {
+                          startVoice(true);
+                      }
+                  }, 500);
+              }
               return; 
           }
           const nextText = queue.shift();
@@ -1218,7 +1230,6 @@
         lockoutInterval = window.setInterval(updateNotice, 1000);
       }
 
-      // --- LOGICA DE ANEXOS ---
       function handleFileSelect(e, type) {
           const file = e.target.files[0];
           if (!file) return;
@@ -1231,7 +1242,7 @@
               $('attachmentPreview').classList.remove('hidden');
           };
           reader.readAsDataURL(file);
-          e.target.value = ''; // Reseta o input
+          e.target.value = '';
       }
 
       $('attachImgBtn').addEventListener('click', () => $('fileInputImage').click());
@@ -1245,7 +1256,6 @@
           $('attachmentPreview').classList.add('hidden');
           $('attachmentName').textContent = '';
       });
-      // -------------------------
 
       $("loginForm").addEventListener("submit", async (event) => {
         event.preventDefault();
@@ -1314,7 +1324,6 @@
               if (currentAttachmentType === 'pdf') payload.pdf = currentAttachment;
           }
 
-          // Limpa o anexo após enviar
           currentAttachment = null;
           currentAttachmentType = null;
           $('attachmentPreview').classList.add('hidden');
@@ -1361,7 +1370,7 @@
         }
       });
 
-      function startVoice() {
+      function startVoice(isContinuous = false) {
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
         if (!SpeechRecognition) {
@@ -1387,7 +1396,7 @@
           soundListen();
           setWaveformState('listening');
           $("voiceBtn").textContent = "⏹";
-          status("Estou ouvindo, chefe...");
+          status(isContinuous ? "Aguardando continuação..." : "Estou ouvindo, chefe...");
         };
 
         recognition.onresult = (event) => {
@@ -1408,11 +1417,15 @@
           $("voiceBtn").textContent = "🎙";
           setWaveformState('idle');
 
-          setTimeout(() => {
-              if (!$("assistant").classList.contains("hidden")) {
-                  startWakeWordListener();
-              }
-          }, 1000);
+          if (!isContinuous) {
+              setTimeout(() => {
+                  if (!$("assistant").classList.contains("hidden")) startWakeWordListener();
+              }, 1000);
+          } else {
+              setTimeout(() => {
+                  if (!$("assistant").classList.contains("hidden") && !speaking) startWakeWordListener();
+              }, 3000);
+          }
         };
 
         try {
@@ -1423,7 +1436,7 @@
         }
       }
 
-      $("voiceBtn").addEventListener("click", startVoice);
+      $("voiceBtn").addEventListener("click", () => startVoice(false));
 
       async function checkCalendarConnection() {
         try {
@@ -1498,7 +1511,7 @@
             wakeWordRecognition.stop();
             wakeWordActive = false;
             soundListen();
-            startVoice();
+            startVoice(false);
           }
         };
 
@@ -1629,6 +1642,22 @@
         },
         5 * 60 * 1000
       );
+
+      // --- NOVO: POLLING DE NOTIFICAÇÕES PROATIVAS ---
+      setInterval(async () => {
+          if ($("assistant").classList.contains("hidden")) return;
+          try {
+              const response = await fetch("/notifications", { credentials: "same-origin" });
+              if (!response.ok) return;
+              const data = await response.json();
+              if (data.notifications && data.notifications.length > 0) {
+                  data.notifications.forEach(msg => {
+                      addMessage("FRIDAY", msg);
+                      speakResponse(msg);
+                  });
+              }
+          } catch (e) {}
+      }, 30000);
 
       checkSession();
     </script>
