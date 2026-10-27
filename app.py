@@ -35,15 +35,11 @@ from core.friday_tools import (
 SESSION_COOKIE = "friday_session"
 MAX_BODY = 10 * 1024 * 1024
 MAX_HISTORY_MESSAGES = 10
-
 DATA_DIR = os.getenv("DATA_DIR", ".")
 if os.path.exists("/data") and os.access("/data", os.W_OK):
     DATA_DIR = "/data"
 DB_PATH = os.path.join(DATA_DIR, "friday.db")
 
-# ========================================
-# STATUS E NOTIFICAÇÕES
-# ========================================
 STATUS_QUEUE = []
 NOTIFICATION_QUEUE = []
 QUEUE_LOCK = threading.Lock()
@@ -53,14 +49,13 @@ def _push_status(text):
     with QUEUE_LOCK:
         STATUS_QUEUE.append(text)
         if len(STATUS_QUEUE) > 20:
-            STATUS_QUEUE = STATUS_QUEUE[-20:]
+            STATUS_QUEUE.pop(0)
 
 def _heartbeat_worker():
     print("FRIDAY WEB: Heartbeat iniciado.")
     time.sleep(15)
     while True:
         try:
-            print("FRIDAY WEB: Heartbeat checando e-mails...")
             time.sleep(600)
         except Exception as e:
             print(f"Heartbeat erro: {e}")
@@ -90,7 +85,7 @@ def _load_google_token_store():
         try:
             with open(path, "r", encoding="utf-8") as h:
                 data = json.load(h)
-        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        except Exception:
             continue
         if not isinstance(data, dict):
             continue
@@ -146,7 +141,6 @@ def _persist_google_token_store():
         except OSError:
             continue
     _TOKEN_MEMORY_ONLY = True
-    print("FRIDAY WEB: não foi possível gravar tokens.")
     return False
 
 GOOGLE_TOKEN_STORE = _load_google_token_store()
@@ -224,7 +218,7 @@ def _read_session_cookie(header_value):
     cookie = SimpleCookie()
     try:
         cookie.load(header_value or "")
-    except (CookieError, TypeError, ValueError):
+    except Exception:
         return None
     morsel = cookie.get(SESSION_COOKIE)
     return morsel.value if morsel and morsel.value else None
@@ -277,8 +271,7 @@ def _google_error_code(exc):
     except Exception:
         return ""
     code = data.get("error") if isinstance(data, dict) else ""
-    return code if code in {"redirect_uri_mismatch", "invalid_client", "invalid_grant",
-                            "invalid_request", "unauthorized_client"} else ""
+    return code if code in {"redirect_uri_mismatch", "invalid_client", "invalid_grant", "invalid_request", "unauthorized_client"} else ""
 
 def _exchange_google_token(form, clear_on_invalid_grant=False):
     request = Request(
@@ -298,8 +291,7 @@ def _exchange_google_token(form, clear_on_invalid_grant=False):
     access_token = result.get("access_token")
     if not isinstance(access_token, str) or not access_token:
         raise GoogleOAuthError("token_exchange")
-    _save_owner_calendar_tokens(access_token, result.get("refresh_token"),
-                                 result.get("expires_in", 3600), result.get("scope", ""))
+    _save_owner_calendar_tokens(access_token, result.get("refresh_token"), result.get("expires_in", 3600), result.get("scope", ""))
     return access_token
 
 def _usable_calendar_access_token():
@@ -338,7 +330,7 @@ def _calendar_events_query(access_token, time_min=None, time_max=None, max_resul
     try:
         with urlopen(request, timeout=15) as response:
             result = json.loads(response.read(262144).decode("utf-8"))
-    except (HTTPError, URLError, TimeoutError, ValueError, json.JSONDecodeError):
+    except Exception:
         return None
     events = []
     for item in (result.get("items") or [])[:max_results]:
@@ -369,14 +361,13 @@ def _calendar_create_event(access_token, payload):
     request = Request(
         "https://www.googleapis.com/calendar/v3/calendars/primary/events",
         data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json; charset=utf-8", "Accept": "application/json",
-                 "Authorization": "Bearer " + access_token},
+        headers={"Content-Type": "application/json; charset=utf-8", "Accept": "application/json", "Authorization": "Bearer " + access_token},
         method="POST",
     )
     try:
         with urlopen(request, timeout=15) as response:
             return json.loads(response.read(262144).decode("utf-8"))
-    except (HTTPError, URLError, TimeoutError, ValueError, json.JSONDecodeError):
+    except Exception:
         return None
 
 def _calendar_delete_event(access_token, event_id):
@@ -388,21 +379,20 @@ def _calendar_delete_event(access_token, event_id):
     try:
         with urlopen(request, timeout=15):
             return {"ok": True}
-    except (HTTPError, URLError, TimeoutError, ValueError, json.JSONDecodeError):
+    except Exception:
         return None
 
 def _calendar_update_event(access_token, event_id, payload):
     request = Request(
         f"https://www.googleapis.com/calendar/v3/calendars/primary/events/{event_id}",
         data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json; charset=utf-8", "Accept": "application/json",
-                 "Authorization": "Bearer " + access_token},
+        headers={"Content-Type": "application/json; charset=utf-8", "Accept": "application/json", "Authorization": "Bearer " + access_token},
         method="PATCH",
     )
     try:
         with urlopen(request, timeout=15) as response:
             return json.loads(response.read(262144).decode("utf-8"))
-    except (HTTPError, URLError, TimeoutError, ValueError, json.JSONDecodeError):
+    except Exception:
         return None
 
 set_calendar_context(
@@ -427,7 +417,6 @@ auth = FridayAuth()
 SESSION_STORE = SessionStore(ttl_seconds=SESSION_TTL_SECONDS)
 friday = FridayAssistant()
 
-# --- SQLite: memória com delete ---
 def _db_save_memory(key, value):
     with sqlite3.connect(DB_PATH) as conn:
         conn.execute("CREATE TABLE IF NOT EXISTS ai_memory (key TEXT PRIMARY KEY, value TEXT)")
@@ -438,8 +427,7 @@ def _db_recall_memory(key):
     with sqlite3.connect(DB_PATH) as conn:
         conn.execute("CREATE TABLE IF NOT EXISTS ai_memory (key TEXT PRIMARY KEY, value TEXT)")
         term = f"%{key}%"
-        row = conn.execute("SELECT key, value FROM ai_memory WHERE key LIKE ? OR value LIKE ?",
-                           (term, term)).fetchone()
+        row = conn.execute("SELECT key, value FROM ai_memory WHERE key LIKE ? OR value LIKE ?", (term, term)).fetchone()
         if row:
             return f"{row[0]}: {row[1]}"
         rows = conn.execute("SELECT key, value FROM ai_memory ORDER BY rowid DESC LIMIT 5").fetchall()
@@ -465,6 +453,7 @@ def get_html():
     except FileNotFoundError:
         return "<h1>Erro: index.html não encontrado.</h1>"
 
+
 class FridayHandler(BaseHTTPRequestHandler):
     def send_json(self, status_code, data, cookie=None, clear_cookie=False):
         body = json.dumps(data, ensure_ascii=False).encode("utf-8")
@@ -484,6 +473,14 @@ class FridayHandler(BaseHTTPRequestHandler):
             self.send_header("Set-Cookie", ct)
         self.end_headers()
         self.wfile.write(body)
+
+    def _send_sse(self, data_dict):
+        msg = f"data: {json.dumps(data_dict, ensure_ascii=False)}\n\n"
+        try:
+            self.wfile.write(msg.encode("utf-8"))
+            self.wfile.flush()
+        except Exception:
+            pass
 
     def redirect_to(self, location):
         self.send_response(302)
@@ -507,9 +504,7 @@ class FridayHandler(BaseHTTPRequestHandler):
             "model_id": "eleven_flash_v2_5",
             "voice_settings": {"stability": 0.3, "similarity_boost": 0.85, "style": 0.0, "use_speaker_boost": True}
         }).encode("utf-8")
-        req = Request(url, data=payload, headers={
-            "Accept": "audio/mpeg", "Content-Type": "application/json", "xi-api-key": api_key
-        }, method="POST")
+        req = Request(url, data=payload, headers={"Accept": "audio/mpeg", "Content-Type": "application/json", "xi-api-key": api_key}, method="POST")
         try:
             with urlopen(req, timeout=30) as response:
                 self.send_response(200)
@@ -524,10 +519,8 @@ class FridayHandler(BaseHTTPRequestHandler):
                     self.wfile.write(chunk)
                     self.wfile.write(b"\r\n")
                 self.wfile.write(b"0\r\n\r\n")
-        except Exception as e:
-            print(f"TTS erro: {e}")
-            try: self.send_json(500, {"error": f"Falha TTS: {str(e)}"})
-            except: pass
+        except Exception:
+            pass
 
     def get_session(self):
         token = _read_session_cookie(self.headers.get("Cookie", ""))
@@ -550,8 +543,7 @@ class FridayHandler(BaseHTTPRequestHandler):
 
     @staticmethod
     def normalize_origin(origin):
-        if not isinstance(origin, str):
-            return None
+        if not isinstance(origin, str): return None
         try:
             parsed = urlsplit(origin)
             if (parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc
@@ -569,10 +561,8 @@ class FridayHandler(BaseHTTPRequestHandler):
         configured = os.getenv("FRIDAY_ALLOWED_ORIGINS", "").strip()
         allowed = {self.normalize_origin(v.strip()) for v in configured.split(",") if v.strip()}
         allowed.discard(None)
-        if not normalized:
-            return False
-        if configured:
-            return normalized in allowed
+        if not normalized: return False
+        if configured: return normalized in allowed
         host = self.headers.get("Host", "").strip()
         expected = self.normalize_origin(f"{self.request_scheme()}://{host}")
         return bool(expected and normalized == expected)
@@ -587,13 +577,12 @@ class FridayHandler(BaseHTTPRequestHandler):
         try:
             data = json.loads(self.rfile.read(length).decode("utf-8"))
             return data if isinstance(data, dict) else None
-        except (ValueError, UnicodeDecodeError):
+        except Exception:
             return None
 
     def do_GET(self):
-        try:
-            self._handle_get_impl()
-        except Exception as e:
+        try: self._handle_get_impl()
+        except Exception:
             traceback.print_exc()
             try: self.send_json(500, {"error": "Erro interno."})
             except: pass
@@ -606,8 +595,7 @@ class FridayHandler(BaseHTTPRequestHandler):
             return self.handle_tts()
         if path == "/status":
             token = self.get_session()
-            if not token:
-                return self.send_json(401, {"error": "Não autorizado"})
+            if not token: return self.send_json(401, {"error": "Não autorizado"})
             global STATUS_QUEUE
             with QUEUE_LOCK:
                 msgs = list(STATUS_QUEUE)
@@ -615,8 +603,7 @@ class FridayHandler(BaseHTTPRequestHandler):
             return self.send_json(200, {"status": msgs})
         if path == "/notifications":
             token = self.get_session()
-            if not token:
-                return self.send_json(401, {"error": "Não autorizado"})
+            if not token: return self.send_json(401, {"error": "Não autorizado"})
             global NOTIFICATION_QUEUE
             with QUEUE_LOCK:
                 if NOTIFICATION_QUEUE:
@@ -630,7 +617,6 @@ class FridayHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
-            self.send_header("X-Content-Type-Options", "nosniff")
             self.end_headers()
             self.wfile.write(body)
             return
@@ -639,17 +625,14 @@ class FridayHandler(BaseHTTPRequestHandler):
             return self.send_json(200, {"authenticated": token is not None}, clear_cookie=token is None)
         if path == "/calendar/status":
             token = self.get_session()
-            if not token:
-                return self.send_json(401, {"error": "Sessão inválida.", "connected": False}, clear_cookie=True)
+            if not token: return self.send_json(401, {"error": "Sessão inválida.", "connected": False}, clear_cookie=True)
             return self.send_json(200, {"connected": _calendar_is_connected()})
         if path == "/calendar/events":
             return self.handle_calendar_events()
         if path == "/calendar/connect":
             token = self.get_session()
-            if not token:
-                return self.redirect_to("/?calendar=nosession")
-            if _calendar_is_connected():
-                return self.redirect_to("/?calendar=connected")
+            if not token: return self.redirect_to("/?calendar=nosession")
+            if _calendar_is_connected(): return self.redirect_to("/?calendar=connected")
             if not (GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET and GOOGLE_OAUTH_REDIRECT_URI):
                 return self.redirect_to("/?calendar=config")
             try:
@@ -657,14 +640,9 @@ class FridayHandler(BaseHTTPRequestHandler):
             except RuntimeError:
                 return self.redirect_to("/?calendar=config")
             params = {
-                "client_id": GOOGLE_OAUTH_CLIENT_ID,
-                "redirect_uri": GOOGLE_OAUTH_REDIRECT_URI,
-                "response_type": "code",
-                "scope": GOOGLE_SCOPES,
-                "state": state,
-                "access_type": "offline",
-                "include_granted_scopes": "true",
-                "prompt": "consent",
+                "client_id": GOOGLE_OAUTH_CLIENT_ID, "redirect_uri": GOOGLE_OAUTH_REDIRECT_URI,
+                "response_type": "code", "scope": GOOGLE_SCOPES, "state": state,
+                "access_type": "offline", "include_granted_scopes": "true", "prompt": "consent",
             }
             return self.redirect_to(f"{GOOGLE_OAUTH_AUTHORIZE_URL}?{urlencode(params)}")
         if path == "/oauth/google/callback":
@@ -676,80 +654,63 @@ class FridayHandler(BaseHTTPRequestHandler):
         state = query.get("state", [""])[0]
         code = query.get("code", [""])[0]
         err = query.get("error", [""])[0]
-        if err:
-            return self.redirect_to("/?calendar=denied")
-        if not state or not code:
-            return self.redirect_to("/?calendar=incomplete")
+        if err: return self.redirect_to("/?calendar=denied")
+        if not state or not code: return self.redirect_to("/?calendar=incomplete")
         session_token = _read_session_cookie(self.headers.get("Cookie", ""))
         if not session_token or not (_signed_session_is_valid(session_token) or SESSION_STORE.get(session_token)):
             return self.redirect_to("/?calendar=nosession")
         if not isinstance(state, str) or not state.startswith("v1."):
             return self.redirect_to("/?calendar=old")
         if not _session_matches_oauth_state(state, session_token):
-            if _calendar_is_connected():
-                return self.redirect_to("/?calendar=connected")
+            if _calendar_is_connected(): return self.redirect_to("/?calendar=connected")
             return self.redirect_to("/?calendar=state")
-        if not _restore_session(session_token):
-            return self.redirect_to("/?calendar=nosession")
+        if not _restore_session(session_token): return self.redirect_to("/?calendar=nosession")
         if not (GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET and GOOGLE_OAUTH_REDIRECT_URI):
             return self.redirect_to("/?calendar=config")
         oauth_err = None
         for attempt in range(3):
             try:
                 _exchange_google_token({
-                    "code": code,
-                    "client_id": GOOGLE_OAUTH_CLIENT_ID,
-                    "client_secret": GOOGLE_OAUTH_CLIENT_SECRET,
-                    "redirect_uri": GOOGLE_OAUTH_REDIRECT_URI,
-                    "grant_type": "authorization_code",
+                    "code": code, "client_id": GOOGLE_OAUTH_CLIENT_ID, "client_secret": GOOGLE_OAUTH_CLIENT_SECRET,
+                    "redirect_uri": GOOGLE_OAUTH_REDIRECT_URI, "grant_type": "authorization_code",
                 })
                 oauth_err = None
                 break
             except GoogleOAuthError as exc:
                 oauth_err = exc
-                if _calendar_is_connected():
-                    return self.redirect_to("/?calendar=connected")
+                if _calendar_is_connected(): return self.redirect_to("/?calendar=connected")
                 if attempt < 2 and exc.code == "invalid_grant":
                     time.sleep(0.4)
                     continue
                 break
-            except (URLError, TimeoutError, ValueError, json.JSONDecodeError):
-                return self.redirect_to("/?calendar=token")
             except Exception:
                 return self.redirect_to("/?calendar=token")
         if oauth_err is not None:
-            reason = {"redirect_uri_mismatch": "redirect", "invalid_client": "client",
-                      "unauthorized_client": "client"}.get(oauth_err.code, "token")
-            if _calendar_is_connected():
-                reason = "connected"
+            reason = {"redirect_uri_mismatch": "redirect", "invalid_client": "client", "unauthorized_client": "client"}.get(oauth_err.code, "token")
+            if _calendar_is_connected(): reason = "connected"
             return self.redirect_to("/?calendar=" + reason)
         return self.redirect_to("/?calendar=connected")
 
     def handle_calendar_events(self):
         token = self.get_session()
-        if not token:
-            return self.send_json(401, {"error": "Sessão inválida."}, clear_cookie=True)
-        if not _calendar_is_connected():
-            return self.send_json(409, {"error": "Calendar não conectado."})
+        if not token: return self.send_json(401, {"error": "Sessão inválida."}, clear_cookie=True)
+        if not _calendar_is_connected(): return self.send_json(409, {"error": "Calendar não conectado."})
         try:
             access_token = _usable_calendar_access_token()
         except GoogleOAuthError:
             return self.send_json(409, {"error": "Conexão expirou. Reconecte."})
-        except (URLError, TimeoutError, ValueError, json.JSONDecodeError):
+        except Exception:
             return self.send_json(502, {"error": "Falha ao renovar conexão."})
-        if not access_token:
-            return self.send_json(409, {"error": "Conexão expirou."})
+        if not access_token: return self.send_json(409, {"error": "Conexão expirou."})
         query = parse_qs(urlsplit(self.path).query)
         rng = query.get("range", ["upcoming"])[0]
         events = _calendar_today_events(access_token) if rng == "today" else _calendar_events_query(access_token, max_results=10)
-        if events is None:
-            return self.send_json(502, {"error": "Falha ao consultar."})
+        if events is None: return self.send_json(502, {"error": "Falha ao consultar."})
         self.send_json(200, {"ok": True, "events": events, "range": rng})
 
     def _handle_pending_tool_confirmation(self, session, command, normalized):
         pending = getattr(session, "pending_tool", None)
-        if not pending:
-            return False, ""
+        if not pending: return False, ""
         if normalized in {"confirmar", "confirmo", "sim", "pode executar"}:
             tool_name, tool_args = pending
             session.pending_tool = None
@@ -761,12 +722,9 @@ class FridayHandler(BaseHTTPRequestHandler):
                     return True, payload["error"]
                 if tool_name == "create_calendar_event" and isinstance(payload, dict):
                     return True, f"Evento criado, chefe: '{payload.get('summary')}' de {payload.get('start')} até {payload.get('end')}."
-                if tool_name == "delete_calendar_event":
-                    return True, "Evento excluído, chefe."
-                if tool_name == "update_calendar_event":
-                    return True, "Evento atualizado, chefe."
-                if tool_name == "send_email":
-                    return True, str(payload)
+                if tool_name == "delete_calendar_event": return True, "Evento excluído, chefe."
+                if tool_name == "update_calendar_event": return True, "Evento atualizado, chefe."
+                if tool_name == "send_email": return True, str(payload)
                 return True, f"'{tool_name}' executada, chefe."
             return True, result.get("error", "Falha na execução.")
         if normalized in {"cancelar", "cancela", "não", "nao", "abortar"}:
@@ -774,308 +732,9 @@ class FridayHandler(BaseHTTPRequestHandler):
             return True, "Operação cancelada, chefe."
         return False, ""
 
-    def _try_direct_email_thread_intent(self, command, normalized):
-        triggers = ["conversa de e-mail", "conversa de email", "thread de e-mail", "histórico de e-mail"]
-        if not any(t in normalized for t in triggers):
-            return False, ""
-        for word in ["friday", "leia", "minha", "última", "ultima", "conversa", "de", "e-mail", "email",
-                     "thread", "histórico", "historico", "com", "o", "a"]:
-            command = command.replace(word, "").replace(word.capitalize(), "").strip()
-        target = command.strip()
-        if not target:
-            return True, "Com quem é a conversa, chefe?"
-        from core.friday_tools import _handler_read_emails, _handler_get_email_thread
-        _push_status(f"Buscando e-mails de {target}...")
-        emails_res = _handler_read_emails(query=f"from:{target}", max_results=1)
-        if not emails_res or "error" in emails_res or not emails_res.get("emails"):
-            return True, f"Não encontrei e-mails de '{target}'."
-        thread_id = emails_res["emails"][0].get("thread_id")
-        if not thread_id:
-            return True, "Sem thread identificada."
-        _push_status("Lendo a conversa completa...")
-        thread_res = _handler_get_email_thread(thread_id)
-        if not thread_res or "error" in thread_res:
-            return True, f"Não consegui ler a conversa."
-        from core.ai_provider import FridayAIProvider
-        provider = FridayAIProvider()
-        prompt = f"Resuma a conversa de e-mail com '{target}':\n\n{thread_res['history']}"
-        resumo = provider.generate(message=prompt)
-        return True, (resumo or thread_res['history'])
-
-    def _try_direct_calendar_action(self, command, normalized, session):
-        if not _calendar_is_connected():
-            return False, ""
-        if not any(t in normalized for t in ["cancele", "cancele o", "apague", "delete", "deletar", "remova"]):
-            return False, ""
-        try:
-            access_token = _usable_calendar_access_token()
-        except Exception:
-            return True, "Não consegui renovar o acesso."
-        if not access_token:
-            return True, "Calendário não conectado."
-        _push_status("Buscando evento na agenda...")
-        events = _calendar_events_query(access_token, max_results=20)
-        if not events:
-            return True, "Agenda sem eventos para excluir."
-        ignore = {"friday", "friday,", "cancele", "cancele", "o", "apague", "delete", "deletar",
-                  "remova", "a", "o", "reunião", "reuniao", "de", "da", "do", "meu", "minha"}
-        words = [w for w in normalized.replace(",", "").replace(".", "").split() if w not in ignore]
-        target = None
-        for evt in events:
-            name = evt.get("summary", "").casefold()
-            if name and any(w in name for w in words):
-                target = evt
-                break
-        if not target:
-            for evt in events:
-                name = evt.get("summary", "").casefold()
-                if name and name in normalized:
-                    target = evt
-                    break
-        if target:
-            session.pending_tool = ("delete_calendar_event", {"event_id": target["id"]})
-            return True, f"Chefe, encontrei '{target['summary']}'. Confirma exclusão? (confirmar/cancelar)"
-        return True, "Não identifiquei qual evento cancelar."
-
-    def _try_direct_calendar_intent(self, command, normalized, session):
-        if not _calendar_is_connected():
-            return False, ""
-        email_handled, email_reply = self._try_direct_email_thread_intent(command, normalized)
-        if email_handled:
-            return True, email_reply
-        action_handled, action_reply = self._try_direct_calendar_action(command, normalized, session)
-        if action_handled:
-            return True, action_reply
-        triggers_today = ("agenda de hoje", "o que tenho hoje", "compromissos de hoje", "eventos de hoje", "tenho algo hoje")
-        triggers_upcoming = ("próximos compromissos", "proximos compromissos", "próximos eventos",
-                             "proximos eventos", "minha agenda", "o que está agendado")
-        is_today = any(t in normalized for t in triggers_today)
-        is_upcoming = any(t in normalized for t in triggers_upcoming)
-        if not (is_today or is_upcoming):
-            return False, ""
-        try:
-            access_token = _usable_calendar_access_token()
-        except Exception:
-            return True, "Não consegui renovar o acesso."
-        if not access_token:
-            return True, "Calendário não conectado."
-        if is_today:
-            events = _calendar_today_events(access_token)
-            label = "hoje"
-        else:
-            events = _calendar_events_query(access_token, max_results=5)
-            label = "próximos dias"
-        if events is None:
-            return True, "Falha ao consultar agenda."
-        if not events:
-            return True, f"Nenhum compromisso para {label}, chefe."
-        from datetime import datetime as _dt
-        lines = [f"Compromissos para {label}:"]
-        for evt in events[:7]:
-            raw = evt.get("start", "")
-            try:
-                dt = _dt.fromisoformat(raw.replace("Z", "+00:00"))
-                when = dt.strftime("%d/%m às %H:%M")
-            except Exception:
-                when = raw
-            link = evt.get("hangoutLink") or ""
-            suffix = f" — {link}" if link else ""
-            lines.append(f"• {evt['summary']} — {when}{suffix}")
-        return True, "\n".join(lines)
-
-    def _handle_pdf(self, pdf_base64, command, history):
-        if not HAS_PYPDF2:
-            return "Desculpe, chefe. O módulo de leitura de PDF não está instalado no servidor."
-        _push_status("Lendo o PDF...")
-        if "," in pdf_base64:
-            pdf_base64 = pdf_base64.split(",", 1)[1]
-        try:
-            pdf_bytes = base64.b64decode(pdf_base64)
-            reader = PyPDF2.PdfReader(io.BytesIO(pdf_bytes))
-            text = "\n".join((p.extract_text() or "") for p in reader.pages)
-        except Exception as e:
-            return f"Não consegui ler o PDF: {e}"
-
-        from core.ai_provider import FridayAIProvider
-        provider = FridayAIProvider()
-
-        # NOVO: Chunking Inteligente de PDF para evitar estourar tokens
-        if len(text) > 50000:
-            keywords = [w.lower() for w in re.findall(r"\w+", command) if len(w) > 3]
-            blocks = [text[i:i+3000] for i in range(0, len(text), 3000)]
-            scored = []
-            for b in blocks:
-                score = sum(1 for k in keywords if k in b.lower())
-                if score > 0:
-                    scored.append((score, b))
-            scored.sort(key=lambda x: -x[0])
-            context = "\n\n---\n\n".join(b for _, b in scored[:6]) if scored else text[:30000]
-        else:
-            context = text
-
-        _push_status("Analisando o conteúdo do PDF...")
-        prompt = f"""
-O usuário enviou um PDF.
-Trecho extraído (pode estar truncado):
----
-{context}
----
-
-Comando: {command}
-
-Se o comando for uma pergunta específica sobre o conteúdo, responda de forma direta.
-Se for um pedido de resumo, sintetize em tópicos.
-"""
-        result = provider.generate(message=prompt)
-        return result or "Não consegui analisar o PDF."
-
-    def _handle_vision(self, image_base64, command, history):
-        _push_status("Analisando a imagem...")
-        from core.ai_provider import FridayAIProvider
-        return FridayAIProvider().chat_with_vision(command, image_base64, history=history)
-
-    def _handle_chat_with_tools(self, clean_command, history, session):
-        normalized = clean_command.casefold()
-        response = None
-
-        if "briefing" in normalized or "resumo matinal" in normalized:
-            _push_status("Gerando briefing matinal...")
-            exec_res = execute_tool("get_morning_briefing", {"city": "Criciúma"}, user_role="owner")
-            if exec_res.get("ok"):
-                return str(exec_res.get("result"))
-            return f"Não consegui acessar os dados do briefing: {exec_res.get('error', 'Erro desconhecido')}"
-
-        # NOVO: Controle de Música Direto
-        if any(k in normalized for k in ["toque", "música", "musica", "play", "pause", "pausar", "continuar"]):
-            query = clean_command
-            for word in ["FRIDAY,", "FRIDAY", "toque", "a música", "a musica", "música", "musica", "coloque", "play"]:
-                query = query.replace(word, "").strip()
-            if query or "pause" in normalized or "pausar" in normalized or "play" in normalized:
-                _push_status(f"Controlando player...")
-                exec_res = execute_tool("play_music", {"query": query or normalized}, user_role="owner")
-                if exec_res.get("ok"):
-                    r = exec_res.get("result", {})
-                    if r.get("action") == "pause":
-                        return "[MUSIC_ACTION:pause] Música pausada, chefe."
-                    if r.get("action") == "play":
-                        return "[MUSIC_ACTION:play] Retomando a música."
-                    if r.get("action") == "play_new":
-                        return f"[MUSIC_PLAY:{r.get('url')}] Tocando {query} no YouTube, chefe."
-                return exec_res.get("error", "Não consegui controlar a música.")
-            return "O que você deseja ouvir, chefe?"
-
-        pending_handled, pending_reply = self._handle_pending_tool_confirmation(session, clean_command, normalized)
-        if pending_handled:
-            return pending_reply
-
-        calendar_handled, calendar_reply = self._try_direct_calendar_intent(clean_command, normalized, session)
-        if calendar_handled:
-            return calendar_reply
-
-        force_llm = any(t in normalized for t in [
-            "lembre-se", "salve na memória", "memorize", "email", "e-mail", "caixa de entrada",
-            "cancela", "cancele", "muda", "altere", "remarque", "apaga", "deleta",
-            "pesquise", "leia", "resuma", "artigo", "site", "esqueça", "apague da memória",
-            "cripto", "bitcoin", "notícia", "tarefa", "todo"
-        ])
-
-        if not force_llm:
-            intention = friday.interpret(clean_command)
-            if session.pending_action is not None:
-                if normalized == "atualizar lembrança":
-                    intention = "confirm_memory_update"
-                elif normalized == "manter ambas":
-                    intention = "confirm_memory_keep_both"
-                elif normalized == "cancelar operação":
-                    intention = "cancel_pending"
-            response = friday.execute(intention, clean_command, "owner", history=history, session=session)
-            if response is None:
-                return None
-            if intention != "unknown":
-                return str(response)
-
-        from core.ai_provider import FridayAIProvider
-        provider = FridayAIProvider()
-        if not provider.available():
-            return str(response) if response else "IA não configurada."
-
-        current = list(history)
-        current.append({"role": "user", "content": clean_command})
-
-        for iteration in range(5):
-            _push_status("Pensando..." if iteration == 0 else "Analisando resultado...")
-            try:
-                ai_result = provider.chat_with_full_history(current, public_tool_specs())
-            except Exception as e:
-                return f"Erro técnico na IA: {str(e)}"
-                
-            if not ai_result:
-                return "A IA não retornou resposta."
-                
-            if "error" in ai_result:
-                return f"Erro da Groq: {ai_result['error']}"
-
-            if "tool_call" in ai_result:
-                name = ai_result["tool_call"].get("name")
-                args = ai_result["tool_call"].get("arguments", {})
-                raw_args = ai_result["tool_call"].get("raw_arguments", "{}")
-                tid = ai_result["tool_call"].get("id", "call_unknown")
-                _push_status(f"Usando ferramenta: {name}...")
-                exec_res = execute_tool(name, args, user_role="owner", session=session)
-                if exec_res.get("status") == "pending_confirmation":
-                    session.pending_tool = (name, args)
-                    return exec_res.get("message", f"Confirma '{name}'?")
-                if not exec_res.get("ok") or (isinstance(exec_res.get("result"), dict) and "error" in exec_res["result"]):
-                    error_msg = exec_res.get("error") or exec_res["result"].get("error")
-                    result = {"error": f"Falha: {error_msg}. Tente novamente."}
-                else:
-                    result = exec_res.get("result")
-                current.append({"role": "assistant", "content": None,
-                                "tool_calls": [{"id": tid, "type": "function",
-                                                "function": {"name": name, "arguments": raw_args}}]})
-                current.append({"role": "tool", "tool_call_id": tid,
-                                "content": json.dumps(result, ensure_ascii=False)})
-            elif "text" in ai_result:
-                text = ai_result["text"]
-                history.append({"role": "user", "content": clean_command})
-                history.append({"role": "assistant", "content": text})
-                history[:] = history[-MAX_HISTORY_MESSAGES:]
-                return text
-            else:
-                break
-
-        history.append({"role": "user", "content": clean_command})
-        fallback = provider.generate(message=clean_command, history=history)
-        if fallback:
-            history.append({"role": "assistant", "content": fallback})
-            history[:] = history[-MAX_HISTORY_MESSAGES:]
-            return fallback
-        return "Desculpe, chefe. Não consegui concluir desta vez."
-
-    def _maybe_send_pdf_by_email(self, command, normalized, pdf_base64, pdf_name):
-        if not pdf_base64:
-            return None
-        if not any(k in normalized for k in ["envie", "envia", "mande", "manda", "encaminhe"]):
-            return None
-        email_match = re.search(r"[\w\.\-]+@[\w\.\-]+\.\w+", command)
-        if not email_match:
-            return None
-        to_email = email_match.group(0)
-        _push_status(f"Enviando PDF por e-mail para {to_email}...")
-        from core.friday_tools import _handler_send_email
-        result = _handler_send_email(
-            to_email=to_email,
-            subject="Documento anexado",
-            body="Segue o documento solicitado em anexo.",
-            attachment_base64=pdf_base64,
-            attachment_name=pdf_name or "documento.pdf",
-        )
-        return result
-
     def do_POST(self):
-        try:
-            self._handle_post_impl()
-        except Exception as e:
+        try: self._handle_post_impl()
+        except Exception:
             traceback.print_exc()
             try: self.send_json(500, {"error": "Erro interno no servidor."})
             except Exception: pass
@@ -1094,10 +753,7 @@ Se for um pedido de resumo, sintetize em tópicos.
             if not (isinstance(password, str) and auth.authenticate(password, client_key=key)):
                 remaining = auth.remaining_lockout(key)
                 locked = remaining > 0
-                return self.send_json(429 if locked else 401, {
-                    "error": "Bloqueado." if locked else "Autenticação negada.",
-                    "locked": locked, "remaining": remaining,
-                })
+                return self.send_json(429 if locked else 401, {"error": "Bloqueado." if locked else "Autenticação negada.", "locked": locked, "remaining": remaining})
             token = _make_session_cookie()
             return self.send_json(200, {"ok": True}, cookie=token)
 
@@ -1111,54 +767,124 @@ Se for um pedido de resumo, sintetize em tópicos.
 
         if path == "/chat":
             command = data.get("command")
-            image = data.get("image")
             pdf = data.get("pdf")
             pdf_name = data.get("pdf_name") or "documento.pdf"
 
             if not command or not isinstance(command, str) or len(command) > 2000:
                 return self.send_json(400, {"error": "Comando inválido."})
 
+            history = SESSION_STORE.get_history(token)
+            session = SESSION_STORE.get(token)
+            if history is None or session is None:
+                return self.send_json(401, {"error": "Sessão inválida."}, clear_cookie=True)
+
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("Connection", "keep-alive")
+            self.send_header("X-Accel-Buffering", "no")
+            self.end_headers()
+
             try:
-                clean = command.strip()
-                history = SESSION_STORE.get_history(token)
-                session = SESSION_STORE.get(token)
-                if history is None or session is None:
-                    return self.send_json(401, {"error": "Sessão inválida."}, clear_cookie=True)
-
-                email_result = self._maybe_send_pdf_by_email(clean, clean.casefold(), pdf, pdf_name)
-                if email_result is not None:
-                    return self.send_json(200, {"response": email_result, "closed": False})
-
-                if image:
-                    text = self._handle_vision(image, clean, history)
-                elif pdf:
-                    text = self._handle_pdf(pdf, clean, history)
-                else:
-                    text = self._handle_chat_with_tools(clean, history, session)
-
-                if text is None:
-                    SESSION_STORE.invalidate(token)
-                    return self.send_json(200, {"response": "FRIDAY encerrada.", "closed": True}, clear_cookie=True)
-
-                return self.send_json(200, {"response": str(text), "closed": False})
-            except Exception:
-                traceback.print_exc()
-                return self.send_json(500, {"error": "Erro interno ao processar."})
+                self._stream_chat_logic(command.strip(), history, session, pdf, pdf_name)
+            except Exception as e:
+                self._send_sse({"error": f"Erro crítico: {str(e)}"})
+            return
 
         self.send_json(404, {"error": "Página não encontrada."})
 
-    def log_message(self, format, *args):
-        safe = []
-        for arg in args:
-            if isinstance(arg, str) and "?" in arg:
-                head, _, tail = arg.partition("?")
-                bits = tail.partition(" HTTP/")
-                arg = head + (" HTTP/" + bits[2] if bits[1] else "")
-            safe.append(arg)
+    def _extract_pdf(self, pdf_b64):
+        if not HAS_PYPDF2: return "[Módulo PDF indisponível no servidor]"
         try:
-            print("FRIDAY WEB:", format % tuple(safe))
-        except Exception:
-            print("FRIDAY WEB: requisição")
+            if "," in pdf_b64: pdf_b64 = pdf_b64.split(",", 1)[1]
+            reader = PyPDF2.PdfReader(io.BytesIO(base64.b64decode(pdf_b64)))
+            text = "\n".join((p.extract_text() or "") for p in reader.pages)
+            return text[:30000]
+        except Exception as e: return f"[Erro ao ler PDF: {e}]"
+
+    def _stream_chat_logic(self, command, history, session, pdf_b64=None, pdf_name="documento.pdf"):
+        from core.ai_provider import FridayAIProvider
+        provider = FridayAIProvider()
+        
+        if not provider.available():
+            self._send_sse({"error": "IA não configurada."})
+            return
+
+        normalized = command.casefold()
+        pending_handled, pending_reply = self._handle_pending_tool_confirmation(session, command, normalized)
+        if pending_handled:
+            self._send_sse({"text": pending_reply})
+            history.append({"role": "user", "content": command})
+            history.append({"role": "assistant", "content": pending_reply})
+            history[:] = history[-MAX_HISTORY_MESSAGES:]
+            return
+
+        if pdf_b64:
+            self._send_sse({"text": "Lendo documento PDF... "})
+            text = self._extract_pdf(pdf_b64)
+            command = f"Analise o documento a seguir:\n{text}\n\nComando do chefe: {command}"
+
+        current_messages = list(history)
+        current_messages.append({"role": "user", "content": command})
+
+        for iteration in range(5):
+            stream_gen = provider.chat_with_full_history_stream(current_messages, public_tool_specs())
+            tool_call_accumulator = {}
+            has_tool_call = False
+            full_text = ""
+
+            for chunk in stream_gen:
+                if "error" in chunk:
+                    self._send_sse({"error": chunk["error"]})
+                    return
+                if "text" in chunk:
+                    full_text += chunk["text"]
+                    self._send_sse({"text": chunk["text"]})
+                if "tool_call_chunk" in chunk:
+                    has_tool_call = True
+                    tc = chunk["tool_call_chunk"]
+                    idx = tc.get("index", 0)
+                    if idx not in tool_call_accumulator:
+                        tool_call_accumulator[idx] = {"id": tc.get("id", ""), "name": "", "arguments": ""}
+                    if "function" in tc:
+                        if "name" in tc["function"]:
+                            tool_call_accumulator[idx]["name"] += tc["function"]["name"]
+                        if "arguments" in tc["function"]:
+                            tool_call_accumulator[idx]["arguments"] += tc["function"]["arguments"]
+
+            if has_tool_call:
+                self._send_sse({"text": "\n\n*[Consultando base de dados...]*\n\n"})
+                tc_data = tool_call_accumulator[0]
+                name = tc_data["name"]
+                try: args = json.loads(tc_data["arguments"])
+                except Exception: args = {}
+
+                _push_status(f"Usando ferramenta: {name}...")
+                exec_res = execute_tool(name, args, user_role="owner", session=session)
+
+                if exec_res.get("status") == "pending_confirmation":
+                    session.pending_tool = (name, args)
+                    self._send_sse({"text": exec_res.get("message", f"Confirma '{name}'?")})
+                    return 
+
+                result = exec_res.get("result") if exec_res.get("ok") else {"error": exec_res.get("error")}
+
+                current_messages.append({
+                    "role": "assistant", "content": None if not full_text else full_text,
+                    "tool_calls": [{"id": tc_data["id"], "type": "function", "function": {"name": name, "arguments": tc_data["arguments"]}}]
+                })
+                current_messages.append({
+                    "role": "tool", "tool_call_id": tc_data["id"], "content": json.dumps(result, ensure_ascii=False)
+                })
+                continue
+            else:
+                history.append({"role": "user", "content": command})
+                history.append({"role": "assistant", "content": full_text})
+                history[:] = history[-MAX_HISTORY_MESSAGES:]
+                break
+
+    def log_message(self, format, *args):
+        pass
 
 
 class ReusableThreadingHTTPServer(ThreadingHTTPServer):
