@@ -39,7 +39,6 @@ class FridayAIProvider:
         return bool(self.api_key.strip())
 
     def _get_model(self, prompt_length):
-        # Roteamento: 70B para textos longos (mais inteligente), 8B para rápidos
         if prompt_length > 1500:
             return "llama-3.3-70b-versatile"
         return "llama-3.1-8b-instant"
@@ -177,7 +176,6 @@ NUNCA diga que não possui uma ferramenta, pois você tem todas.
         return None
 
     def chat_with_full_history(self, messages, tools):
-        # Método síncrono legado (mantido por segurança)
         if not self.available():
             return {"error": "IA indisponível."}
         formatted_tools = [{"type": "function", "function": {"name": n, "description": s.get("description", ""), "parameters": s.get("parameters", {})}} for n, s in tools.items()]
@@ -208,7 +206,6 @@ NUNCA diga que não possui uma ferramenta, pois você tem todas.
             return {"error": str(e)}
 
     def chat_with_full_history_stream(self, messages, tools):
-        """Nova função: Retorna um gerador que produz chunks de texto em tempo real."""
         if not self.available(): 
             yield {"error": "IA indisponível."}
             return
@@ -224,7 +221,6 @@ NUNCA diga que não possui uma ferramenta, pois você tem todas.
         
         try:
             with urlopen(req, timeout=60) as response:
-                # Leitura por linha explícita para evitar buffering do urllib
                 while True:
                     line = response.readline()
                     if not line:
