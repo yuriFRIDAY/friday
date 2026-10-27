@@ -839,12 +839,15 @@
       let currentAttachment = null;
       let currentAttachmentType = null;
       let currentAttachmentName = null;
+      
+      let isProcessing = false; // Previne múltiplos envios de comandos
 
       // --- STATUS EM TEMPO REAL ---
       let statusPollingInterval = null;
 
       function startStatusPolling() {
           stopStatusPolling();
+          // Aumentado para 3000ms para aliviar a carga do servidor
           statusPollingInterval = setInterval(async () => {
               try {
                   const res = await fetch("/status", { credentials: "same-origin", cache: "no-store" });
@@ -855,7 +858,7 @@
                       $("status").textContent = last;
                   }
               } catch (e) {}
-          }, 1500);
+          }, 3000); 
       }
 
       function stopStatusPolling() {
@@ -1242,9 +1245,11 @@
 
       $("chatForm").addEventListener("submit", async (event) => {
         event.preventDefault();
+        if (isProcessing) return; // Previne envios duplicados
         const command = $("command").value.trim();
         if (!command && !currentAttachment) return;
 
+        isProcessing = true;
         $("command").value = "";
         let displayMsg = command || "Processando arquivo...";
         if (currentAttachment) displayMsg += " [Arquivo Anexado]";
@@ -1300,6 +1305,7 @@
           status("Verifique a conexão ou autenticação.");
           if (error.message.toLowerCase().includes("sessão")) showLogin();
         } finally {
+          isProcessing = false;
           $("sendBtn").disabled = false;
           $("voiceBtn").disabled = false;
           if (!$("assistant").classList.contains("hidden")) $("command").focus();
