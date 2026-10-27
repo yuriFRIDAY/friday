@@ -52,6 +52,25 @@ if os.path.exists("/data") and os.access("/data", os.W_OK):
 DB_PATH = os.path.join(DATA_DIR, "friday.db")
 
 # ========================================
+# CONTEXTOS (MOVIDOS PARA O TOPO PARA EVITAR ERROS)
+# ========================================
+_CALENDAR_CONTEXT = {}
+_MEMORY_CONTEXT = {}
+
+def set_calendar_context(access_token_provider, events_query, today_events, create_event, delete_event, update_event):
+    _CALENDAR_CONTEXT.update({
+        "access_token_provider": access_token_provider, 
+        "events_query": events_query, 
+        "today_events": today_events, 
+        "create_event": create_event, 
+        "delete_event": delete_event, 
+        "update_event": update_event
+    })
+
+def set_memory_context(save_func, recall_func, delete_func=None):
+    _MEMORY_CONTEXT.update({"save": save_func, "recall": recall_func, "delete": delete_func})
+
+# ========================================
 # CACHE SEGURO PARA MULTI-THREAD
 # ========================================
 _CACHE = {}
@@ -744,24 +763,8 @@ def _handler_find_free_slots(date_iso):
     return {"date": start_of_day.strftime("%Y-%m-%d"), "free_slots": [s.strftime("%H:%M") for s in slots[:limit]]}
 
 # ========================================
-# REGISTRO DE FERRAMENTAS (CORRIGIDO PARA PADRÃO OPENAI/GROQ)
+# REGISTRO DE FERRAMENTAS (PADRÃO JSON SCHEMA)
 # ========================================
-_CALENDAR_CONTEXT = {}
-_MEMORY_CONTEXT = {}
-
-def set_calendar_context(access_token_provider, events_query, today_events, create_event, delete_event, update_event):
-    _CALENDAR_CONTEXT.update({
-        "access_token_provider": access_token_provider, 
-        "events_query": events_query, 
-        "today_events": today_events, 
-        "create_event": create_event, 
-        "delete_event": delete_event, 
-        "update_event": update_event
-    })
-
-def set_memory_context(save_func, recall_func, delete_func=None):
-    _MEMORY_CONTEXT.update({"save": save_func, "recall": recall_func, "delete": delete_func})
-
 TOOL_REGISTRY = {
     "get_current_time": {
         "description": "Retorna data e hora.", 
