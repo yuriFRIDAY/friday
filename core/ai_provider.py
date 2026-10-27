@@ -28,7 +28,6 @@ logger.propagate = False
 class FridayAIProvider:
     def __init__(self):
         self.api_key = os.getenv("GROQ_API_KEY", "")
-        self.model = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
         self.base_url = "https://api.groq.com/openai/v1"
         self.smtp_user = os.getenv("SMTP_USER", "")
         self.data_dir = os.getenv("DATA_DIR", ".")
@@ -38,6 +37,10 @@ class FridayAIProvider:
 
     def available(self):
         return bool(self.api_key.strip())
+
+    def _get_model(self, prompt_length):
+        # Roteamento: Se for muito longo ou complexo, usa o 70B. Senão, 8B.
+        return "llama-3.3-70b-versatile" if prompt_length > 1500 else "llama-3.1-8b-instant"
 
     def _get_current_time_context(self):
         try:
@@ -61,14 +64,12 @@ class FridayAIProvider:
         return ""
 
     def _summarize_history(self, history):
-        # Se o histórico for muito longo (ex: > 8 mensagens), resume as antigas.
         if len(history) <= 8:
             return history
         
         old_messages = history[:-4]
         recent_messages = history[-4:]
         
-        # Extrai apenas texto para resumir
         text_to_summarize = "\n".join([f"{m['role'].upper()}: {m['content']}" for m in old_messages if isinstance(m.get('content'), str)])
         
         prompt = f"Resuma a conversa a seguir em um parágrafo curto e direto, focando no que o Chefe pediu e nas decisões tomadas:\n\n{text_to_summarize}"
@@ -82,7 +83,6 @@ class FridayAIProvider:
         except Exception:
             pass
         
-        # Se falhar, apenas retorna as últimas mensagens
         return recent_messages
 
     def _get_system_prompt(self, history_context=""):
@@ -110,14 +110,17 @@ Você TEM acesso a TODAS as ferramentas listadas abaixo. NUNCA diga que não pos
 1. get_current_time (data e hora)
 2. get_weather (clima e previsão do tempo)
 3. get_system_status (status do servidor)
-4. search_web (pesquisa na web)
-5. deep_search (pesquisa e leitura de página)
-6. read_webpage (ler URL)
-7. send_email, reply_to_email, read_emails, read_email_full, get_email_thread
-8. save_memory, recall_memory, delete_memory
-9. play_music
-10. get_morning_briefing
-11. get_calendar_events, create_calendar_event, update_calendar_event, delete_calendar_event, find_free_slots
+4. get_crypto_price (cotações de cripto)
+5. get_news (últimas notícias)
+6. search_web (pesquisa na web)
+7. deep_search (pesquisa e leitura de página)
+8. read_webpage (ler URL)
+9. send_email, reply_to_email, read_emails, read_email_full, get_email_thread
+10. create_task, list_tasks, complete_task
+11. save_memory, recall_memory, delete_memory
+12. play_music (tocar, pausar, continuar)
+13. get_morning_briefing
+14. get_calendar_events, create_calendar_event, update_calendar_event, delete_calendar_event, find_free_slots
 
 NUNCA diga que não possui uma ferramenta, pois você tem todas.
 Se o usuário perguntar do clima, chame get_weather.
@@ -148,8 +151,9 @@ Se o usuário perguntar do clima, chame get_weather.
         if not self.available():
             return None
         messages = self._build_messages(message, history)
-        payload = {"model": self.model, "messages": messages, "stream": False, "max_tokens": 4096}
-        return self._execute_request(payload)
+        model = self._get_model(len(str(message)))
+        payload = {"model": model, "messages": messages, "stream": False, "max_tokens": 4096}
+        return self._execute_with_retry(payload)
 
     def chat_with_vision(self, user_message, image_base64, history=None):
         return "Desculpe, chefe. Meu módulo de visão está desativado no momento."
@@ -159,7 +163,8 @@ Se o usuário perguntar do clima, chame get_weather.
             return {"error": "IA indisponível."}
         formatted_tools = [{"type": "function", "function": {"name": n, "description": s.get("description", ""), "parameters": s.get("parameters", {})}} for n, s in tools.items()]
         messages = self._build_messages(user_message, history)
-        payload = {"model": self.model, "messages": messages, "tools": formatted_tools, "tool_choice": "auto", "stream": False, "max_tokens": 4096}
+        model = self._get_model(len(str(user_message)))
+        payload = {"model": model, "messages": messages, "tools": formatted_tools, "tool_choice": "auto", "stream": False, "max_tokens": 4096}
         try:
             result = self._send_raw_request(payload)
             choices = result.get("choices", [])
@@ -179,10 +184,8 @@ Se o usuário perguntar do clima, chame get_weather.
                 return {"text": content.strip()}
             return {"text": "Comando processado."}
         except HTTPError as e:
-            try:
-                err_body = e.read().decode("utf-8")
-            except Exception:
-                err_body = str(e)
+            try: err_body = e.read().decode("utf-8")
+            except Exception: err_body = str(e)
             return {"error": f"HTTP {e.code}: {err_body[:200]}"}
         except Exception as e:
             return {"error": str(e)}
@@ -193,20 +196,19 @@ Se o usuário perguntar do clima, chame get_weather.
         messages = self._build_messages(user_message, history)
         messages.append({"role": "assistant", "content": None, "tool_calls": [{"id": tool_call_id or "call_unknown", "type": "function", "function": {"name": tool_name, "arguments": raw_arguments}}]})
         messages.append({"role": "tool", "tool_call_id": tool_call_id or "call_unknown", "content": json.dumps(tool_result, ensure_ascii=False)})
-        payload = {"model": self.model, "messages": messages, "stream": False, "max_tokens": 4096}
-        return self._execute_request(payload)
+        model = self._get_model(len(str(messages)))
+        payload = {"model": model, "messages": messages, "stream": False, "max_tokens": 4096}
+        return self._execute_with_retry(payload)
 
     def chat_with_full_history(self, messages, tools):
         if not self.available():
             return {"error": "IA indisponível."}
         formatted_tools = [{"type": "function", "function": {"name": n, "description": s.get("description", ""), "parameters": s.get("parameters", {})}} for n, s in tools.items()]
-        
-        # Processa o histórico para sumarização
-        summary_context = ""
-        # Não aplicamos summarização aqui, pois ele já recebe o 'current' history formatado do server.py
         full_messages = [{"role": "system", "content": self._get_system_prompt().strip()}] + messages
+        total_len = sum(len(str(m.get('content', ''))) for m in full_messages)
+        model = self._get_model(total_len)
         
-        payload = {"model": self.model, "messages": full_messages, "tools": formatted_tools, "tool_choice": "auto", "stream": False, "max_tokens": 4096}
+        payload = {"model": model, "messages": full_messages, "tools": formatted_tools, "tool_choice": "auto", "stream": False, "max_tokens": 4096}
         try:
             result = self._send_raw_request(payload)
             choices = result.get("choices", [])
@@ -226,15 +228,13 @@ Se o usuário perguntar do clima, chame get_weather.
                 return {"text": content.strip()}
             return {"text": "Comando processado."}
         except HTTPError as e:
-            try:
-                err_body = e.read().decode("utf-8")
-            except Exception:
-                err_body = str(e)
+            try: err_body = e.read().decode("utf-8")
+            except Exception: err_body = str(e)
             logger.error(f"Erro full history (HTTP {e.code}): {err_body}")
             return {"error": f"HTTP {e.code}: {err_body[:150]}"}
         except URLError as e:
             logger.error(f"Erro de rede Groq: {e.reason}")
-            return {"error": f"Falha de rede com a Groq. Verifique sua conexão ou tente novamente."}
+            return {"error": f"Falha de rede com a Groq. Tente novamente."}
         except Exception as e:
             logger.error(f"Erro full history: {e}")
             return {"error": str(e)}
@@ -244,30 +244,24 @@ Se o usuário perguntar do clima, chame get_weather.
         with urlopen(request, timeout=60) as response:
             return json.loads(response.read().decode("utf-8"))
 
-    def _execute_request(self, payload):
-        started_at = time.monotonic()
-        outcome = "unknown"
-        try:
-            result = self._send_raw_request(payload)
-            choices = result.get("choices", [])
-            if choices:
-                content = choices[0].get("message", {}).get("content")
-                if isinstance(content, str) and content.strip():
-                    outcome = "success"
-                    return content.strip()
-            outcome = "empty_response"
-            return None
-        except HTTPError as error:
-            outcome = f"http_error_{error.code}"
+    def _execute_with_retry(self, payload):
+        for attempt in range(3):
             try:
-                logger.error(f"Erro HTTP {error.code} Groq: {error.read().decode('utf-8')}")
-            except Exception:
-                pass
-            return None
-        except Exception as error:
-            outcome = "connection_error"
-            logger.error(f"Falha conexão: {type(error).__name__} - {str(error)}")
-            return None
-        finally:
-            elapsed = round((time.monotonic() - started_at) * 1000)
-            logger.info(f"AI_REQUEST provider=groq outcome={outcome} duration_ms={elapsed}")
+                result = self._send_raw_request(payload)
+                choices = result.get("choices", [])
+                if choices:
+                    content = choices[0].get("message", {}).get("content")
+                    if isinstance(content, str) and content.strip():
+                        return content.strip()
+                return None
+            except HTTPError as error:
+                if error.code == 429:
+                    time.sleep(2) # Rate limit, aguarda e tenta de novo
+                else:
+                    try: logger.error(f"Erro HTTP {error.code}: {error.read().decode('utf-8')[:200]}")
+                    except Exception: pass
+                    break
+            except Exception as error:
+                logger.error(f"Falha conexão: {type(error).__name__} - {str(error)}")
+                time.sleep(1)
+        return None
