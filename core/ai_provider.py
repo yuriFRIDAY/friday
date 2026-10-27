@@ -27,7 +27,8 @@ logger.propagate = False
 class FridayAIProvider:
     def __init__(self):
         self.api_key = os.getenv("GROQ_API_KEY", "")
-        self.model = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+        # Modelo estável da Groq
+        self.model = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
         self.vision_model = "llama-3.2-11b-vision-preview"
         self.base_url = "https://api.groq.com/openai/v1"
         self.smtp_user = os.getenv("SMTP_USER", "")
@@ -41,13 +42,9 @@ class FridayAIProvider:
 
     def _get_current_time_context(self):
         try:
-            if HAS_ZONEINFO:
-                now = datetime.now(ZoneInfo("America/Sao_Paulo"))
-            else:
-                now = datetime.now(timezone(timedelta(hours=-3)))
+            now = datetime.now(ZoneInfo("America/Sao_Paulo")) if HAS_ZONEINFO else datetime.now(timezone(timedelta(hours=-3)))
         except Exception:
             now = datetime.now(timezone(timedelta(hours=-3)))
-            
         dias = ["segunda-feira", "terça-feira", "quarta-feira", "quinta-feira", "sexta-feira", "sábado", "domingo"]
         return f"Hoje é {dias[now.weekday()]}, {now.strftime('%d/%m/%Y')} e agora são {now.strftime('%H:%M')} (Horário de Brasília)."
 
@@ -59,10 +56,7 @@ class FridayAIProvider:
                 conn.execute("CREATE TABLE IF NOT EXISTS ai_memory (key TEXT PRIMARY KEY, value TEXT)")
                 rows = conn.execute("SELECT key, value FROM ai_memory ORDER BY rowid DESC LIMIT 10").fetchall()
                 if rows:
-                    mem_text = "\nMemórias sobre o Chefe:\n"
-                    for r in rows:
-                        mem_text += f"- {r[0]}: {r[1]}\n"
-                    return mem_text
+                    return "\nMemórias sobre o Chefe:\n" + "\n".join(f"- {r[0]}: {r[1]}" for r in rows)
         except Exception:
             pass
         return ""
@@ -84,21 +78,22 @@ Use para calcular datas relativas.
 CONCISÃO:
 Seja direto. Máximo 2-3 frases, salvo quando pedirem resumo detalhado.
 
-FERRAMENTAS DISPONÍVEIS (VOCÊ TEM ACESSO A TODAS):
-1. `get_current_time` (data e hora)
-2. `get_weather` (clima e previsão do tempo)
-3. `get_system_status` (status do servidor)
-4. `search_web` (pesquisa na web)
-5. `deep_search` (pesquisa e leitura de página)
-6. `read_webpage` (ler URL)
-7. `send_email`, `reply_to_email`, `read_emails`, `read_email_full`, `get_email_thread`
-8. `save_memory`, `recall_memory`, `delete_memory`
-9. `play_music`
-10. `get_morning_briefing`
-11. `get_calendar_events`, `create_calendar_event`, `update_calendar_event`, `delete_calendar_event`, `find_free_slots`
+FERRAMENTAS DISPONÍVEIS:
+Você TEM acesso a TODAS as ferramentas listadas abaixo. NUNCA diga que não possui uma ferramenta se ela estiver nesta lista.
+1. get_current_time (data e hora)
+2. get_weather (clima e previsão do tempo)
+3. get_system_status (status do servidor)
+4. search_web (pesquisa na web)
+5. deep_search (pesquisa e leitura de página)
+6. read_webpage (ler URL)
+7. send_email, reply_to_email, read_emails, read_email_full, get_email_thread
+8. save_memory, recall_memory, delete_memory
+9. play_music
+10. get_morning_briefing
+11. get_calendar_events, create_calendar_event, update_calendar_event, delete_calendar_event, find_free_slots
 
 NUNCA diga que não possui uma ferramenta, pois você tem todas.
-Se o usuário perguntar do clima, chame `get_weather`.
+Se o usuário perguntar do clima, chame get_weather.
 
 {memories}
 """
@@ -109,10 +104,7 @@ Se o usuário perguntar do clima, chame `get_weather`.
             for item in history[-10:]:
                 if isinstance(item, dict) and item.get("role") in ("user", "assistant"):
                     if isinstance(item.get("content"), str):
-                        messages.append({
-                            "role": item["role"],
-                            "content": item["content"][:4000]
-                        })
+                        messages.append({"role": item["role"], "content": item["content"][:4000]})
         messages.append({"role": "user", "content": str(message)[:4000]})
         return messages
 
@@ -131,13 +123,7 @@ Se o usuário perguntar do clima, chame `get_weather`.
             for item in history[-5:]:
                 if isinstance(item, dict) and item.get("role") in ("user", "assistant"):
                     messages.append({"role": item["role"], "content": item["content"][:2000]})
-        messages.append({
-            "role": "user",
-            "content": [
-                {"type": "text", "text": user_message},
-                {"type": "image_url", "image_url": {"url": image_base64}}
-            ]
-        })
+        messages.append({"role": "user", "content": [{"type": "text", "text": user_message}, {"type": "image_url", "image_url": {"url": image_base64}}]})
         payload = {"model": self.vision_model, "messages": messages, "stream": False}
         try:
             result = self._send_raw_request(payload)
@@ -154,24 +140,9 @@ Se o usuário perguntar do clima, chame `get_weather`.
     def chat_with_tools(self, user_message, history, tools):
         if not self.available():
             return {"error": "IA indisponível."}
-        formatted_tools = []
-        for n, s in tools.items():
-            formatted_tools.append({
-                "type": "function",
-                "function": {
-                    "name": n,
-                    "description": s.get("description", ""),
-                    "parameters": s.get("parameters", {})
-                }
-            })
+        formatted_tools = [{"type": "function", "function": {"name": n, "description": s.get("description", ""), "parameters": s.get("parameters", {})}} for n, s in tools.items()]
         messages = self._build_messages(user_message, history)
-        payload = {
-            "model": self.model,
-            "messages": messages,
-            "tools": formatted_tools,
-            "tool_choice": "auto",
-            "stream": False
-        }
+        payload = {"model": self.model, "messages": messages, "tools": formatted_tools, "tool_choice": "auto", "stream": False}
         try:
             result = self._send_raw_request(payload)
             choices = result.get("choices", [])
@@ -185,14 +156,7 @@ Se o usuário perguntar do clima, chame `get_weather`.
                     args = json.loads(fd.get("arguments", "{}"))
                 except Exception:
                     args = {}
-                return {
-                    "tool_call": {
-                        "id": tc.get("id"),
-                        "name": fd.get("name"),
-                        "arguments": args,
-                        "raw_arguments": fd.get("arguments", "{}")
-                    }
-                }
+                return {"tool_call": {"id": tc.get("id"), "name": fd.get("name"), "arguments": args, "raw_arguments": fd.get("arguments", "{}")}}
             content = message.get("content")
             if isinstance(content, str) and content.strip():
                 return {"text": content.strip()}
@@ -210,44 +174,17 @@ Se o usuário perguntar do clima, chame `get_weather`.
         if not self.available():
             return None
         messages = self._build_messages(user_message, history)
-        messages.append({
-            "role": "assistant",
-            "content": None,
-            "tool_calls": [{
-                "id": tool_call_id or "call_unknown",
-                "type": "function",
-                "function": {"name": tool_name, "arguments": raw_arguments}
-            }]
-        })
-        messages.append({
-            "role": "tool",
-            "tool_call_id": tool_call_id or "call_unknown",
-            "content": json.dumps(tool_result, ensure_ascii=False)
-        })
+        messages.append({"role": "assistant", "content": None, "tool_calls": [{"id": tool_call_id or "call_unknown", "type": "function", "function": {"name": tool_name, "arguments": raw_arguments}}]})
+        messages.append({"role": "tool", "tool_call_id": tool_call_id or "call_unknown", "content": json.dumps(tool_result, ensure_ascii=False)})
         payload = {"model": self.model, "messages": messages, "stream": False}
         return self._execute_request(payload)
 
     def chat_with_full_history(self, messages, tools):
         if not self.available():
             return {"error": "IA indisponível."}
-        formatted_tools = []
-        for n, s in tools.items():
-            formatted_tools.append({
-                "type": "function",
-                "function": {
-                    "name": n,
-                    "description": s.get("description", ""),
-                    "parameters": s.get("parameters", {})
-                }
-            })
+        formatted_tools = [{"type": "function", "function": {"name": n, "description": s.get("description", ""), "parameters": s.get("parameters", {})}} for n, s in tools.items()]
         full_messages = [{"role": "system", "content": self._get_system_prompt().strip()}] + messages
-        payload = {
-            "model": self.model,
-            "messages": full_messages,
-            "tools": formatted_tools,
-            "tool_choice": "auto",
-            "stream": False
-        }
+        payload = {"model": self.model, "messages": full_messages, "tools": formatted_tools, "tool_choice": "auto", "stream": False}
         try:
             result = self._send_raw_request(payload)
             choices = result.get("choices", [])
@@ -261,14 +198,7 @@ Se o usuário perguntar do clima, chame `get_weather`.
                     args = json.loads(fd.get("arguments", "{}"))
                 except Exception:
                     args = {}
-                return {
-                    "tool_call": {
-                        "id": tc.get("id"),
-                        "name": fd.get("name"),
-                        "arguments": args,
-                        "raw_arguments": fd.get("arguments", "{}")
-                    }
-                }
+                return {"tool_call": {"id": tc.get("id"), "name": fd.get("name"), "arguments": args, "raw_arguments": fd.get("arguments", "{}")}}
             content = message.get("content")
             if isinstance(content, str) and content.strip():
                 return {"text": content.strip()}
@@ -285,16 +215,7 @@ Se o usuário perguntar do clima, chame `get_weather`.
             return {"error": str(e)}
 
     def _send_raw_request(self, payload):
-        request = Request(
-            f"{self.base_url}/chat/completions",
-            data=json.dumps(payload).encode("utf-8"),
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {self.api_key}",
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-            },
-            method="POST",
-        )
+        request = Request(f"{self.base_url}/chat/completions", data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json", "Authorization": f"Bearer {self.api_key}", "User-Agent": "Mozilla/5.0"}, method="POST")
         with urlopen(request, timeout=60) as response:
             return json.loads(response.read().decode("utf-8"))
 
