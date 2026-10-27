@@ -1,3 +1,4 @@
+# core/ai_provider.py
 import json
 import logging
 import os
@@ -52,16 +53,42 @@ class FridayAIProvider:
                 return ""
             with sqlite3.connect(self.db_path) as conn:
                 conn.execute("CREATE TABLE IF NOT EXISTS ai_memory (key TEXT PRIMARY KEY, value TEXT)")
-                rows = conn.execute("SELECT key, value FROM ai_memory ORDER BY rowid DESC LIMIT 10").fetchall()
+                rows = conn.execute("SELECT key, value FROM ai_memory ORDER BY rowid DESC LIMIT 5").fetchall()
                 if rows:
                     return "\nMemórias sobre o Chefe:\n" + "\n".join(f"- {r[0]}: {r[1]}" for r in rows)
         except Exception:
             pass
         return ""
 
-    def _get_system_prompt(self):
+    def _summarize_history(self, history):
+        # Se o histórico for muito longo (ex: > 8 mensagens), resume as antigas.
+        if len(history) <= 8:
+            return history
+        
+        old_messages = history[:-4]
+        recent_messages = history[-4:]
+        
+        # Extrai apenas texto para resumir
+        text_to_summarize = "\n".join([f"{m['role'].upper()}: {m['content']}" for m in old_messages if isinstance(m.get('content'), str)])
+        
+        prompt = f"Resuma a conversa a seguir em um parágrafo curto e direto, focando no que o Chefe pediu e nas decisões tomadas:\n\n{text_to_summarize}"
+        
+        try:
+            summary = self.generate(prompt)
+            if summary:
+                new_history = [{"role": "system", "content": f"Resumo do início da conversa: {summary}"}]
+                new_history.extend(recent_messages)
+                return new_history
+        except Exception:
+            pass
+        
+        # Se falhar, apenas retorna as últimas mensagens
+        return recent_messages
+
+    def _get_system_prompt(self, history_context=""):
         memories = self._get_recent_memories()
         time_context = self._get_current_time_context()
+        
         return f"""
 Você é FRIDAY, a IA pessoal do Chefe, inspirada no JARVIS.
 Personalidade: formal, leal, proativa, precisa e levemente espirituosa.
@@ -71,7 +98,9 @@ Seu e-mail (do Chefe) é {self.smtp_user}.
 
 CONTEXTO DE TEMPO:
 {time_context}
-Use para calcular datas relativas.
+
+CONTEXTO DA CONVERSA:
+{history_context}
 
 CONCISÃO:
 Seja direto. Máximo 2-3 frases, salvo quando pedirem resumo detalhado.
@@ -97,12 +126,21 @@ Se o usuário perguntar do clima, chame get_weather.
 """
 
     def _build_messages(self, message, history=None):
-        messages = [{"role": "system", "content": self._get_system_prompt().strip()}]
+        summary_context = ""
         if history:
-            for item in history[-10:]:
+            history = self._summarize_history(history)
+            if history and history[0].get("role") == "system" and "Resumo" in history[0].get("content", ""):
+                summary_context = history[0]["content"]
+                history = history[1:]
+
+        messages = [{"role": "system", "content": self._get_system_prompt(summary_context).strip()}]
+        
+        if history:
+            for item in history[-8:]:
                 if isinstance(item, dict) and item.get("role") in ("user", "assistant"):
                     if isinstance(item.get("content"), str):
                         messages.append({"role": item["role"], "content": item["content"][:4000]})
+        
         messages.append({"role": "user", "content": str(message)[:4000]})
         return messages
 
@@ -162,7 +200,12 @@ Se o usuário perguntar do clima, chame get_weather.
         if not self.available():
             return {"error": "IA indisponível."}
         formatted_tools = [{"type": "function", "function": {"name": n, "description": s.get("description", ""), "parameters": s.get("parameters", {})}} for n, s in tools.items()]
+        
+        # Processa o histórico para sumarização
+        summary_context = ""
+        # Não aplicamos summarização aqui, pois ele já recebe o 'current' history formatado do server.py
         full_messages = [{"role": "system", "content": self._get_system_prompt().strip()}] + messages
+        
         payload = {"model": self.model, "messages": full_messages, "tools": formatted_tools, "tool_choice": "auto", "stream": False, "max_tokens": 4096}
         try:
             result = self._send_raw_request(payload)
@@ -188,7 +231,6 @@ Se o usuário perguntar do clima, chame get_weather.
             except Exception:
                 err_body = str(e)
             logger.error(f"Erro full history (HTTP {e.code}): {err_body}")
-            # Truncando erro para não quebrar a interface
             return {"error": f"HTTP {e.code}: {err_body[:150]}"}
         except URLError as e:
             logger.error(f"Erro de rede Groq: {e.reason}")
