@@ -61,7 +61,7 @@ def _heartbeat_worker():
             time.sleep(60)
 
 # ========================================
-# GOOGLE CALENDAR / GMAIL — OAUTH (COMPLETO)
+# GOOGLE CALENDAR / GMAIL — OAUTH
 # ========================================
 GOOGLE_OAUTH_AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_OAUTH_TOKEN_URL = "https://oauth2.googleapis.com/token"
@@ -562,7 +562,8 @@ class FridayHandler(BaseHTTPRequestHandler):
             parsed = urlsplit(origin)
             if (parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc
                     or parsed.username or parsed.password
-                    or parsed.path not in {"", "/"} or parsed.query or parsed.fragment): return None
+                    or parsed.path not in {"", "/"} or parsed.query or parsed.fragment):
+                return None
             parsed.port
         except ValueError: return None
         return f"{parsed.scheme.lower()}://{parsed.netloc.lower()}"
@@ -610,6 +611,24 @@ class FridayHandler(BaseHTTPRequestHandler):
             return self.serve_static_file("sw.js", "application/javascript")
         if path == "/tts":
             return self.handle_tts()
+            
+        # ROTA DOS GRÁFICOS (MÉTRICAS)
+        if path == "/system_metrics":
+            token = self.get_session()
+            if not token:
+                return self.send_json(401, {"error": "Não autorizado"})
+            try:
+                load1, _, _ = os.getloadavg()
+                cpu_percent = min(100, round(load1 * 10, 1))
+                with open('/proc/meminfo', 'r') as f:
+                    lines = f.readlines()
+                mem_total = int(lines[0].split()[1])
+                mem_free = int(lines[1].split()[1])
+                ram_percent = round((mem_total - mem_free) / mem_total * 100, 1)
+                return self.send_json(200, {"cpu": cpu_percent, "ram": ram_percent})
+            except Exception:
+                return self.send_json(200, {"cpu": 0, "ram": 0})
+
         if path == "/status":
             token = self.get_session()
             if not token:
@@ -809,7 +828,7 @@ class FridayHandler(BaseHTTPRequestHandler):
         provider = FridayAIProvider()
         
         if not provider.available():
-            self._send_sse({"error": "IA não configurada."})
+            self._send_sse({"error": "IA não configurada (Groq API Key)."})
             return
 
         normalized = command.casefold()
