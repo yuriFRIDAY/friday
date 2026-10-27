@@ -6,11 +6,14 @@
     <meta name="theme-color" content="#050914" />
     <title>FRIDAY | Stark Systems</title>
     
+    <!-- PWA Config -->
     <link rel="manifest" href="/manifest.json" />
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     
+    <!-- Bibliotecas Externas -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     
     <style>
       :root {
@@ -364,6 +367,8 @@
       .sidebar-note { width: 100%; margin-top: auto; padding-top: 24px; color: var(--muted); font-size: 10px; line-height: 1.9; z-index: 2; }
       .sidebar-note span { color: #a9dced; font-size: 9px; letter-spacing: 0.13em; }
 
+      #sysChartContainer { width: 100%; height: 100px; margin-top: 10px; position: relative; z-index: 2; }
+
       .main-panel { display: flex; flex-direction: column; padding: 26px; }
 
       .main-header {
@@ -644,7 +649,7 @@
         .system-title { align-self: end; font-size: 22px; letter-spacing: 0.18em; }
         .system-sub { align-self: start; margin-top: 5px; font-size: 8px; text-align: left; line-height: 1.6; }
         .system-state { margin: 7px 0 0; padding: 6px 8px; font-size: 8px; }
-        .mini-heading, .metric, .sidebar-note { display: none; }
+        .mini-heading, .metric, .sidebar-note, #sysChartContainer { display: none; }
         .main-panel { min-height: 0; padding: 16px 13px; }
         .main-header { padding-bottom: 14px; }
         .heading { font-size: 12px; }
@@ -717,6 +722,13 @@
           <div class="metric"><span class="metric-label">Canal de voz</span><span class="metric-value">STREAMING</span></div>
           <div class="metric"><span class="metric-label">Visão</span><span class="metric-value">ATIVA</span></div>
           <div class="metric"><span class="metric-label">Status em tempo real</span><span class="metric-value">ATIVO</span></div>
+          
+          <!-- ONDE ERA O ESPAÇO VAZIO (CIRCULO AMARELO) -->
+          <div class="mini-heading" style="margin-top: 15px;">MÉTRICAS DE SISTEMA</div>
+          <div id="sysChartContainer">
+              <canvas id="sysChart"></canvas>
+          </div>
+
           <div class="sidebar-note">
             <span>PROJETO TONY STARK</span><br />
             Uma interface. Um sistema.<br />Novas capacidades em desenvolvimento.
@@ -861,6 +873,8 @@
       let silenceTimer = null;
       let isProcessing = false;
       let ytPlayer = null;
+      let sysChart = null;
+      let sysPollTimer = null;
 
       let wakeWordRecognition = null;
       let wakeWordActive = false;
@@ -874,6 +888,60 @@
           window.addEventListener('load', () => {
               navigator.serviceWorker.register('/sw.js').catch((err) => console.log('SW falhou:', err));
           });
+      }
+
+      // --- GRÁFICO DE MÉTRICAS ---
+      function initChart() {
+          const canvas = $('sysChart');
+          if (!canvas) return;
+          const ctx = canvas.getContext('2d');
+          sysChart = new Chart(ctx, {
+              type: 'line',
+              data: {
+                  labels: [],
+                  datasets: [
+                      { label: 'CPU %', borderColor: '#73edff', backgroundColor: 'rgba(115, 237, 255, 0.1)', data: [], tension: 0.4, fill: true, pointRadius: 0 },
+                      { label: 'RAM %', borderColor: '#ff8c00', backgroundColor: 'rgba(255, 140, 0, 0.1)', data: [], tension: 0.4, fill: true, pointRadius: 0 }
+                  ]
+              },
+              options: {
+                  responsive: true, maintainAspectRatio: false,
+                  scales: { 
+                      x: { display: false }, 
+                      y: { min: 0, max: 100, grid: { color: 'rgba(115,237,255,0.05)' }, ticks: { color: '#829bb1', font: {size: 9} } } 
+                  },
+                  plugins: { legend: { labels: { color: '#829bb1', font: { size: 10 }, boxWidth: 10 } } },
+                  animation: false
+              }
+          });
+      }
+
+      async function pollMetrics() {
+          if (!sysChart) return;
+          try {
+              const res = await fetch('/system_metrics', { credentials: 'same-origin' });
+              if (!res.ok) return;
+              const data = await res.json();
+              
+              const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+              
+              if (sysChart.data.labels.length > 20) {
+                  sysChart.data.labels.shift();
+                  sysChart.data.datasets[0].data.shift();
+                  sysChart.data.datasets[1].data.shift();
+              }
+              sysChart.data.labels.push(now);
+              sysChart.data.datasets[0].data.push(data.cpu);
+              sysChart.data.datasets[1].data.push(data.ram);
+              sysChart.update();
+          } catch(e) {}
+      }
+
+      function startSysMetrics() {
+          if (!sysChart) initChart();
+          if (sysPollTimer) clearInterval(sysPollTimer);
+          pollMetrics();
+          sysPollTimer = setInterval(pollMetrics, 2000); 
       }
 
       // --- YOUTUBE IFRAME API ---
@@ -1317,27 +1385,31 @@
                             }
                             if (dataObj.error) {
                                 botSpan.innerHTML = "> [Erro] " + dataObj.error;
+                                status("Erro na IA.");
                             }
                         } catch (e) { console.error("Erro parse SSE:", e); }
                     }
                 }
             }
             
-            hideTypingIndicator();
             stopStatusPolling();
             
-            let finalReply = handleMusicAction(fullReplyText);
-            if (finalReply !== fullReplyText) {
-                botSpan.innerHTML = "> " + marked.parse(finalReply);
+            if (!fullReplyText) {
+                status("Falha na resposta.");
+            } else {
+                status("Sistema online.");
+                let finalReply = handleMusicAction(fullReplyText);
+                if (finalReply !== fullReplyText) {
+                    botSpan.innerHTML = "> " + marked.parse(finalReply);
+                }
+                lastReply = finalReply;
+                speakResponse(finalReply);
             }
-            
-            lastReply = finalReply;
-            speakResponse(finalReply);
 
         } catch (error) {
-            hideTypingIndicator();
             stopStatusPolling();
             botSpan.innerHTML = "> [Erro] " + error.message;
+            status("Erro de conexão.");
         } finally {
             isProcessing = false;
             $("sendBtn").disabled = false;
@@ -1358,6 +1430,8 @@
           status("Autenticada. FRIDAY online.");
           soundBoot();
           $('messages').replaceChildren();
+          
+          startSysMetrics(); // Inicia os gráficos!
           
           sendCommandToFriday('Gere o meu briefing matinal para a cidade de Criciúma usando a ferramenta get_morning_briefing', true);
           
@@ -1567,6 +1641,7 @@
             $("assistant").classList.remove("hidden");
             status("Sessão ativa. FRIDAY online.");
             $('messages').replaceChildren();
+            startSysMetrics();
             sendCommandToFriday('Gere o meu briefing matinal para a cidade de Criciúma usando a ferramenta get_morning_briefing', true);
             checkCalendarConnection();
             startWakeWordListener();
