@@ -41,6 +41,7 @@ if os.path.exists("/data") and os.access("/data", os.W_OK):
 DB_PATH = os.path.join(DATA_DIR, "friday.db")
 
 STATUS_QUEUE = []
+NOTIFICATION_QUEUE = []
 QUEUE_LOCK = threading.Lock()
 
 def _push_status(text):
