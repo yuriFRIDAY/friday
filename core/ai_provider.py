@@ -39,7 +39,6 @@ class FridayAIProvider:
         return bool(self.api_key.strip())
 
     def _get_model(self, prompt_length):
-        # Usando o modelo mais estável da Groq para evitar erro 404/403 de modelo descontinuado
         return "llama-3.3-70b-versatile"
 
     def _get_current_time_context(self):
@@ -214,7 +213,13 @@ NUNCA diga que não possui uma ferramenta, pois você tem todas.
         
         payload = {"model": model, "messages": full_messages, "tools": formatted_tools, "tool_choice": "auto", "stream": True, "max_tokens": 4096}
         
-        req = Request(f"{self.base_url}/chat/completions", data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json", "Authorization": f"Bearer {self.api_key}"}, method="POST")
+        # CORREÇÃO: Incluído o User-Agent para burlar o bloqueio da Cloudflare (Error 1010)
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.api_key}",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }
+        req = Request(f"{self.base_url}/chat/completions", data=json.dumps(payload).encode("utf-8"), headers=headers, method="POST")
         
         try:
             with urlopen(req, timeout=60) as response:
@@ -245,6 +250,7 @@ NUNCA diga que não possui uma ferramenta, pois você tem todas.
             yield {"error": f"Erro no streaming: {str(e)}"}
 
     def _send_raw_request(self, payload):
+        # CORREÇÃO: User-Agent também foi mantido aqui por segurança
         request = Request(f"{self.base_url}/chat/completions", data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json", "Authorization": f"Bearer {self.api_key}", "User-Agent": "Mozilla/5.0"}, method="POST")
         with urlopen(request, timeout=60) as response:
             return json.loads(response.read().decode("utf-8"))
