@@ -27,7 +27,6 @@ logger.propagate = False
 class FridayAIProvider:
     def __init__(self):
         self.api_key = os.getenv("GROQ_API_KEY", "")
-        # Modelo estável, rápido e com suporte a ferramentas
         self.model = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
         self.base_url = "https://api.groq.com/openai/v1"
         self.smtp_user = os.getenv("SMTP_USER", "")
@@ -146,7 +145,7 @@ Se o usuário perguntar do clima, chame get_weather.
                 err_body = e.read().decode("utf-8")
             except Exception:
                 err_body = str(e)
-            return {"error": f"HTTP {e.code}: {err_body}"}
+            return {"error": f"HTTP {e.code}: {err_body[:200]}"}
         except Exception as e:
             return {"error": str(e)}
 
@@ -189,7 +188,11 @@ Se o usuário perguntar do clima, chame get_weather.
             except Exception:
                 err_body = str(e)
             logger.error(f"Erro full history (HTTP {e.code}): {err_body}")
-            return {"error": f"HTTP {e.code}: {err_body}"}
+            # Truncando erro para não quebrar a interface
+            return {"error": f"HTTP {e.code}: {err_body[:150]}"}
+        except URLError as e:
+            logger.error(f"Erro de rede Groq: {e.reason}")
+            return {"error": f"Falha de rede com a Groq. Verifique sua conexão ou tente novamente."}
         except Exception as e:
             logger.error(f"Erro full history: {e}")
             return {"error": str(e)}
