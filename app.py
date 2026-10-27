@@ -1,22 +1,21 @@
+import os
+import sys
+import json
+import time
+import fcntl
+import hmac
+import hashlib
+import base64
+import io
+import re
+import threading
+import sqlite3
+import secrets
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from http.cookies import CookieError, SimpleCookie
+from http.cookies import SimpleCookie, CookieError
 from urllib.parse import urlsplit, parse_qs, urlencode
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
-
-import hashlib
-import hmac
-import json
-import os
-import re
-import secrets
-import time
-import fcntl
-import sqlite3
-import base64
-import io
-import threading
-import traceback
 
 try:
     import PyPDF2
@@ -33,7 +32,7 @@ from core.friday_tools import (
 )
 
 SESSION_COOKIE = "friday_session"
-MAX_BODY = 10 * 1024 * 1024  # Reduzido de 20MB para 10MB
+MAX_BODY = 10 * 1024 * 1024
 MAX_HISTORY_MESSAGES = 10
 
 DATA_DIR = os.getenv("DATA_DIR", ".")
@@ -57,7 +56,7 @@ def _push_status(text):
 
 def _heartbeat_worker():
     print("FRIDAY WEB: Heartbeat iniciado.")
-    time.sleep(30)
+    time.sleep(15)
     while True:
         try:
             print("FRIDAY WEB: Heartbeat checando e-mails...")
@@ -65,8 +64,6 @@ def _heartbeat_worker():
         except Exception as e:
             print(f"Heartbeat erro: {e}")
             time.sleep(60)
-
-threading.Thread(target=_heartbeat_worker, daemon=True).start()
 
 # ========================================
 # GOOGLE CALENDAR / GMAIL — OAUTH
@@ -602,14 +599,17 @@ class FridayHandler(BaseHTTPRequestHandler):
         try:
             self._handle_get_impl()
         except Exception as e:
-            traceback.print_exc()
-            try:
-                self.send_json(500, {"error": "Erro interno no servidor."})
-            except Exception:
-                pass
+            import traceback; traceback.print_exc()
+            try: self.send_json(500, {"error": "Erro interno."})
+            except: pass
 
     def _handle_get_impl(self):
         path = urlsplit(self.path).path
+        
+        # Rota de Health Check para o Render
+        if path in {"/health", "/ping"}:
+            return self.send_json(200, {"status": "ok", "service": "FRIDAY"})
+            
         if path == "/tts":
             return self.handle_tts()
         if path == "/status":
@@ -1077,11 +1077,9 @@ Se for um pedido de resumo, sintetize em tópicos.
         try:
             self._handle_post_impl()
         except Exception as e:
-            traceback.print_exc()
-            try:
-                self.send_json(500, {"error": "Erro interno no servidor."})
-            except Exception:
-                pass
+            import traceback; traceback.print_exc()
+            try: self.send_json(500, {"error": "Erro interno no servidor."})
+            except Exception: pass
 
     def _handle_post_impl(self):
         path = urlsplit(self.path).path
@@ -1145,7 +1143,7 @@ Se for um pedido de resumo, sintetize em tópicos.
 
                 return self.send_json(200, {"response": str(text), "closed": False})
             except Exception:
-                traceback.print_exc()
+                import traceback; traceback.print_exc()
                 return self.send_json(500, {"error": "Erro interno ao processar."})
 
         self.send_json(404, {"error": "Página não encontrada."})
@@ -1171,9 +1169,13 @@ class ReusableThreadingHTTPServer(ThreadingHTTPServer):
 
 if __name__ == "__main__":
     if not os.getenv("FRIDAY_PASSWORD"):
-        raise RuntimeError("Configure a variável de ambiente FRIDAY_PASSWORD.")
+        print("ERRO: Configure a variável FRIDAY_PASSWORD.")
+        sys.exit(1)
 
-    port = int(os.environ.get("PORT", "5000"))
+    # O worker em background agora inicia junto com o servidor
+    threading.Thread(target=_heartbeat_worker, daemon=True).start()
+
+    port = int(os.environ.get("PORT", "10000"))
 
     server = ReusableThreadingHTTPServer(("0.0.0.0", port), FridayHandler)
     print(f"FRIDAY online em http://0.0.0.0:{port}")
