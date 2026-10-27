@@ -11,6 +11,7 @@ import re
 import threading
 import sqlite3
 import secrets
+import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from http.cookies import SimpleCookie, CookieError
 from urllib.parse import urlsplit, parse_qs, urlencode
@@ -73,9 +74,7 @@ GOOGLE_OAUTH_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GOOGLE_SCOPES = "https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/gmail.readonly"
 OAUTH_STATE_TTL_SECONDS = 600
 GOOGLE_OWNER_KEY = "owner"
-GOOGLE_TOKEN_FILE = os.getenv("FRIDAY_GOOGLE_TOKEN_FILE", "").strip() or os.path.join(
-    DATA_DIR, ".friday_google_tokens.json"
-)
+GOOGLE_TOKEN_FILE = os.getenv("FRIDAY_GOOGLE_TOKEN_FILE", "").strip() or os.path.join(DATA_DIR, ".friday_google_tokens.json")
 _TOKEN_MEMORY_ONLY = False
 
 class GoogleOAuthError(Exception):
@@ -326,9 +325,6 @@ def _usable_calendar_access_token():
         "grant_type": "refresh_token",
     }, clear_on_invalid_grant=True)
 
-# ========================================
-# CONSULTA DE EVENTOS
-# ========================================
 def _calendar_events_query(access_token, time_min=None, time_max=None, max_results=10):
     params = {"maxResults": str(max_results), "singleEvents": "true", "orderBy": "startTime"}
     params["timeMin"] = time_min or time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -469,7 +465,6 @@ def get_html():
     except FileNotFoundError:
         return "<h1>Erro: index.html não encontrado.</h1>"
 
-
 class FridayHandler(BaseHTTPRequestHandler):
     def send_json(self, status_code, data, cookie=None, clear_cookie=False):
         body = json.dumps(data, ensure_ascii=False).encode("utf-8")
@@ -599,17 +594,14 @@ class FridayHandler(BaseHTTPRequestHandler):
         try:
             self._handle_get_impl()
         except Exception as e:
-            import traceback; traceback.print_exc()
+            traceback.print_exc()
             try: self.send_json(500, {"error": "Erro interno."})
             except: pass
 
     def _handle_get_impl(self):
         path = urlsplit(self.path).path
-        
-        # Rota de Health Check para o Render
         if path in {"/health", "/ping"}:
             return self.send_json(200, {"status": "ok", "service": "FRIDAY"})
-            
         if path == "/tts":
             return self.handle_tts()
         if path == "/status":
@@ -907,6 +899,7 @@ class FridayHandler(BaseHTTPRequestHandler):
         from core.ai_provider import FridayAIProvider
         provider = FridayAIProvider()
 
+        # NOVO: Chunking Inteligente de PDF para evitar estourar tokens
         if len(text) > 50000:
             keywords = [w.lower() for w in re.findall(r"\w+", command) if len(w) > 3]
             blocks = [text[i:i+3000] for i in range(0, len(text), 3000)]
@@ -952,19 +945,24 @@ Se for um pedido de resumo, sintetize em tópicos.
                 return str(exec_res.get("result"))
             return f"Não consegui acessar os dados do briefing: {exec_res.get('error', 'Erro desconhecido')}"
 
-        if any(k in normalized for k in ["toque", "música", "musica", "play"]):
+        # NOVO: Controle de Música Direto
+        if any(k in normalized for k in ["toque", "música", "musica", "play", "pause", "pausar", "continuar"]):
             query = clean_command
             for word in ["FRIDAY,", "FRIDAY", "toque", "a música", "a musica", "música", "musica", "coloque", "play"]:
                 query = query.replace(word, "").strip()
-            if query:
-                is_playlist = any(k in normalized for k in ["playlist", "álbum", "album", "lista"])
-                _push_status(f"Buscando {query}...")
-                exec_res = execute_tool("play_music", {"query": query, "is_playlist": is_playlist}, user_role="owner")
+            if query or "pause" in normalized or "pausar" in normalized or "play" in normalized:
+                _push_status(f"Controlando player...")
+                exec_res = execute_tool("play_music", {"query": query or normalized}, user_role="owner")
                 if exec_res.get("ok"):
-                    url = exec_res.get("result", {}).get("url", "")
-                    return f"[PLAY_MUSIC:{url}] Tocando {query} no YouTube, chefe."
-                return exec_res.get("error", "Não consegui tocar.")
-            return "Qual música, chefe?"
+                    r = exec_res.get("result", {})
+                    if r.get("action") == "pause":
+                        return "[MUSIC_ACTION:pause] Música pausada, chefe."
+                    if r.get("action") == "play":
+                        return "[MUSIC_ACTION:play] Retomando a música."
+                    if r.get("action") == "play_new":
+                        return f"[MUSIC_PLAY:{r.get('url')}] Tocando {query} no YouTube, chefe."
+                return exec_res.get("error", "Não consegui controlar a música.")
+            return "O que você deseja ouvir, chefe?"
 
         pending_handled, pending_reply = self._handle_pending_tool_confirmation(session, clean_command, normalized)
         if pending_handled:
@@ -977,7 +975,8 @@ Se for um pedido de resumo, sintetize em tópicos.
         force_llm = any(t in normalized for t in [
             "lembre-se", "salve na memória", "memorize", "email", "e-mail", "caixa de entrada",
             "cancela", "cancele", "muda", "altere", "remarque", "apaga", "deleta",
-            "pesquise", "leia", "resuma", "artigo", "site", "esqueça", "apague da memória"
+            "pesquise", "leia", "resuma", "artigo", "site", "esqueça", "apague da memória",
+            "cripto", "bitcoin", "notícia", "tarefa", "todo"
         ])
 
         if not force_llm:
@@ -1077,7 +1076,7 @@ Se for um pedido de resumo, sintetize em tópicos.
         try:
             self._handle_post_impl()
         except Exception as e:
-            import traceback; traceback.print_exc()
+            traceback.print_exc()
             try: self.send_json(500, {"error": "Erro interno no servidor."})
             except Exception: pass
 
@@ -1143,7 +1142,7 @@ Se for um pedido de resumo, sintetize em tópicos.
 
                 return self.send_json(200, {"response": str(text), "closed": False})
             except Exception:
-                import traceback; traceback.print_exc()
+                traceback.print_exc()
                 return self.send_json(500, {"error": "Erro interno ao processar."})
 
         self.send_json(404, {"error": "Página não encontrada."})
@@ -1169,14 +1168,12 @@ class ReusableThreadingHTTPServer(ThreadingHTTPServer):
 
 if __name__ == "__main__":
     if not os.getenv("FRIDAY_PASSWORD"):
-        print("ERRO: Configure a variável FRIDAY_PASSWORD.")
+        print("ERRO: Configure FRIDAY_PASSWORD.")
         sys.exit(1)
 
-    # O worker em background agora inicia junto com o servidor
     threading.Thread(target=_heartbeat_worker, daemon=True).start()
 
     port = int(os.environ.get("PORT", "10000"))
-
     server = ReusableThreadingHTTPServer(("0.0.0.0", port), FridayHandler)
     print(f"FRIDAY online em http://0.0.0.0:{port}")
     try:
