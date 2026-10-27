@@ -5,11 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#050914" />
     <title>FRIDAY | Stark Systems</title>
-      <link rel="manifest" href="/manifest.json" />
+    
+    <!-- PWA Config -->
+    <link rel="manifest" href="/manifest.json" />
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <!-- Biblioteca para formatar Markdown -->
+    
+    <!-- Markdown Parser -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    
     <style>
       :root {
         color-scheme: dark;
@@ -290,7 +294,6 @@
         100% { transform: scale(1.08); }
       }
 
-      /* --- AVATAR REATIVO (Pensando / Ferramenta) --- */
       body.is-thinking .reactor-inner { border-color: #ff8c00; box-shadow: 0 0 30px rgba(255, 140, 0, 0.6), inset 0 0 20px rgba(255, 140, 0, 0.3); }
       body.is-thinking .reactor::after { border-color: #ff8c00; }
       body.is-thinking .radar { background: conic-gradient(from 0deg, transparent 60%, rgba(255, 140, 0, 0.1) 90%, rgba(255, 140, 0, 0.5) 100%); }
@@ -609,7 +612,6 @@
       .awareness-item strong { color: var(--cyan-bright); font-size: 12px; overflow-wrap: anywhere; }
       .awareness-note { margin: 12px 0 0; color: var(--muted); font-size: 10px; line-height: 1.7; }
 
-      /* --- ESTILOS PARA MARKDOWN --- */
       .msg span p { margin: 0 0 8px 0; }
       .msg span p:last-child { margin-bottom: 0; }
       .msg span ul, .msg span ol { margin: 8px 0; padding-left: 20px; }
@@ -855,7 +857,6 @@
       let lastReply = "";
       let currentUtterance = null;
       let speaking = false;
-      let speechQueue = [];
       let speechRunId = 0;
       let lockoutInterval = null;
       let lockoutEndsAt = 0;
@@ -865,10 +866,17 @@
 
       let wakeWordRecognition = null;
       let wakeWordActive = false;
-
       let currentAttachment = null;
       let currentAttachmentType = null;
       let currentAttachmentName = null;
+      let statusPollingInterval = null;
+
+      // --- PWA REGISTRATION ---
+      if ('serviceWorker' in navigator) {
+          window.addEventListener('load', () => {
+              navigator.serviceWorker.register('/sw.js').catch((err) => console.log('SW falhou:', err));
+          });
+      }
 
       // --- YOUTUBE IFRAME API ---
       window.onYouTubeIframeAPIReady = function() {
@@ -896,9 +904,6 @@
           return text;
       }
 
-      // --- STATUS EM TEMPO REAL E AVATAR REATIVO ---
-      let statusPollingInterval = null;
-
       function startStatusPolling() {
           stopStatusPolling();
           statusPollingInterval = setInterval(async () => {
@@ -909,7 +914,6 @@
                   if (data.status && data.status.length > 0) {
                       const last = data.status[data.status.length - 1];
                       $("status").textContent = last;
-                      
                       document.body.classList.remove('is-thinking', 'is-tooling');
                       if (last.includes("Pensando") || last.includes("Analisando")) {
                           document.body.classList.add('is-thinking');
@@ -966,19 +970,6 @@
       }
 
       function status(text) { $("status").textContent = text; }
-
-      function showTypingIndicator() {
-          const el = document.createElement('div');
-          el.id = 'typingIndicator';
-          el.className = 'typing-indicator';
-          el.innerHTML = '<span></span><span></span><span></span>';
-          $('messages').appendChild(el);
-          $('messages').scrollTop = $('messages').scrollHeight;
-      }
-      function hideTypingIndicator() {
-          const el = $('typingIndicator');
-          if (el) el.remove();
-      }
 
       function formatEventDate(dateStr) {
         if (!dateStr) return "Sem data";
@@ -1063,7 +1054,6 @@
 
       function stopVoice() {
         speechRunId++;
-        speechQueue = [];
         clearTimeout(silenceTimer);
         if (wakeWordRecognition && wakeWordActive) {
             wakeWordActive = false;
@@ -1271,6 +1261,94 @@
           $('attachmentName').textContent = '';
       });
 
+      // --- FUNÇÃO UNIFICADA DE ENVIO (STREAMING) ---
+      async function sendCommandToFriday(command, isInitial = false) {
+        if (isProcessing) return;
+        isProcessing = true;
+        
+        if (!isInitial) {
+            addMessage("Você", command);
+        }
+        
+        const botSpan = addMessage("FRIDAY", " ");
+        $("sendBtn").disabled = true;
+        $("voiceBtn").disabled = true;
+        status("FRIDAY está digitando...");
+        startStatusPolling();
+
+        try {
+            const payload = { command: command };
+            if (currentAttachmentType === 'pdf' && !isInitial) { 
+                payload.pdf = currentAttachment; 
+                payload.pdf_name = currentAttachmentName;
+                currentAttachment = null; currentAttachmentType = null; currentAttachmentName = null;
+                $('attachmentPreview').classList.add('hidden');
+                $('attachmentName').textContent = '';
+            }
+
+            const response = await fetch("/chat", {
+                method: "POST", credentials: "same-origin",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload),
+            });
+
+            if (!response.ok) throw new Error("Erro na conexão.");
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder("utf-8");
+            let fullReplyText = "";
+            let buffer = "";
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop(); 
+
+                for (const line of lines) {
+                    if (line.startsWith("data: ")) {
+                        const dataStr = line.substring(6).trim();
+                        if (!dataStr) continue;
+                        try {
+                            const dataObj = JSON.parse(dataStr);
+                            if (dataObj.text) {
+                                fullReplyText += dataObj.text;
+                                botSpan.innerHTML = "> " + marked.parse(fullReplyText);
+                                $("messages").scrollTop = $("messages").scrollHeight;
+                            }
+                            if (dataObj.error) {
+                                botSpan.innerHTML = "> [Erro] " + dataObj.error;
+                            }
+                        } catch (e) { console.error("Erro parse SSE:", e); }
+                    }
+                }
+            }
+            
+            hideTypingIndicator();
+            stopStatusPolling();
+            
+            let finalReply = handleMusicAction(fullReplyText);
+            if (finalReply !== fullReplyText) {
+                botSpan.innerHTML = "> " + marked.parse(finalReply);
+            }
+            
+            lastReply = finalReply;
+            speakResponse(finalReply);
+
+        } catch (error) {
+            hideTypingIndicator();
+            stopStatusPolling();
+            botSpan.innerHTML = "> [Erro] " + error.message;
+        } finally {
+            isProcessing = false;
+            $("sendBtn").disabled = false;
+            $("voiceBtn").disabled = false;
+            if (!$("assistant").classList.contains("hidden")) $("command").focus();
+        }
+      }
+
       $("loginForm").addEventListener("submit", async (event) => {
         event.preventDefault();
         const password = $("password").value;
@@ -1283,22 +1361,9 @@
           status("Autenticada. FRIDAY online.");
           soundBoot();
           $('messages').replaceChildren();
-          addMessage('FRIDAY', 'Bom dia, chefe. Iniciando varredura de sistemas...');
-          showTypingIndicator();
-          startStatusPolling();
-          request('/chat', {command: 'Gere o meu briefing matinal para a cidade de Criciúma usando a ferramenta get_morning_briefing'})
-              .then(res => {
-                  hideTypingIndicator();
-                  stopStatusPolling();
-                  addMessage('FRIDAY', res.response);
-                  speakResponse(res.response);
-              })
-              .catch(() => {
-                  hideTypingIndicator();
-                  stopStatusPolling();
-                  addMessage('FRIDAY', 'Bem-vindo de volta, chefe.');
-                  speakResponse('Bem-vindo de volta, chefe.');
-              });
+          
+          sendCommandToFriday('Gere o meu briefing matinal para a cidade de Criciúma usando a ferramenta get_morning_briefing', true);
+          
           $("command").focus();
           checkCalendarConnection();
           startWakeWordListener();
@@ -1310,102 +1375,14 @@
         }
       });
 
-      // --- LÓGICA PRINCIPAL DE ENVIO COM STREAMING ---
       $("chatForm").addEventListener("submit", async (event) => {
         event.preventDefault();
-        if (isProcessing) return; 
         const command = $("command").value.trim();
         if (!command && !currentAttachment) return;
-
-        isProcessing = true;
         $("command").value = "";
-        let displayMsg = command || "Processando arquivo...";
-        if (currentAttachment) displayMsg += " [Arquivo Anexado]";
-        
-        addMessage("Você", displayMsg);
-        const botSpan = addMessage("FRIDAY", " "); // Cria o balão vazio
-        
-        $("sendBtn").disabled = true;
-        $("voiceBtn").disabled = true;
-        status("FRIDAY está digitando...");
-        startStatusPolling();
-
-        try {
-          const payload = { command: command || "Analise o arquivo anexado." };
-          if (currentAttachmentType === 'pdf') { 
-              payload.pdf = currentAttachment; 
-              payload.pdf_name = currentAttachmentName;
-          }
-          currentAttachment = null; currentAttachmentType = null; currentAttachmentName = null;
-          $('attachmentPreview').classList.add('hidden');
-          $('attachmentName').textContent = '';
-
-          const response = await fetch("/chat", {
-            method: "POST", credentials: "same-origin",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload),
-          });
-
-          if (!response.ok) throw new Error("Erro na conexão com o servidor.");
-          
-          const reader = response.body.getReader();
-          const decoder = new TextDecoder("utf-8");
-          let fullReplyText = "";
-          let buffer = "";
-
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split('\n');
-            buffer = lines.pop(); // Guarda a última linha incompleta
-
-            for (const line of lines) {
-                if (line.startsWith("data: ")) {
-                    const dataStr = line.substring(6).trim();
-                    if (!dataStr) continue;
-                    try {
-                        const dataObj = JSON.parse(dataStr);
-                        if (dataObj.text) {
-                            fullReplyText += dataObj.text;
-                            // Atualiza a tela em tempo real com Markdown
-                            botSpan.innerHTML = "> " + marked.parse(fullReplyText);
-                            $("messages").scrollTop = $("messages").scrollHeight;
-                        }
-                        if (dataObj.error) {
-                            botSpan.innerHTML = "> [Erro] " + dataObj.error;
-                        }
-                    } catch (e) { console.error("Erro parse SSE:", e); }
-                }
-            }
-          }
-
-          hideTypingIndicator();
-          stopStatusPolling();
-          
-          // Processa comandos de música após receber o texto inteiro
-          let finalReply = handleMusicAction(fullReplyText);
-          if (finalReply !== fullReplyText) {
-              botSpan.innerHTML = "> " + marked.parse(finalReply);
-          }
-          
-          lastReply = finalReply;
-          speakResponse(finalReply);
-
-        } catch (error) {
-          hideTypingIndicator();
-          stopStatusPolling();
-          botSpan.innerHTML = "> [Erro] " + error.message;
-        } finally {
-          isProcessing = false;
-          $("sendBtn").disabled = false;
-          $("voiceBtn").disabled = false;
-          if (!$("assistant").classList.contains("hidden")) $("command").focus();
-        }
+        sendCommandToFriday(command, false);
       });
 
-      // --- BARGE-IN (INTERRUPÇÃO DE FALA) ---
       const originalStartVoice = startVoice;
       startVoice = function(isContinuous = false) {
           if (speaking) {
@@ -1582,16 +1559,10 @@
 
           const calendarState = new URLSearchParams(location.search).get("calendar");
           const msgs = {
-            connected: "Google Calendar conectado.",
-            nosession: "Entre antes de conectar.",
-            denied: "Autorização cancelada.",
-            old: "Tentativa expirou. Tente novamente.",
-            state: "Sessão não confere.",
-            config: "OAuth incompleto.",
-            redirect: "Redirect URI inválida.",
-            client: "Cliente OAuth recusado.",
-            token: "Google não concluiu.",
-            incomplete: "Resposta incompleta.",
+            connected: "Google Calendar conectado.", nosession: "Entre antes de conectar.",
+            denied: "Autorização cancelada.", old: "Tentativa expirou.", state: "Sessão não confere.",
+            config: "OAuth incompleto.", redirect: "Redirect URI inválida.",
+            client: "Cliente OAuth recusado.", token: "Google não concluiu.", incomplete: "Resposta incompleta."
           };
 
           if (data.authenticated) {
@@ -1599,22 +1570,7 @@
             $("assistant").classList.remove("hidden");
             status("Sessão ativa. FRIDAY online.");
             $('messages').replaceChildren();
-            addMessage('FRIDAY', 'Bom dia, chefe. Iniciando varredura de sistemas...');
-            showTypingIndicator();
-            startStatusPolling();
-            request('/chat', {command: 'Gere o meu briefing matinal para a cidade de Criciúma usando a ferramenta get_morning_briefing'})
-                .then(res => {
-                    hideTypingIndicator();
-                    stopStatusPolling();
-                    addMessage('FRIDAY', res.response);
-                    speakResponse(res.response);
-                })
-                .catch(() => {
-                    hideTypingIndicator();
-                    stopStatusPolling();
-                    addMessage('FRIDAY', 'Bem-vindo de volta, chefe.');
-                    speakResponse('Bem-vindo de volta, chefe.');
-                });
+            sendCommandToFriday('Gere o meu briefing matinal para a cidade de Criciúma usando a ferramenta get_morning_briefing', true);
             checkCalendarConnection();
             startWakeWordListener();
           }
@@ -1630,7 +1586,6 @@
       loadSettings();
       checkSession();
 
-      // Alertas de agenda a cada 5 minutos
       setInterval(async () => {
         if ($("assistant").classList.contains("hidden")) return;
         try {
@@ -1656,7 +1611,6 @@
         } catch (e) {}
       }, 5 * 60 * 1000);
 
-      // Notificações proativas
       setInterval(async () => {
         if ($("assistant").classList.contains("hidden")) return;
         try {
@@ -1672,19 +1626,6 @@
         } catch (e) {}
       }, 30000);
     </script>
-    <!-- Carrega a API do YouTube para controle de Play/Pause -->
     <script src="https://www.youtube.com/iframe_api"></script>
-    <script>
-      // Registro do PWA
-      if ('serviceWorker' in navigator) {
-          window.addEventListener('load', () => {
-              navigator.serviceWorker.register('/sw.js').then((reg) => {
-                  console.log('Service Worker registrado com sucesso!', reg.scope);
-              }).catch((err) => {
-                  console.log('Falha ao registrar Service Worker:', err);
-              });
-          });
-      }
-    </script>
   </body>
 </html>
