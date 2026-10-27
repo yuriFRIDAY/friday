@@ -36,7 +36,6 @@ if not logger.handlers:
     logger.addHandler(handler)
     logger.setLevel(logging.INFO)
 
-
 # ========================================
 # UTILITÁRIOS
 # ========================================
@@ -58,8 +57,7 @@ def _parse_natural_date(text):
     try:
         now = datetime.now(_get_tz())
         return dateparser.parse(
-            text,
-            languages=['pt', 'en'],
+            text, languages=['pt', 'en'],
             settings={
                 'TIMEZONE': 'America/Sao_Paulo',
                 'RETURN_AS_TIMEZONE_AWARE': True,
@@ -90,6 +88,17 @@ class _HTMLTextExtractor(HTMLParser):
     def get_text(self):
         return " ".join(self.result)
 
+def _truncate_text(text, max_len=5000):
+    if not text:
+        return ""
+    text = str(text)
+    if len(text) <= max_len:
+        return text
+    truncated = text[:max_len]
+    last_space = truncated.rfind(' ')
+    if last_space > 0:
+        truncated = truncated[:last_space]
+    return truncated + "..."
 
 def _format_iso_to_br(iso_str):
     try:
@@ -100,7 +109,6 @@ def _format_iso_to_br(iso_str):
         return iso_str
 
 def _extract_email_body(payload):
-    """Extrai recursivamente o texto do corpo de um e-mail."""
     mime = payload.get("mimeType", "")
     if mime == "text/plain":
         body_data = payload.get("body", {}).get("data", "")
@@ -123,7 +131,6 @@ def _extract_email_body(payload):
                 return ""
     parts = payload.get("parts", [])
     return "\n".join(t for t in (_extract_email_body(p) for p in parts) if t)
-
 
 # ========================================
 # HANDLERS
@@ -224,19 +231,16 @@ def _handler_search_web(query, max_results=3):
         return {"error": f"Falha na pesquisa: {str(e)}"}
 
 def _handler_deep_search(query):
-    """Pesquisa na web e lê o conteúdo completo do primeiro resultado."""
     search = _handler_search_web(query, max_results=3)
     if "error" in search:
         return search
     results = search.get("results", [])
     if not results:
         return {"error": "Nenhum resultado encontrado."}
-
     top = results[0]
     top_url = top.get("url", "")
     if not top_url:
         return {"query": query, "results": results, "note": "Sem URL para leitura."}
-
     page = _handler_read_webpage(top_url)
     content = page if isinstance(page, str) else ""
     return {
@@ -295,61 +299,67 @@ def _handler_send_email(to_email, subject, body, attachment_base64=None, attachm
         return {"error": f"Falha ao enviar e-mail: {str(e)}"}
 
 def _handler_reply_to_email(to_email, subject, in_reply_to="", body=None, original_body=""):
-    if not body:
-        body = f"Olá,\n\nRespondendo sobre: {original_body[:200]}...\n\nAtenciosamente,\nChefe"
-    if not subject.lower().startswith("re:"):
-        subject = f"Re: {subject}"
-    return _handler_send_email(to_email=to_email, subject=subject, body=body) if not in_reply_to else _handler_send_email_with_thread(
-        to_email, subject, body, in_reply_to
-    )
-
-def _handler_send_email_with_thread(to_email, subject, body, in_reply_to):
     smtp_server = os.getenv("SMTP_SERVER")
     smtp_port = int(os.getenv("SMTP_PORT", "587"))
     smtp_user = os.getenv("SMTP_USER")
     smtp_pass = os.getenv("SMTP_PASSWORD")
+
     if not all([smtp_server, smtp_user, smtp_pass]):
         return {"error": "Credenciais de e-mail não configuradas."}
+        
+    if not body:
+        body = f"Olá,\n\nRespondendo sobre: {original_body[:200]}...\n\nAtenciosamente,\nChefe"
+
+    if not subject.lower().startswith("re:"):
+        subject = f"Re: {subject}"
+
     msg = MIMEText(body)
     msg['Subject'] = subject
     msg['From'] = smtp_user
     msg['To'] = to_email
-    msg['In-Reply-To'] = in_reply_to
-    msg['References'] = in_reply_to
+    
+    if in_reply_to:
+        msg['In-Reply-To'] = in_reply_to
+        msg['References'] = in_reply_to
+
     try:
         with smtplib.SMTP(smtp_server, smtp_port, timeout=15) as server:
             server.starttls()
             server.login(smtp_user, smtp_pass)
             server.send_message(msg)
-        return f"Resposta enviada para {to_email}."
+        return f"Resposta enviada com sucesso para {to_email}."
     except Exception as e:
-        return {"error": f"Falha ao responder: {str(e)}"}
+        return {"error": f"Falha ao enviar resposta: {str(e)}"}
 
 def _handler_read_emails(query="", max_results=5):
     ctx = _CALENDAR_CONTEXT.get("access_token_provider")
     if not callable(ctx):
-        return {"error": "Integração com Google indisponível."}
+        return {"error": "Integração com o Google indisponível."}
+    
     try:
         access_token = ctx()
     except Exception as exc:
         return {"error": f"Falha ao obter token: {exc}"}
+    
     if not access_token:
         return {"error": "Google não conectado."}
 
     params = {"maxResults": str(max_results), "labelIds": "INBOX"}
     if query:
         params["q"] = query
+
     url = "https://gmail.googleapis.com/gmail/v1/users/me/messages?" + urllib.parse.urlencode(params)
     req = Request(url, headers={"Authorization": "Bearer " + access_token})
+    
     try:
         with urlopen(req, timeout=15) as resp:
             data = json.loads(resp.read().decode("utf-8"))
     except HTTPError as e:
         if e.code == 401:
-            return {"error": "Token expirado. Reconecte o Google."}
+            return {"error": "Token expirado. Reconecte o Google Calendar."}
         return {"error": f"Falha ao listar e-mails: {e}"}
     except Exception as e:
-        return {"error": f"Falha na conexão: {e}"}
+        return {"error": f"Falha na conexão com Gmail: {e}"}
 
     messages = data.get("messages", [])
     if not messages:
@@ -372,7 +382,6 @@ def _handler_read_emails(query="", max_results=5):
                 message_id = next((h["value"] for h in headers if h["name"] == "Message-ID"), "")
                 snippet = _truncate_text(detail.get("snippet", ""), 300)
                 thread_id = detail.get("threadId", "")
-                # Anexos
                 attachments = []
                 for part in detail.get("payload", {}).get("parts", []):
                     fname = part.get("filename")
@@ -522,45 +531,26 @@ def _handler_play_music(query, is_playlist=False):
         pass
     return {"error": "Não consegui encontrar o vídeo."}
 
-def _truncate_text(text, max_len=5000):
-    if not text:
-        return ""
-    text = str(text)
-    if len(text) <= max_len:
-        return text
-    truncated = text[:max_len]
-    last_space = truncated.rfind(' ')
-    if last_space > 0:
-        truncated = truncated[:last_space]
-    return truncated + "..."
-
 def _handler_get_morning_briefing(city="Criciúma"):
     briefing = []
     
     clima = _handler_get_weather(city)
     if isinstance(clima, str):
         briefing.append(clima)
-    elif isinstance(clima, dict) and "error" in clima:
-        briefing.append("Não consegui obter a previsão do tempo agora.")
+    else:
+        briefing.append("Clima indisponível.")
         
     agenda = _handler_get_calendar_events("today")
-    if isinstance(agenda, dict) and "events" in agenda:
+    if isinstance(agenda, dict) and agenda.get("events"):
         evts = agenda["events"]
-        if evts:
-            start_str = evts[0].get('start', '')
-            time_str = start_str.split(' às ')[-1] if ' às ' in start_str else 'horário não definido'
-            briefing.append(f"Você tem {len(evts)} compromissos hoje. O primeiro é: {evts[0].get('summary', 'Evento')} às {time_str}.")
-        else:
-            briefing.append("Sua agenda está livre hoje.")
+        briefing.append(f"Agenda: {len(evts)} compromissos. O primeiro é '{evts[0]['summary']}' às {evts[0]['start'].split(' às ')[-1]}.")
     else:
-        briefing.append("Não consegui acessar a sua agenda neste momento.")
+        briefing.append("Sua agenda está livre hoje.")
             
     news = _handler_search_web("últimas notícias do mundo hoje", max_results=1)
-    if isinstance(news, dict) and "results" in news and news["results"]:
-        snippet = news["results"][0].get("snippet", "") or ""
-        if len(snippet) > 150:
-            snippet = snippet[:147].rsplit(' ', 1)[0] + "..."
-        briefing.append(f"Nas notícias: {snippet}")
+    if isinstance(news, dict) and news.get("results"):
+        snippet = _truncate_text(news["results"][0].get("snippet", ""), 200)
+        briefing.append(f"Notícias: {snippet}")
 
     return " ".join(briefing)
 
@@ -568,8 +558,10 @@ def _handler_get_calendar_events(range_value="upcoming"):
     ctx = _CALENDAR_CONTEXT.get("access_token_provider")
     query = _CALENDAR_CONTEXT.get("events_query")
     today = _CALENDAR_CONTEXT.get("today_events")
+
     if not callable(ctx) or not callable(query):
         return {"error": "Integração de calendário indisponível."}
+
     try:
         access_token = ctx()
     except Exception as exc:
@@ -692,7 +684,7 @@ def _handler_update_calendar_event(event_id, summary=None, start_iso=None, end_i
             "start": start_dt.isoformat() if start_dt else None,
             "end": end_dt.isoformat() if end_dt else None}
 
-def _handler_find_free_slots(date_iso, duration_minutes=60, limit=3):
+def _handler_find_free_slots(date_iso):
     ctx = _CALENDAR_CONTEXT.get("access_token_provider")
     query = _CALENDAR_CONTEXT.get("events_query")
     if not callable(ctx) or not callable(query):
@@ -730,6 +722,8 @@ def _handler_find_free_slots(date_iso, duration_minutes=60, limit=3):
             continue
     busy.sort(key=lambda x: x[0])
 
+    duration_minutes = 60
+    limit = 3
     slots = []
     current = work_start
     for s, e in busy:
@@ -747,7 +741,6 @@ def _handler_find_free_slots(date_iso, duration_minutes=60, limit=3):
         "duration_minutes": duration_minutes,
         "free_slots": [s.strftime("%H:%M") for s in slots[:limit]],
     }
-
 
 # ========================================
 # CONTEXTOS E REGISTRO
@@ -770,7 +763,13 @@ def set_memory_context(save_func, recall_func, delete_func=None):
         _MEMORY_CONTEXT["delete"] = delete_func
 
 TOOL_REGISTRY = {
-        "send_email": {
+    "get_current_time": {"description": "Retorna data e hora.", "parameters": {"type": "object", "properties": {}}, "requires_confirmation": False, "handler": _handler_get_current_time},
+    "get_weather": {"description": "Consulta o clima e previsão do tempo.", "parameters": {"type": "object", "properties": {"city": {"type": "string"}}, "required": ["city"]}, "requires_confirmation": False, "handler": _handler_get_weather},
+    "get_system_status": {"description": "Status da CPU/RAM.", "parameters": {"type": "object", "properties": {}}, "requires_confirmation": False, "handler": _handler_get_system_status},
+    "search_web": {"description": "Pesquisa na web.", "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}, "requires_confirmation": False, "handler": _handler_search_web},
+    "deep_search": {"description": "Pesquisa e lê o conteúdo completo do primeiro resultado.", "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}, "requires_confirmation": False, "handler": _handler_deep_search},
+    "read_webpage": {"description": "Lê o texto de uma URL.", "parameters": {"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]}, "requires_confirmation": False, "handler": _handler_read_webpage},
+    "send_email": {
         "description": "Envia e-mail.",
         "parameters": {
             "type": "object",
@@ -784,6 +783,13 @@ TOOL_REGISTRY = {
         "requires_confirmation": True,
         "handler": _handler_send_email,
     },
+    "reply_to_email": {"description": "Responde e-mail mantendo thread.", "parameters": {"type": "object", "properties": {"to_email": {"type": "string"}, "subject": {"type": "string"}, "in_reply_to": {"type": "string"}, "body": {"type": "string"}, "original_body": {"type": "string"}}, "required": ["to_email", "subject"]}, "requires_confirmation": True, "handler": _handler_reply_to_email},
+    "read_emails": {"description": "Lê e-mails recentes.", "parameters": {"type": "object", "properties": {"query": {"type": "string"}, "max_results": {"type": "integer"}}}, "requires_confirmation": False, "handler": _handler_read_emails},
+    "read_email_full": {"description": "Lê o CORPO COMPLETO de um e-mail (use o message_id de read_emails).", "parameters": {"type": "object", "properties": {"message_id": {"type": "string"}}, "required": ["message_id"]}, "requires_confirmation": False, "handler": _handler_read_email_full},
+    "get_email_thread": {"description": "Lê toda a conversa de um e-mail (thread).", "parameters": {"type": "object", "properties": {"thread_id": {"type": "string"}}, "required": ["thread_id"]}, "requires_confirmation": False, "handler": _handler_get_email_thread},
+    "save_memory": {"description": "Salva memória.", "parameters": {"type": "object", "properties": {"key": {"type": "string"}, "value": {"type": "string"}}, "required": ["key", "value"]}, "requires_confirmation": False, "handler": _handler_save_memory},
+    "recall_memory": {"description": "Recupera memória.", "parameters": {"type": "object", "properties": {"key": {"type": "string"}}, "required": ["key"]}, "requires_confirmation": False, "handler": _handler_recall_memory},
+    "delete_memory": {"description": "Apaga uma memória.", "parameters": {"type": "object", "properties": {"key": {"type": "string"}}, "required": ["key"]}, "requires_confirmation": True, "handler": _handler_delete_memory},
     "play_music": {
         "description": "Toca música ou playlist no YouTube.",
         "parameters": {
@@ -794,6 +800,11 @@ TOOL_REGISTRY = {
         "requires_confirmation": False,
         "handler": _handler_play_music,
     },
+    "get_morning_briefing": {"description": "Gera briefing matinal.", "parameters": {"type": "object", "properties": {"city": {"type": "string"}}, "required": ["city"]}, "requires_confirmation": False, "handler": _handler_get_morning_briefing},
+    "get_calendar_events": {"description": "Consulta agenda.", "parameters": {"type": "object", "properties": {"range": {"type": "string", "enum": ["today", "upcoming"]}}, "required": ["range"]}, "requires_confirmation": False, "handler": _handler_get_calendar_events},
+    "create_calendar_event": {"description": "Cria evento.", "parameters": {"type": "object", "properties": {"summary": {"type": "string"}, "start_iso": {"type": "string"}, "start_natural": {"type": "string"}, "end_iso": {"type": "string"}, "end_natural": {"type": "string"}, "description": {"type": "string"}, "location": {"type": "string"}}, "required": ["summary"]}, "requires_confirmation": True, "handler": _handler_create_calendar_event},
+    "delete_calendar_event": {"description": "Exclui evento.", "parameters": {"type": "object", "properties": {"event_id": {"type": "string"}}, "required": ["event_id"]}, "requires_confirmation": True, "handler": _handler_delete_calendar_event},
+    "update_calendar_event": {"description": "Atualiza evento.", "parameters": {"type": "object", "properties": {"event_id": {"type": "string"}, "summary": {"type": "string"}, "start_iso": {"type": "string"}, "start_natural": {"type": "string"}, "end_iso": {"type": "string"}, "end_natural": {"type": "string"}, "description": {"type": "string"}}, "required": ["event_id"]}, "requires_confirmation": True, "handler": _handler_update_calendar_event},
     "find_free_slots": {
         "description": "Encontra horários livres na agenda em um dia.",
         "parameters": {
