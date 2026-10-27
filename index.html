@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#050914" />
     <title>FRIDAY | Stark Systems</title>
-    <!-- Biblioteca para formatar Markdown (Tabelas, Negrito, Código) -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
       :root {
@@ -857,8 +856,9 @@
       let speechRunId = 0;
       let lockoutInterval = null;
       let lockoutEndsAt = 0;
-      let silenceTimer = null; // Timer para escuta contínua
-      let isProcessing = false; // Previne envios múltiplos
+      let silenceTimer = null;
+      let isProcessing = false;
+      let ytPlayer = null;
 
       let wakeWordRecognition = null;
       let wakeWordActive = false;
@@ -866,6 +866,32 @@
       let currentAttachment = null;
       let currentAttachmentType = null;
       let currentAttachmentName = null;
+
+      // --- YOUTUBE IFRAME API ---
+      window.onYouTubeIframeAPIReady = function() {
+          ytPlayer = new YT.Player('musicPlayer', { events: { 'onReady': () => {} } });
+      };
+
+      function handleMusicAction(text) {
+          if (text.includes('[MUSIC_ACTION:pause]')) {
+              if (ytPlayer && ytPlayer.pauseVideo) ytPlayer.pauseVideo();
+              return text.replace('[MUSIC_ACTION:pause]', '').trim();
+          }
+          if (text.includes('[MUSIC_ACTION:play]')) {
+              if (ytPlayer && ytPlayer.playVideo) ytPlayer.playVideo();
+              return text.replace('[MUSIC_ACTION:play]', '').trim();
+          }
+          if (text.includes('[MUSIC_PLAY:')) {
+              const match = text.match(/\[MUSIC_PLAY:(.*?)\]/);
+              if (match && match[1]) {
+                  const player = $('musicPlayer');
+                  player.src = match[1];
+                  player.classList.remove('hidden');
+                  return text.replace(/\[MUSIC_PLAY:.*?\]/, '').trim();
+              }
+          }
+          return text;
+      }
 
       // --- STATUS EM TEMPO REAL E AVATAR REATIVO ---
       let statusPollingInterval = null;
@@ -881,7 +907,6 @@
                       const last = data.status[data.status.length - 1];
                       $("status").textContent = last;
                       
-                      // Atualiza o avatar reativo
                       document.body.classList.remove('is-thinking', 'is-tooling');
                       if (last.includes("Pensando") || last.includes("Analisando")) {
                           document.body.classList.add('is-thinking');
@@ -900,7 +925,6 @@
           }
           document.body.classList.remove('is-thinking', 'is-tooling');
       }
-      // -----------------------------
 
       const SETTINGS_KEY = "friday_voice_settings_v1";
       const defaultSettings = { autoSpeak: true, rate: 0.95, style: "natural" };
@@ -1089,7 +1113,7 @@
                   if ($("autoSpeak").checked) {
                       setTimeout(() => {
                           if (!$("assistant").classList.contains("hidden") && !listening && !isProcessing) startVoice(true);
-                      }, 800); // Pausa de 800ms e ativa escuta contínua
+                      }, 800);
                   }
               }
           };
@@ -1148,7 +1172,6 @@
         const content = document.createElement("span");
         
         if (who === "FRIDAY") {
-            // Parse do Markdown e injeta o prefixo "> "
             content.innerHTML = "> " + marked.parse(text);
         } else {
             content.textContent = text;
@@ -1319,22 +1342,13 @@
           hideTypingIndicator();
           stopStatusPolling();
 
-          const reply = result.response || "Comando concluído.";
+          let reply = result.response || "Comando concluído.";
+          
+          // NOVO: Processa comandos de música antes de exibir
+          reply = handleMusicAction(reply); 
+          
           addMessage("FRIDAY", reply);
           lastReply = reply;
-
-          if (reply.includes('[PLAY_MUSIC:')) {
-              const match = reply.match(/\[PLAY_MUSIC:(.*?)\]/);
-              if (match && match[1]) {
-                  const videoUrl = match[1];
-                  const player = $('musicPlayer');
-                  player.src = videoUrl;
-                  player.classList.remove('hidden');
-                  const clean = reply.replace(/\[PLAY_MUSIC:.*?\]/, '').trim();
-                  const els = $('messages').querySelectorAll('.bot span');
-                  if (els.length > 0) els[els.length - 1].innerHTML = "> " + marked.parse(clean);
-              }
-          }
 
           if (result.closed) { showLogin(); return; }
           speakResponse(reply);
@@ -1351,6 +1365,16 @@
           if (!$("assistant").classList.contains("hidden")) $("command").focus();
         }
       });
+
+      // --- BARGE-IN (INTERRUPÇÃO DE FALA) ---
+      const originalStartVoice = startVoice;
+      startVoice = function(isContinuous = false) {
+          if (speaking) {
+              stopVoice();
+              status("Fala interrompida pelo usuário.");
+          }
+          originalStartVoice(isContinuous);
+      }
 
       function startVoice(isContinuous = false) {
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -1372,7 +1396,6 @@
           $("voiceBtn").textContent = "⏹";
           status(isContinuous ? "Aguardando continuação..." : "Estou ouvindo, chefe...");
           
-          // Timer de inatividade para escuta contínua
           clearTimeout(silenceTimer);
           if (isContinuous) {
               silenceTimer = setTimeout(() => {
@@ -1610,5 +1633,6 @@
         } catch (e) {}
       }, 30000);
     </script>
+    <script src="https://www.youtube.com/iframe_api"></script>
   </body>
 </html>
