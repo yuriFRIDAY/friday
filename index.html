@@ -6,12 +6,10 @@
     <meta name="theme-color" content="#050914" />
     <title>FRIDAY | Stark Systems</title>
     
-    <!-- PWA Config -->
     <link rel="manifest" href="/manifest.json" />
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     
-    <!-- Markdown Parser -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     
     <style>
@@ -1261,7 +1259,6 @@
           $('attachmentName').textContent = '';
       });
 
-      // --- FUNÇÃO UNIFICADA DE ENVIO (STREAMING) ---
       async function sendCommandToFriday(command, isInitial = false) {
         if (isProcessing) return;
         isProcessing = true;
