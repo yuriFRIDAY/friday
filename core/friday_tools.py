@@ -8,6 +8,7 @@ import urllib.parse
 import smtplib
 import re
 import base64
+import threading
 from html.parser import HTMLParser
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -35,6 +36,25 @@ if not logger.handlers:
     handler.setFormatter(logging.Formatter("%(asctime)s [%(name)s] %(message)s"))
     logger.addHandler(handler)
     logger.setLevel(logging.INFO)
+
+# ========================================
+# CACHE SEGURO PARA MULTI-THREAD (NOVO)
+# ========================================
+_CACHE = {}
+_CACHE_LOCK = threading.Lock()
+
+def _get_cache(key):
+    with _CACHE_LOCK:
+        if key in _CACHE:
+            data, expires = _CACHE[key]
+            if time.time() < expires:
+                return data
+            del _CACHE[key]
+    return None
+
+def _set_cache(key, data, ttl_seconds=300):
+    with _CACHE_LOCK:
+        _CACHE[key] = (data, time.time() + ttl_seconds)
 
 # ========================================
 # UTILITÁRIOS
@@ -142,6 +162,10 @@ def _handler_get_current_time():
     return now.strftime(f"Hoje é {dias[now.weekday()]}, %d/%m/%Y. Agora são %H:%M (Horário de Brasília).")
 
 def _handler_get_weather(city="São Paulo"):
+    cache_key = f"weather_{city}"
+    cached = _get_cache(cache_key)
+    if cached: return cached
+
     city_encoded = urllib.parse.quote(city)
     url = f"https://wttr.in/{city_encoded}?format=j1&lang=pt"
     try:
@@ -168,6 +192,8 @@ def _handler_get_weather(city="São Paulo"):
         result += f" Previsão de hoje: máx {max_temp}°C / mín {min_temp}°C."
         if max_rain > 0:
             result += f" Chance de chuva: {max_rain}%."
+        
+        _set_cache(cache_key, result, ttl_seconds=1800) # Cache de 30 min
         return result
     except Exception as e:
         return {"error": f"Não foi possível obter o clima: {str(e)}"}
@@ -201,6 +227,10 @@ def _handler_get_system_status():
         return {"error": f"Falha ao ler status: {str(e)}"}
 
 def _handler_search_web(query, max_results=3):
+    cache_key = f"search_{query}_{max_results}"
+    cached = _get_cache(cache_key)
+    if cached: return cached
+
     tavily_key = os.getenv("TAVILY_API_KEY", "").strip()
     if tavily_key:
         try:
@@ -210,7 +240,9 @@ def _handler_search_web(query, max_results=3):
                 data = json.loads(response.read().decode("utf-8"))
             results = [{"title": item.get("title", ""), "url": item.get("url", ""), "snippet": _truncate_text(item.get("content", ""), 500)} for item in data.get("results", [])[:max_results]]
             if results:
-                return {"query": query, "results": results, "source": "tavily"}
+                final_res = {"query": query, "results": results, "source": "tavily"}
+                _set_cache(cache_key, final_res, ttl_seconds=600) # Cache 10 min
+                return final_res
         except Exception:
             pass
 
@@ -221,11 +253,15 @@ def _handler_search_web(query, max_results=3):
             data = json.loads(response.read().decode("utf-8"))
         abstract = data.get("AbstractText") or data.get("Answer")
         if abstract:
-            return {"query": query, "results": [{"title": data.get("Heading", "Resultado"), "url": data.get("AbstractURL", ""), "snippet": _truncate_text(abstract, 800)}], "source": "duckduckgo"}
+            final_res = {"query": query, "results": [{"title": data.get("Heading", "Resultado"), "url": data.get("AbstractURL", ""), "snippet": _truncate_text(abstract, 800)}], "source": "duckduckgo"}
+            _set_cache(cache_key, final_res, ttl_seconds=600)
+            return final_res
         related = data.get("RelatedTopics", [])
         results = [{"title": "Tópico relacionado", "url": t.get("FirstURL", ""), "snippet": _truncate_text(t["Text"], 300)} for t in related[:max_results] if isinstance(t, dict) and "Text" in t]
         if results:
-            return {"query": query, "results": results, "source": "duckduckgo"}
+            final_res = {"query": query, "results": results, "source": "duckduckgo"}
+            _set_cache(cache_key, final_res, ttl_seconds=600)
+            return final_res
         return {"error": "Nenhum resultado encontrado."}
     except Exception as e:
         return {"error": f"Falha na pesquisa: {str(e)}"}
