@@ -580,6 +580,19 @@ class FridayHandler(BaseHTTPRequestHandler):
         except Exception:
             return None
 
+    def serve_static_file(self, filename, content_type):
+        filepath = os.path.join(os.path.dirname(os.path.abspath(__file__)), filename)
+        try:
+            with open(filepath, "rb") as f:
+                content = f.read()
+            self.send_response(200)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(content)))
+            self.end_headers()
+            self.wfile.write(content)
+        except FileNotFoundError:
+            self.send_json(404, {"error": f"Arquivo {filename} não encontrado."})
+            
     def do_GET(self):
         try: self._handle_get_impl()
         except Exception:
@@ -647,6 +660,10 @@ class FridayHandler(BaseHTTPRequestHandler):
             return self.redirect_to(f"{GOOGLE_OAUTH_AUTHORIZE_URL}?{urlencode(params)}")
         if path == "/oauth/google/callback":
             return self.handle_google_callback()
+        if path == "/manifest.json":
+            return self.serve_static_file("manifest.json", "application/json")
+        if path == "/sw.js":
+            return self.serve_static_file("sw.js", "application/javascript")
         self.send_json(404, {"error": "Página não encontrada."})
 
     def handle_google_callback(self):
