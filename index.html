@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#050914" />
     <title>FRIDAY | Stark Systems</title>
+    <!-- Biblioteca para formatar Markdown -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
       :root {
@@ -286,7 +287,7 @@
         100% { transform: scale(1.08); }
       }
 
-      /* --- NOVOS ESTADOS DO AVATAR REATIVO (Pensando / Ferramenta) --- */
+      /* --- AVATAR REATIVO (Pensando / Ferramenta) --- */
       body.is-thinking .reactor-inner { border-color: #ff8c00; box-shadow: 0 0 30px rgba(255, 140, 0, 0.6), inset 0 0 20px rgba(255, 140, 0, 0.3); }
       body.is-thinking .reactor::after { border-color: #ff8c00; }
       body.is-thinking .radar { background: conic-gradient(from 0deg, transparent 60%, rgba(255, 140, 0, 0.1) 90%, rgba(255, 140, 0, 0.5) 100%); }
@@ -294,7 +295,6 @@
       body.is-tooling .reactor-inner { border-color: #00ff88; box-shadow: 0 0 30px rgba(0, 255, 136, 0.6), inset 0 0 20px rgba(0, 255, 136, 0.3); }
       body.is-tooling .reactor::after { border-color: #00ff88; }
       body.is-tooling .radar { background: conic-gradient(from 0deg, transparent 60%, rgba(0, 255, 136, 0.1) 90%, rgba(0, 255, 136, 0.5) 100%); }
-      /* ------------------------------------------------------------- */
 
       .orbit {
         position: absolute;
@@ -1172,7 +1172,7 @@
         const content = document.createElement("span");
         
         if (who === "FRIDAY") {
-            content.innerHTML = "> " + marked.parse(text);
+            content.innerHTML = "> ";
         } else {
             content.textContent = text;
         }
@@ -1180,6 +1180,7 @@
         item.append(label, content);
         $("messages").appendChild(item);
         $("messages").scrollTop = $("messages").scrollHeight;
+        return content;
       }
 
       async function request(url, data) {
@@ -1306,6 +1307,7 @@
         }
       });
 
+      // --- LÓGICA PRINCIPAL DE ENVIO COM STREAMING ---
       $("chatForm").addEventListener("submit", async (event) => {
         event.preventDefault();
         if (isProcessing) return; 
@@ -1316,48 +1318,82 @@
         $("command").value = "";
         let displayMsg = command || "Processando arquivo...";
         if (currentAttachment) displayMsg += " [Arquivo Anexado]";
+        
         addMessage("Você", displayMsg);
+        const botSpan = addMessage("FRIDAY", " "); // Cria o balão vazio
+        
         $("sendBtn").disabled = true;
         $("voiceBtn").disabled = true;
-        status("FRIDAY está processando...");
-        showTypingIndicator();
+        status("FRIDAY está digitando...");
         startStatusPolling();
 
         try {
           const payload = { command: command || "Analise o arquivo anexado." };
-          if (currentAttachment) {
-              if (currentAttachmentType === 'image') payload.image = currentAttachment;
-              if (currentAttachmentType === 'pdf') {
-                  payload.pdf = currentAttachment;
-                  payload.pdf_name = currentAttachmentName || "documento.pdf";
-              }
+          if (currentAttachmentType === 'pdf') { 
+              payload.pdf = currentAttachment; 
+              payload.pdf_name = currentAttachmentName;
           }
-          currentAttachment = null;
-          currentAttachmentType = null;
-          currentAttachmentName = null;
+          currentAttachment = null; currentAttachmentType = null; currentAttachmentName = null;
           $('attachmentPreview').classList.add('hidden');
           $('attachmentName').textContent = '';
 
-          const result = await request("/chat", payload);
+          const response = await fetch("/chat", {
+            method: "POST", credentials: "same-origin",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+
+          if (!response.ok) throw new Error("Erro na conexão com o servidor.");
+          
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder("utf-8");
+          let fullReplyText = "";
+          let buffer = "";
+
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop(); // Guarda a última linha incompleta
+
+            for (const line of lines) {
+                if (line.startsWith("data: ")) {
+                    const dataStr = line.substring(6).trim();
+                    if (!dataStr) continue;
+                    try {
+                        const dataObj = JSON.parse(dataStr);
+                        if (dataObj.text) {
+                            fullReplyText += dataObj.text;
+                            // Atualiza a tela em tempo real com Markdown
+                            botSpan.innerHTML = "> " + marked.parse(fullReplyText);
+                            $("messages").scrollTop = $("messages").scrollHeight;
+                        }
+                        if (dataObj.error) {
+                            botSpan.innerHTML = "> [Erro] " + dataObj.error;
+                        }
+                    } catch (e) { console.error("Erro parse SSE:", e); }
+                }
+            }
+          }
+
           hideTypingIndicator();
           stopStatusPolling();
-
-          let reply = result.response || "Comando concluído.";
           
-          // NOVO: Processa comandos de música antes de exibir
-          reply = handleMusicAction(reply); 
+          // Processa comandos de música após receber o texto inteiro
+          let finalReply = handleMusicAction(fullReplyText);
+          if (finalReply !== fullReplyText) {
+              botSpan.innerHTML = "> " + marked.parse(finalReply);
+          }
           
-          addMessage("FRIDAY", reply);
-          lastReply = reply;
+          lastReply = finalReply;
+          speakResponse(finalReply);
 
-          if (result.closed) { showLogin(); return; }
-          speakResponse(reply);
         } catch (error) {
           hideTypingIndicator();
           stopStatusPolling();
-          addMessage("FRIDAY", error.message);
-          status("Verifique a conexão ou autenticação.");
-          if (error.message.toLowerCase().includes("sessão")) showLogin();
+          botSpan.innerHTML = "> [Erro] " + error.message;
         } finally {
           isProcessing = false;
           $("sendBtn").disabled = false;
@@ -1633,6 +1669,7 @@
         } catch (e) {}
       }, 30000);
     </script>
+    <!-- Carrega a API do YouTube para controle de Play/Pause -->
     <script src="https://www.youtube.com/iframe_api"></script>
   </body>
 </html>
