@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#050914" />
     <title>FRIDAY | Stark Systems</title>
+    <!-- Biblioteca para formatar Markdown (Tabelas, Negrito, Código) -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
       :root {
         color-scheme: dark;
@@ -239,6 +241,7 @@
         box-shadow: 0 0 24px rgba(37, 138, 255, 0.12), inset 0 0 22px rgba(37, 138, 255, 0.1);
         background: var(--panel);
         z-index: 2;
+        transition: border-color 0.3s ease, box-shadow 0.3s ease;
       }
 
       .reactor::before, .reactor::after {
@@ -247,6 +250,7 @@
         inset: 9px;
         border: 1px solid rgba(115, 237, 255, 0.25);
         border-radius: 50%;
+        transition: border-color 0.3s ease;
       }
 
       .reactor::after {
@@ -266,6 +270,7 @@
         border: 1px solid var(--cyan);
         border-radius: 50%;
         box-shadow: 0 0 20px rgba(115, 237, 255, 0.2), inset 0 0 18px rgba(115, 237, 255, 0.16);
+        transition: border-color 0.3s ease, box-shadow 0.3s ease;
       }
 
       body.is-speaking .reactor-inner {
@@ -281,6 +286,16 @@
         0% { transform: scale(1); }
         100% { transform: scale(1.08); }
       }
+
+      /* --- NOVOS ESTADOS DO AVATAR REATIVO (Pensando / Ferramenta) --- */
+      body.is-thinking .reactor-inner { border-color: #ff8c00; box-shadow: 0 0 30px rgba(255, 140, 0, 0.6), inset 0 0 20px rgba(255, 140, 0, 0.3); }
+      body.is-thinking .reactor::after { border-color: #ff8c00; }
+      body.is-thinking .radar { background: conic-gradient(from 0deg, transparent 60%, rgba(255, 140, 0, 0.1) 90%, rgba(255, 140, 0, 0.5) 100%); }
+
+      body.is-tooling .reactor-inner { border-color: #00ff88; box-shadow: 0 0 30px rgba(0, 255, 136, 0.6), inset 0 0 20px rgba(0, 255, 136, 0.3); }
+      body.is-tooling .reactor::after { border-color: #00ff88; }
+      body.is-tooling .radar { background: conic-gradient(from 0deg, transparent 60%, rgba(0, 255, 136, 0.1) 90%, rgba(0, 255, 136, 0.5) 100%); }
+      /* ------------------------------------------------------------- */
 
       .orbit {
         position: absolute;
@@ -592,6 +607,16 @@
       .awareness-item strong { color: var(--cyan-bright); font-size: 12px; overflow-wrap: anywhere; }
       .awareness-note { margin: 12px 0 0; color: var(--muted); font-size: 10px; line-height: 1.7; }
 
+      /* --- ESTILOS PARA MARKDOWN --- */
+      .msg span p { margin: 0 0 8px 0; }
+      .msg span p:last-child { margin-bottom: 0; }
+      .msg span ul, .msg span ol { margin: 8px 0; padding-left: 20px; }
+      .msg span code { background: rgba(115, 237, 255, 0.1); padding: 2px 4px; border-radius: 4px; font-family: monospace; }
+      .msg span pre { background: rgba(3, 10, 19, 0.9); padding: 10px; border-radius: 8px; overflow-x: auto; border: 1px solid var(--line); margin: 10px 0; }
+      .msg span table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 12px; }
+      .msg span th, .msg span td { border: 1px solid var(--line); padding: 6px; text-align: left; }
+      .msg span th { background: rgba(115, 237, 255, 0.05); color: var(--cyan); }
+
       @media (min-width: 1100px) { .sidebar, .main-panel { min-height: 610px; } }
       @media (max-width: 850px) {
         .shell { padding: 18px; }
@@ -832,6 +857,8 @@
       let speechRunId = 0;
       let lockoutInterval = null;
       let lockoutEndsAt = 0;
+      let silenceTimer = null; // Timer para escuta contínua
+      let isProcessing = false; // Previne envios múltiplos
 
       let wakeWordRecognition = null;
       let wakeWordActive = false;
@@ -839,15 +866,12 @@
       let currentAttachment = null;
       let currentAttachmentType = null;
       let currentAttachmentName = null;
-      
-      let isProcessing = false; // Previne múltiplos envios de comandos
 
-      // --- STATUS EM TEMPO REAL ---
+      // --- STATUS EM TEMPO REAL E AVATAR REATIVO ---
       let statusPollingInterval = null;
 
       function startStatusPolling() {
           stopStatusPolling();
-          // Aumentado para 3000ms para aliviar a carga do servidor
           statusPollingInterval = setInterval(async () => {
               try {
                   const res = await fetch("/status", { credentials: "same-origin", cache: "no-store" });
@@ -856,6 +880,14 @@
                   if (data.status && data.status.length > 0) {
                       const last = data.status[data.status.length - 1];
                       $("status").textContent = last;
+                      
+                      // Atualiza o avatar reativo
+                      document.body.classList.remove('is-thinking', 'is-tooling');
+                      if (last.includes("Pensando") || last.includes("Analisando")) {
+                          document.body.classList.add('is-thinking');
+                      } else if (last.includes("Usando ferramenta") || last.includes("Executando")) {
+                          document.body.classList.add('is-tooling');
+                      }
                   }
               } catch (e) {}
           }, 3000); 
@@ -866,11 +898,11 @@
               clearInterval(statusPollingInterval);
               statusPollingInterval = null;
           }
+          document.body.classList.remove('is-thinking', 'is-tooling');
       }
       // -----------------------------
 
       const SETTINGS_KEY = "friday_voice_settings_v1";
-
       const defaultSettings = { autoSpeak: true, rate: 0.95, style: "natural" };
       let voiceSettings = { ...defaultSettings };
 
@@ -1005,6 +1037,7 @@
       function stopVoice() {
         speechRunId++;
         speechQueue = [];
+        clearTimeout(silenceTimer);
         if (wakeWordRecognition && wakeWordActive) {
             wakeWordActive = false;
             try { wakeWordRecognition.stop(); } catch(e) {}
@@ -1055,8 +1088,8 @@
                   URL.revokeObjectURL(audioUrl);
                   if ($("autoSpeak").checked) {
                       setTimeout(() => {
-                          if (!$("assistant").classList.contains("hidden") && !listening) startVoice(true);
-                      }, 500);
+                          if (!$("assistant").classList.contains("hidden") && !listening && !isProcessing) startVoice(true);
+                      }, 800); // Pausa de 800ms e ativa escuta contínua
                   }
               }
           };
@@ -1088,8 +1121,8 @@
               speaking = false; status('Sistema online.'); setWaveformState('idle');
               if ($("autoSpeak").checked) {
                   setTimeout(() => {
-                      if (!$("assistant").classList.contains("hidden") && !listening) startVoice(true);
-                  }, 500);
+                      if (!$("assistant").classList.contains("hidden") && !listening && !isProcessing) startVoice(true);
+                  }, 800);
               }
               return;
           }
@@ -1113,7 +1146,14 @@
         const label = document.createElement("strong");
         label.textContent = who === "Você" ? "CHEFE" : "FRIDAY";
         const content = document.createElement("span");
-        content.textContent = text;
+        
+        if (who === "FRIDAY") {
+            // Parse do Markdown e injeta o prefixo "> "
+            content.innerHTML = "> " + marked.parse(text);
+        } else {
+            content.textContent = text;
+        }
+        
         item.append(label, content);
         $("messages").appendChild(item);
         $("messages").scrollTop = $("messages").scrollHeight;
@@ -1245,7 +1285,7 @@
 
       $("chatForm").addEventListener("submit", async (event) => {
         event.preventDefault();
-        if (isProcessing) return; // Previne envios duplicados
+        if (isProcessing) return; 
         const command = $("command").value.trim();
         if (!command && !currentAttachment) return;
 
@@ -1292,7 +1332,7 @@
                   player.classList.remove('hidden');
                   const clean = reply.replace(/\[PLAY_MUSIC:.*?\]/, '').trim();
                   const els = $('messages').querySelectorAll('.bot span');
-                  if (els.length > 0) els[els.length - 1].textContent = clean;
+                  if (els.length > 0) els[els.length - 1].innerHTML = "> " + marked.parse(clean);
               }
           }
 
@@ -1316,10 +1356,11 @@
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         if (!SpeechRecognition) { status("Reconhecimento indisponível."); return; }
         if (listening && recognition) { recognition.stop(); return; }
+        
         stopVoice();
         recognition = new SpeechRecognition();
         recognition.lang = "pt-BR";
-        recognition.continuous = false;
+        recognition.continuous = isContinuous;
         recognition.interimResults = false;
         recognition.maxAlternatives = 1;
 
@@ -1330,29 +1371,44 @@
           setWaveformState('listening');
           $("voiceBtn").textContent = "⏹";
           status(isContinuous ? "Aguardando continuação..." : "Estou ouvindo, chefe...");
+          
+          // Timer de inatividade para escuta contínua
+          clearTimeout(silenceTimer);
+          if (isContinuous) {
+              silenceTimer = setTimeout(() => {
+                  if (listening && recognition) {
+                      recognition.stop();
+                      status("Escuta encerrada por inatividade.");
+                  }
+              }, 5000);
+          }
         };
         recognition.onresult = (event) => {
+          clearTimeout(silenceTimer);
           const transcript = event.results[0][0].transcript;
           $("command").value = transcript;
           status("Voz reconhecida.");
           $("chatForm").requestSubmit();
         };
         recognition.onerror = (event) => {
+          clearTimeout(silenceTimer);
           status("Falha no microfone: " + event.error);
           setWaveformState('idle');
         };
         recognition.onend = () => {
+          clearTimeout(silenceTimer);
           listening = false;
           $("voiceBtn").classList.remove("listening");
           $("voiceBtn").textContent = "🎙";
           setWaveformState('idle');
+          
           if (!isContinuous) {
               setTimeout(() => {
-                  if (!$("assistant").classList.contains("hidden")) startWakeWordListener();
+                  if (!$("assistant").classList.contains("hidden") && !speaking && !isProcessing) startWakeWordListener();
               }, 1000);
           } else {
               setTimeout(() => {
-                  if (!$("assistant").classList.contains("hidden") && !speaking) startWakeWordListener();
+                  if (!$("assistant").classList.contains("hidden") && !speaking && !isProcessing) startWakeWordListener();
               }, 3000);
           }
         };
@@ -1430,7 +1486,7 @@
           if (event.error === 'no-speech' || event.error === 'aborted') return;
         };
         wakeWordRecognition.onend = () => {
-          if (!wakeWordActive && !$("assistant").classList.contains("hidden")) {
+          if (!wakeWordActive && !$("assistant").classList.contains("hidden") && !listening && !speaking && !isProcessing) {
             try { wakeWordRecognition.start(); } catch (e) {}
           }
         };
