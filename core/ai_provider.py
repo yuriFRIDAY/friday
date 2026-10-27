@@ -27,9 +27,8 @@ logger.propagate = False
 class FridayAIProvider:
     def __init__(self):
         self.api_key = os.getenv("GROQ_API_KEY", "")
-        # Modelo estável da Groq
+        # Modelo estável, rápido e com suporte a ferramentas
         self.model = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
-        self.vision_model = "llama-3.2-11b-vision-preview"
         self.base_url = "https://api.groq.com/openai/v1"
         self.smtp_user = os.getenv("SMTP_USER", "")
         self.data_dir = os.getenv("DATA_DIR", ".")
@@ -112,37 +111,18 @@ Se o usuário perguntar do clima, chame get_weather.
         if not self.available():
             return None
         messages = self._build_messages(message, history)
-        payload = {"model": self.model, "messages": messages, "stream": False}
+        payload = {"model": self.model, "messages": messages, "stream": False, "max_tokens": 4096}
         return self._execute_request(payload)
 
     def chat_with_vision(self, user_message, image_base64, history=None):
-        if not self.available():
-            return "A IA não está configurada."
-        messages = [{"role": "system", "content": self._get_system_prompt().strip()}]
-        if history:
-            for item in history[-5:]:
-                if isinstance(item, dict) and item.get("role") in ("user", "assistant"):
-                    messages.append({"role": item["role"], "content": item["content"][:2000]})
-        messages.append({"role": "user", "content": [{"type": "text", "text": user_message}, {"type": "image_url", "image_url": {"url": image_base64}}]})
-        payload = {"model": self.vision_model, "messages": messages, "stream": False}
-        try:
-            result = self._send_raw_request(payload)
-            choices = result.get("choices", [])
-            if choices:
-                content = choices[0].get("message", {}).get("content")
-                if isinstance(content, str) and content.strip():
-                    return content.strip()
-            return "A IA não retornou uma descrição."
-        except Exception as e:
-            logger.error(f"Erro visão: {str(e)}")
-            return f"Falha ao analisar imagem: {str(e)}"
+        return "Desculpe, chefe. Meu módulo de visão está desativado no momento."
 
     def chat_with_tools(self, user_message, history, tools):
         if not self.available():
             return {"error": "IA indisponível."}
         formatted_tools = [{"type": "function", "function": {"name": n, "description": s.get("description", ""), "parameters": s.get("parameters", {})}} for n, s in tools.items()]
         messages = self._build_messages(user_message, history)
-        payload = {"model": self.model, "messages": messages, "tools": formatted_tools, "tool_choice": "auto", "stream": False}
+        payload = {"model": self.model, "messages": messages, "tools": formatted_tools, "tool_choice": "auto", "stream": False, "max_tokens": 4096}
         try:
             result = self._send_raw_request(payload)
             choices = result.get("choices", [])
@@ -176,7 +156,7 @@ Se o usuário perguntar do clima, chame get_weather.
         messages = self._build_messages(user_message, history)
         messages.append({"role": "assistant", "content": None, "tool_calls": [{"id": tool_call_id or "call_unknown", "type": "function", "function": {"name": tool_name, "arguments": raw_arguments}}]})
         messages.append({"role": "tool", "tool_call_id": tool_call_id or "call_unknown", "content": json.dumps(tool_result, ensure_ascii=False)})
-        payload = {"model": self.model, "messages": messages, "stream": False}
+        payload = {"model": self.model, "messages": messages, "stream": False, "max_tokens": 4096}
         return self._execute_request(payload)
 
     def chat_with_full_history(self, messages, tools):
@@ -184,7 +164,7 @@ Se o usuário perguntar do clima, chame get_weather.
             return {"error": "IA indisponível."}
         formatted_tools = [{"type": "function", "function": {"name": n, "description": s.get("description", ""), "parameters": s.get("parameters", {})}} for n, s in tools.items()]
         full_messages = [{"role": "system", "content": self._get_system_prompt().strip()}] + messages
-        payload = {"model": self.model, "messages": full_messages, "tools": formatted_tools, "tool_choice": "auto", "stream": False}
+        payload = {"model": self.model, "messages": full_messages, "tools": formatted_tools, "tool_choice": "auto", "stream": False, "max_tokens": 4096}
         try:
             result = self._send_raw_request(payload)
             choices = result.get("choices", [])
