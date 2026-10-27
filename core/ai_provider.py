@@ -39,9 +39,8 @@ class FridayAIProvider:
         return bool(self.api_key.strip())
 
     def _get_model(self, prompt_length):
-        if prompt_length > 1500:
-            return "llama-3.3-70b-versatile"
-        return "llama-3.1-8b-instant"
+        # Usando o modelo mais estável da Groq para evitar erro 404/403 de modelo descontinuado
+        return "llama-3.3-70b-versatile"
 
     def _get_current_time_context(self):
         try:
@@ -180,8 +179,7 @@ NUNCA diga que não possui uma ferramenta, pois você tem todas.
             return {"error": "IA indisponível."}
         formatted_tools = [{"type": "function", "function": {"name": n, "description": s.get("description", ""), "parameters": s.get("parameters", {})}} for n, s in tools.items()]
         full_messages = [{"role": "system", "content": self._get_system_prompt().strip()}] + messages
-        total_len = sum(len(str(m.get('content', ''))) for m in full_messages)
-        model = self._get_model(total_len)
+        model = self._get_model(4000)
         
         payload = {"model": model, "messages": full_messages, "tools": formatted_tools, "tool_choice": "auto", "stream": False, "max_tokens": 4096}
         try:
@@ -207,13 +205,12 @@ NUNCA diga que não possui uma ferramenta, pois você tem todas.
 
     def chat_with_full_history_stream(self, messages, tools):
         if not self.available(): 
-            yield {"error": "IA indisponível."}
+            yield {"error": "IA indisponível. Configure a GROQ_API_KEY."}
             return
 
         formatted_tools = [{"type": "function", "function": {"name": n, "description": s.get("description", ""), "parameters": s.get("parameters", {})}} for n, s in tools.items()]
         full_messages = [{"role": "system", "content": self._get_system_prompt().strip()}] + messages
-        total_len = sum(len(str(m.get('content', ''))) for m in full_messages)
-        model = self._get_model(total_len)
+        model = self._get_model(4000)
         
         payload = {"model": model, "messages": full_messages, "tools": formatted_tools, "tool_choice": "auto", "stream": True, "max_tokens": 4096}
         
@@ -241,6 +238,9 @@ NUNCA diga que não possui uma ferramenta, pois você tem todas.
                                     yield {"text": delta["content"]}
                         except json.JSONDecodeError:
                             pass
+        except HTTPError as e:
+            err_body = e.read().decode("utf-8", errors="replace")
+            yield {"error": f"Groq HTTP {e.code}: {err_body[:200]}"}
         except Exception as e:
             yield {"error": f"Erro no streaming: {str(e)}"}
 
