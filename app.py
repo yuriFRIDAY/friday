@@ -1,4 +1,4 @@
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from http.cookies import CookieError, SimpleCookie
 from urllib.parse import urlsplit, parse_qs, urlencode
 from urllib.request import Request, urlopen
@@ -15,8 +15,14 @@ import fcntl
 import sqlite3
 import base64
 import io
-import PyPDF2
 import threading
+import traceback
+
+try:
+    import PyPDF2
+    HAS_PYPDF2 = True
+except ImportError:
+    HAS_PYPDF2 = False
 
 from core.assistant import FridayAssistant
 from core.auth import FridayAuth
@@ -27,7 +33,7 @@ from core.friday_tools import (
 )
 
 SESSION_COOKIE = "friday_session"
-MAX_BODY = 20 * 1024 * 1024
+MAX_BODY = 10 * 1024 * 1024  # Reduzido de 20MB para 10MB
 MAX_HISTORY_MESSAGES = 10
 
 DATA_DIR = os.getenv("DATA_DIR", ".")
@@ -40,12 +46,14 @@ DB_PATH = os.path.join(DATA_DIR, "friday.db")
 # ========================================
 STATUS_QUEUE = []
 NOTIFICATION_QUEUE = []
+QUEUE_LOCK = threading.Lock()
 
 def _push_status(text):
     global STATUS_QUEUE
-    STATUS_QUEUE.append(text)
-    if len(STATUS_QUEUE) > 20:
-        STATUS_QUEUE = STATUS_QUEUE[-20:]
+    with QUEUE_LOCK:
+        STATUS_QUEUE.append(text)
+        if len(STATUS_QUEUE) > 20:
+            STATUS_QUEUE = STATUS_QUEUE[-20:]
 
 def _heartbeat_worker():
     print("FRIDAY WEB: Heartbeat iniciado.")
@@ -591,6 +599,16 @@ class FridayHandler(BaseHTTPRequestHandler):
             return None
 
     def do_GET(self):
+        try:
+            self._handle_get_impl()
+        except Exception as e:
+            traceback.print_exc()
+            try:
+                self.send_json(500, {"error": "Erro interno no servidor."})
+            except Exception:
+                pass
+
+    def _handle_get_impl(self):
         path = urlsplit(self.path).path
         if path == "/tts":
             return self.handle_tts()
@@ -599,18 +617,20 @@ class FridayHandler(BaseHTTPRequestHandler):
             if not token:
                 return self.send_json(401, {"error": "Não autorizado"})
             global STATUS_QUEUE
-            msgs = list(STATUS_QUEUE)
-            STATUS_QUEUE.clear()
+            with QUEUE_LOCK:
+                msgs = list(STATUS_QUEUE)
+                STATUS_QUEUE.clear()
             return self.send_json(200, {"status": msgs})
         if path == "/notifications":
             token = self.get_session()
             if not token:
                 return self.send_json(401, {"error": "Não autorizado"})
             global NOTIFICATION_QUEUE
-            if NOTIFICATION_QUEUE:
-                msgs = list(NOTIFICATION_QUEUE)
-                NOTIFICATION_QUEUE.clear()
-                return self.send_json(200, {"notifications": msgs})
+            with QUEUE_LOCK:
+                if NOTIFICATION_QUEUE:
+                    msgs = list(NOTIFICATION_QUEUE)
+                    NOTIFICATION_QUEUE.clear()
+                    return self.send_json(200, {"notifications": msgs})
             return self.send_json(200, {"notifications": []})
         if path == "/":
             body = get_html().encode("utf-8")
@@ -872,6 +892,8 @@ class FridayHandler(BaseHTTPRequestHandler):
         return True, "\n".join(lines)
 
     def _handle_pdf(self, pdf_base64, command, history):
+        if not HAS_PYPDF2:
+            return "Desculpe, chefe. O módulo de leitura de PDF não está instalado no servidor."
         _push_status("Lendo o PDF...")
         if "," in pdf_base64:
             pdf_base64 = pdf_base64.split(",", 1)[1]
@@ -1052,6 +1074,16 @@ Se for um pedido de resumo, sintetize em tópicos.
         return result
 
     def do_POST(self):
+        try:
+            self._handle_post_impl()
+        except Exception as e:
+            traceback.print_exc()
+            try:
+                self.send_json(500, {"error": "Erro interno no servidor."})
+            except Exception:
+                pass
+
+    def _handle_post_impl(self):
         path = urlsplit(self.path).path
         if not self.valid_origin():
             return self.send_json(403, {"error": "Origem não autorizada."})
@@ -1113,7 +1145,6 @@ Se for um pedido de resumo, sintetize em tópicos.
 
                 return self.send_json(200, {"response": str(text), "closed": False})
             except Exception:
-                import traceback
                 traceback.print_exc()
                 return self.send_json(500, {"error": "Erro interno ao processar."})
 
@@ -1133,16 +1164,18 @@ Se for um pedido de resumo, sintetize em tópicos.
             print("FRIDAY WEB: requisição")
 
 
+class ReusableThreadingHTTPServer(ThreadingHTTPServer):
+    allow_reuse_address = True
+    daemon_threads = True
+
+
 if __name__ == "__main__":
     if not os.getenv("FRIDAY_PASSWORD"):
-        raise RuntimeError("Configure FRIDAY_PASSWORD.")
+        raise RuntimeError("Configure a variável de ambiente FRIDAY_PASSWORD.")
 
     port = int(os.environ.get("PORT", "5000"))
 
-    class ReusableHTTPServer(HTTPServer):
-        allow_reuse_address = True
-
-    server = ReusableHTTPServer(("0.0.0.0", port), FridayHandler)
+    server = ReusableThreadingHTTPServer(("0.0.0.0", port), FridayHandler)
     print(f"FRIDAY online em http://0.0.0.0:{port}")
     try:
         server.serve_forever()
