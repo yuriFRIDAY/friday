@@ -69,10 +69,10 @@ def init_db():
         cursor = conn.cursor()
         if DATABASE_URL:
             cursor.execute("CREATE TABLE IF NOT EXISTS ai_memory (key TEXT PRIMARY KEY, value TEXT)")
-            cursor.execute("CREATE TABLE IF NOT EXISTS tasks (id SERIAL PRIMARY KEY, desc TEXT, status TEXT)")
+            cursor.execute("CREATE TABLE IF NOT EXISTS tasks (id SERIAL PRIMARY KEY, description TEXT, status TEXT)")
         else:
             cursor.execute("CREATE TABLE IF NOT EXISTS ai_memory (key TEXT PRIMARY KEY, value TEXT)")
-            cursor.execute("CREATE TABLE IF NOT EXISTS tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, desc TEXT, status TEXT)")
+            cursor.execute("CREATE TABLE IF NOT EXISTS tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, description TEXT, status TEXT)")
         conn.commit()
         cursor.close()
         conn.close()
@@ -80,7 +80,7 @@ def init_db():
     except Exception as e:
         print(f"AVISO: Erro ao inicializar DB (o servidor continuará rodando): {e}")
 
-init_db()
+threading.Thread(target=init_db, daemon=True).start()
 
 def _db_save_memory(key, value):
     conn = get_db(); cursor = conn.cursor()
@@ -261,6 +261,11 @@ async def serve_index():
     except FileNotFoundError:
         return "<h1>Erro: index.html não encontrado.</h1>"
 
+@app.head("/")
+async def head_index():
+    # CORREÇÃO: O Render usa HEAD para o health check. Sem isso, ele acha que o site caiu (405).
+    return Response(status_code=200)
+
 @app.get("/manifest.json")
 async def serve_manifest():
     return JSONResponse(content=json.load(open("manifest.json", "r")))
@@ -417,7 +422,6 @@ async def chat_endpoint(data: ChatData, friday_session: Optional[str] = Cookie(N
                             tool_call_acc[idx]["arguments"] += tc["function"]["arguments"]
 
             if has_tool:
-                # CORREÇÃO AQUI: Retirado o backslash de dentro da f-string
                 tool_msg = json.dumps({'text': '\n\n*[Executando ferramenta...]*\n\n'})
                 yield f"data: {tool_msg}\n\n"
                 
