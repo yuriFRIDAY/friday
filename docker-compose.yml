@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: friday
+      POSTGRES_PASSWORD: friday_password
+      POSTGRES_DB: friday_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  web:
+    build: .
+    ports:
+      - "10000:10000"
+    environment:
+      - DATABASE_URL=postgresql://friday:friday_password@db:5432/friday_db
+      - GROQ_API_KEY=sua_chave_groq_aqui
+      - FRIDAY_PASSWORD=senha123
+      - SMTP_SERVER=smtp.gmail.com
+      - SMTP_PORT=587
+      - SMTP_USER=seu_email@gmail.com
+      - SMTP_PASSWORD=sua_senha_app
+      - ELEVENLABS_API_KEY=sua_chave_elevenlabs
+    depends_on:
+      - db
+
+volumes:
+  pgdata:
