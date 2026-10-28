@@ -502,7 +502,9 @@ async def chat_endpoint(data: ChatData, friday_session: Optional[str] = Cookie(N
                 except: 
                     args = {}
                 
-                # Executa a ferramenta DIRETAMENTE (sem checar pending_confirmation)
+                # NOVO: Avisa o frontend qual ferramenta está sendo usada
+                yield f"data: {json.dumps({'tool': tc_data['name']})}\n\n"
+                
                 exec_res = execute_tool(tc_data["name"], args, session=session, confirmed=True)
                 
                 if not exec_res.get("ok"):
@@ -511,9 +513,6 @@ async def chat_endpoint(data: ChatData, friday_session: Optional[str] = Cookie(N
                     break
                 
                 result = exec_res.get("result")
-                
-                tool_msg = json.dumps({'text': '\n\n*[Executando ferramenta...]*\n\n'})
-                yield f"data: {tool_msg}\n\n"
                 
                 current_messages.append({"role": "assistant", "content": None, "tool_calls": [{"id": tc_data["id"], "type": "function", "function": {"name": tc_data["name"], "arguments": tc_data["arguments"]}}]})
                 current_messages.append({"role": "tool", "tool_call_id": tc_data["id"], "content": json.dumps(result)})
