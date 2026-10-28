@@ -181,29 +181,6 @@
       }
       @keyframes spin { 100% { transform: rotate(360deg); } }
 
-      /* --- V4: GLITCH EFFECT --- */
-      .is-processing .main-panel {
-          animation: glitch 0.2s cubic-bezier(.25,.46,.45,.94) both infinite;
-          box-shadow: 0 0 30px rgba(37, 138, 255, 0.3), inset 0 0 20px rgba(115, 237, 255, 0.1);
-      }
-      @keyframes glitch {
-          0% { transform: translate(0); }
-          20% { transform: translate(-1px, 1px); }
-          40% { transform: translate(-1px, -1px); }
-          60% { transform: translate(1px, 1px); }
-          80% { transform: translate(1px, -1px); }
-          100% { transform: translate(0); }
-      }
-
-      .decoding-text span {
-          display: inline-block;
-          animation: text-glitch 0.1s infinite alternate;
-      }
-      @keyframes text-glitch {
-          0% { text-shadow: 0.5px 0 0 rgba(255,0,0,0.5), -0.5px 0 0 rgba(0,255,255,0.5); }
-          100% { text-shadow: -0.5px 0 0 rgba(255,0,0,0.5), 0.5px 0 0 rgba(0,255,255,0.5); }
-      }
-
       .system-title { margin: 0; color: var(--cyan-bright); font-size: 26px; font-weight: 500; letter-spacing: 0.25em; z-index: 2; text-align: center; }
       .system-sub { color: var(--muted); font-size: 9px; letter-spacing: 0.12em; text-align: center; z-index: 2; }
       .system-state { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 8px 12px; color: #9fead8; background: rgba(52, 181, 145, 0.07); border: 1px solid rgba(98, 232, 192, 0.16); font-size: 9px; letter-spacing: 0.1em; z-index: 2; }
@@ -212,16 +189,19 @@
       .metric { display: flex; justify-content: space-between; width: 100%; padding: 8px 0; border-bottom: 1px solid rgba(104, 211, 255, 0.09); font-size: 11px; }
       .metric-label { color: var(--muted); }
       .metric-value { color: #b9e8fa; font-size: 9px; letter-spacing: 0.08em; text-align: right; }
-      #sysChartContainer { width: 100%; height: 100px; margin-top: 10px; position: relative; z-index: 2; }
+      
+      /* Gráfico CPU/RAM */
+      #sysChartContainer { width: 100%; height: 120px; margin-top: 10px; position: relative; z-index: 2; background: rgba(0,0,0,0.2); border: 1px solid var(--line); padding: 5px; }
 
-      .terminal-logs {
-        flex: 1; background: rgba(0,0,0,0.4); border: 1px solid var(--line);
-        font-size: 10px; color: #4ade80; padding: 10px; overflow: hidden;
-        display: flex; flex-direction: column; justify-content: flex-end; margin-top: 15px;
+      /* Novo Painel de Status */
+      .status-panel {
+        background: rgba(0,0,0,0.4); border: 1px solid var(--line); padding: 10px; font-size: 11px; margin-top: 5px;
       }
-      .log-line { opacity: 0.7; margin-bottom: 2px; }
-      .log-line.err { color: #f87171; }
-      .log-line.warn { color: #fbbf24; }
+      .status-item { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
+      .status-item:last-child { border-bottom: none; }
+      .status-ok { color: #4ade80; font-weight: bold; }
+      .status-warn { color: #fbbf24; font-weight: bold; }
+      .status-err { color: #f87171; font-weight: bold; }
 
       .main-panel { padding: 20px; overflow: hidden; }
       
@@ -339,7 +319,7 @@
           </div>
         </div>
         <div class="system-chip">
-          <span class="status-dot"></span> INTERFACE V4.0 (SECURE)
+          <span class="status-dot"></span> INTERFACE V4.1 (SECURE)
         </div>
       </div>
 
@@ -370,12 +350,16 @@
               <canvas id="sysChart"></canvas>
           </div>
 
-          <div class="mini-heading">Live Telemetry Stream</div>
-          <div class="terminal-logs" id="telemetry-logs"></div>
+          <div class="mini-heading">Status de Serviços</div>
+          <div class="status-panel">
+              <div class="status-item"><span>Groq AI</span><span class="status-ok">ONLINE</span></div>
+              <div class="status-item"><span>Voicebox</span><span class="status-ok" id="status-voicebox">CONECTADO</span></div>
+              <div class="status-item"><span>Database</span><span class="status-ok">POSTGRES</span></div>
+          </div>
 
           <div class="sidebar-note" style="margin-top: 15px; color: var(--muted); font-size: 9px; line-height: 1.8;">
             <span>PROJETO TONY STARK</span><br />
-            Interface Neural v4.0
+            Interface Neural v4.1
           </div>
         </aside>
 
@@ -623,25 +607,6 @@
           } catch(e) {}
       }
 
-      // === FAKE TERMINAL LOGS ===
-      const logMessages = [
-          "[SYS] Neural net synced", "[NET] Ping 12ms", "[MEM] GC cycle complete", 
-          "[SEC] Port scan blocked", "[AI] Core temp nominal", "[DB] Sync successful",
-          "[SYS] Optimizing thread pool", "[NET] Uplink established"
-      ];
-      function addLog() {
-          const term = $('telemetry-logs');
-          if (!term) return;
-          const div = document.createElement('div');
-          div.className = 'log-line';
-          if(Math.random() > 0.9) div.classList.add('warn');
-          const time = new Date().toLocaleTimeString('pt-BR', {hour12:false});
-          div.textContent = `[${time}] ${logMessages[Math.floor(Math.random() * logMessages.length)]}`;
-          term.appendChild(div);
-          if (term.children.length > 15) term.removeChild(term.firstChild);
-      }
-      setInterval(addLog, 1500);
-
       // --- PWA REGISTRATION ---
       if ('serviceWorker' in navigator) {
           window.addEventListener('load', () => {
@@ -649,7 +614,7 @@
           });
       }
 
-      // --- GRÁFICO DE MÉTRICAS ---
+      // --- GRÁFICO DE MÉTRICAS (CORRIGIDO) ---
       function initChart() {
           const canvas = $('sysChart');
           if (!canvas) return;
@@ -657,12 +622,19 @@
               type: 'line',
               data: {
                   labels: [],
-                  datasets: [{ data: [], borderColor: '#73edff', backgroundColor: 'rgba(115, 237, 255, 0.1)', tension: 0.4, fill: true, pointRadius: 0 }]
+                  datasets: [
+                      { label: 'CPU', data: [], borderColor: '#73edff', backgroundColor: 'rgba(115, 237, 255, 0.1)', tension: 0.4, fill: true, pointRadius: 0 },
+                      { label: 'RAM', data: [], borderColor: '#ff8c00', backgroundColor: 'rgba(255, 140, 0, 0.1)', tension: 0.4, fill: true, pointRadius: 0 }
+                  ]
               },
               options: {
                   responsive: true, maintainAspectRatio: false,
-                  scales: { x: { display: false }, y: { min: 0, max: 100, grid: { color: 'rgba(115,237,255,0.05)' }, ticks: { display: false } } },
-                  plugins: { legend: { display: false } }, animation: false
+                  scales: { 
+                      x: { display: false }, 
+                      y: { min: 0, max: 100, grid: { color: 'rgba(115,237,255,0.05)' }, ticks: { color: '#6a8ba5', font: {size: 9} } } 
+                  },
+                  plugins: { legend: { labels: { color: '#6a8ba5', font: { size: 10 }, boxWidth: 10 } } },
+                  animation: false
               }
           });
       }
@@ -679,9 +651,11 @@
               if (sysChart.data.labels.length > 20) {
                   sysChart.data.labels.shift();
                   sysChart.data.datasets[0].data.shift();
+                  sysChart.data.datasets[1].data.shift();
               }
               sysChart.data.labels.push(now);
               sysChart.data.datasets[0].data.push(data.cpu);
+              sysChart.data.datasets[1].data.push(data.ram);
               sysChart.update();
           } catch(e) {}
       }
@@ -1050,9 +1024,6 @@
       async function sendCommandToFriday(command, isInitial = false) {
         if (isProcessing) return;
         isProcessing = true;
-        
-        // V4: Ativa o Glitch Effect
-        document.body.classList.add('is-processing');
 
         if (!isInitial) addMessage("Você", command);
         
@@ -1117,7 +1088,6 @@
                 status("Sistema online.");
                 let finalReply = handleMusicAction(fullReplyText);
                 
-                // V4: Aplica o Text Scramble no final do stream
                 scrambleText(botSpan, finalReply);
                 
                 lastReply = finalReply;
@@ -1130,7 +1100,6 @@
             status("Erro de conexão.");
         } finally {
             isProcessing = false;
-            document.body.classList.remove('is-processing'); // V4: Desativa o Glitch Effect
             $("sendBtn").disabled = false;
             $("voiceBtn").disabled = false;
             if (!$("assistant").classList.contains("hidden")) $("command").focus();
@@ -1353,7 +1322,6 @@
       window.addEventListener('load', () => {
           initBgParticles();
           initReactor();
-          addLog(); // Primeiro log
       });
     </script>
     <script src="https://www.youtube.com/iframe_api"></script>
