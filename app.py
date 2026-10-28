@@ -496,25 +496,24 @@ async def chat_endpoint(data: ChatData, friday_session: Optional[str] = Cookie(N
                 break
 
             if has_tool:
-                # Se a IA decidiu usar a ferramenta, avisa na tela
-                tool_msg = json.dumps({'text': '\n\n*[Executando ferramenta...]*\n\n'})
-                yield f"data: {tool_msg}\n\n"
-                
                 tc_data = tool_call_acc[0]
                 try: 
                     args = json.loads(tc_data["arguments"])
                 except: 
                     args = {}
                 
-                exec_res = execute_tool(tc_data["name"], args, session=session)
+                # Executa a ferramenta DIRETAMENTE (sem checar pending_confirmation)
+                exec_res = execute_tool(tc_data["name"], args, session=session, confirmed=True)
                 
                 if not exec_res.get("ok"):
-                    # CORREÇÃO: Se a ferramenta falhar, avisa o usuário e quebra o loop!
                     err_msg = exec_res.get("error", "Erro na ferramenta.")
                     yield f"data: {json.dumps({'text': f'Erro ao executar a ferramenta: {err_msg}'})}\n\n"
                     break
                 
                 result = exec_res.get("result")
+                
+                tool_msg = json.dumps({'text': '\n\n*[Executando ferramenta...]*\n\n'})
+                yield f"data: {tool_msg}\n\n"
                 
                 current_messages.append({"role": "assistant", "content": None, "tool_calls": [{"id": tc_data["id"], "type": "function", "function": {"name": tc_data["name"], "arguments": tc_data["arguments"]}}]})
                 current_messages.append({"role": "tool", "tool_call_id": tc_data["id"], "content": json.dumps(result)})
@@ -526,9 +525,8 @@ async def chat_endpoint(data: ChatData, friday_session: Optional[str] = Cookie(N
                     response_generated = True
                 break
 
-        # CORREÇÃO: Se a IA não respondeu nada depois de tentar ferramentas, avisa o usuário
         if not response_generated and not error_occurred:
-            yield f"data: {json.dumps({'text': 'Desculpe, chefe. Tentei executar a ação mas não consegui obter uma resposta da ferramenta.'})}\n\n"
+            yield f"data: {json.dumps({'text': 'Desculpe, chefe. Tentei executar a ação mas não consegui obter uma resposta.'})}\n\n"
 
         yield f"data: {json.dumps({'done': True})}\n\n"
 
