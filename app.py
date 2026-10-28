@@ -61,14 +61,12 @@ def get_db():
         conn = sqlite3.connect("friday.db")
         conn.row_factory = sqlite3.Row
         return conn
-    # Render exige sslmode=require para conexões externas, 
-    # mas para a URL interna, o padrão é suficiente e mais rápido.
     return psycopg2.connect(DATABASE_URL)
 
 def init_db():
-    conn = get_db()
-    cursor = conn.cursor()
     try:
+        conn = get_db()
+        cursor = conn.cursor()
         if DATABASE_URL:
             cursor.execute("CREATE TABLE IF NOT EXISTS ai_memory (key TEXT PRIMARY KEY, value TEXT)")
             cursor.execute("CREATE TABLE IF NOT EXISTS tasks (id SERIAL PRIMARY KEY, desc TEXT, status TEXT)")
@@ -76,11 +74,11 @@ def init_db():
             cursor.execute("CREATE TABLE IF NOT EXISTS ai_memory (key TEXT PRIMARY KEY, value TEXT)")
             cursor.execute("CREATE TABLE IF NOT EXISTS tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, desc TEXT, status TEXT)")
         conn.commit()
-    except Exception as e:
-        print(f"Erro ao inicializar DB: {e}")
-    finally:
         cursor.close()
         conn.close()
+        print("Banco de dados inicializado com sucesso.")
+    except Exception as e:
+        print(f"AVISO: Erro ao inicializar DB (o servidor continuará rodando): {e}")
 
 init_db()
 
@@ -392,7 +390,6 @@ async def chat_endpoint(data: ChatData, friday_session: Optional[str] = Cookie(N
 
         if data.pdf:
             yield f"data: {json.dumps({'text': 'Lendo documento PDF... '})}\n\n"
-            # (Lógica de extração de PDF pode ser implementada aqui se necessário)
 
         current_messages = list(history)
         current_messages.append({"role": "user", "content": data.command})
@@ -420,7 +417,10 @@ async def chat_endpoint(data: ChatData, friday_session: Optional[str] = Cookie(N
                             tool_call_acc[idx]["arguments"] += tc["function"]["arguments"]
 
             if has_tool:
-                yield f"data: {json.dumps({'text': '\\n\\n*[Executando ferramenta...]*\\n\\n'})}\n\n"
+                # CORREÇÃO AQUI: Retirado o backslash de dentro da f-string
+                tool_msg = json.dumps({'text': '\n\n*[Executando ferramenta...]*\n\n'})
+                yield f"data: {tool_msg}\n\n"
+                
                 tc_data = tool_call_acc[0]
                 try: 
                     args = json.loads(tc_data["arguments"])
