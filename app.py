@@ -24,7 +24,7 @@ from pydantic import BaseModel
 
 from core.assistant import FridayAssistant
 from core.auth import FridayAuth
-from core.sessions import SessionStore
+from core.sessions import SessionStore, Session
 from core.friday_tools import (
     TOOL_REGISTRY, execute_tool, public_tool_specs,
     set_calendar_context, set_memory_context,
@@ -263,7 +263,6 @@ async def serve_index():
 
 @app.head("/")
 async def head_index():
-    # CORREÇÃO: O Render usa HEAD para o health check. Sem isso, ele acha que o site caiu (405).
     return Response(status_code=200)
 
 @app.get("/manifest.json")
@@ -290,14 +289,26 @@ async def get_status(friday_session: Optional[str] = Cookie(None)):
 
 @app.post("/login")
 async def login(data: LoginData, response: Response, request: Request):
-    client_ip = request.client.host if request.client else "0.0.0.0"
-    if not auth.authenticate(data.password, client_key=client_ip):
-        raise HTTPException(status_code=401, detail="Senha incorreta.")
-    
-    token = secrets.token_urlsafe(32)
-    SESSION_STORE.create(token)
-    response.set_cookie(key="friday_session", value=token, httponly=True, samesite="lax", max_age=1800)
-    return {"ok": True}
+    try:
+        client_ip = request.client.host if request.client else "0.0.0.0"
+        if not auth.authenticate(data.password, client_key=client_ip):
+            raise HTTPException(status_code=401, detail="Senha incorreta.")
+        
+        token = secrets.token_urlsafe(32)
+        
+        # Correção: Usando a criação de sessão original do Friday em vez do .create() inexistente
+        SESSION_STORE._sessions[token] = Session(
+            token=token,
+            expires_at=SESSION_STORE._clock() + SESSION_STORE.ttl_seconds
+        )
+        
+        response.set_cookie(key="friday_session", value=token, httponly=True, samesite="lax", max_age=1800)
+        return {"ok": True}
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Erro interno no login: {str(e)}")
 
 @app.get("/session")
 async def check_session(friday_session: Optional[str] = Cookie(None)):
