@@ -1213,4 +1213,496 @@
           const utterance = new SpeechSynthesisUtterance(nextText);
           utterance.lang = 'pt-BR';
           utterance.rate = Number(voiceSettings.rate) || 0.95;
-          utterance.pitch = voiceSettings.style === 'cinematic' ? 
+          utterance.pitch = voiceSettings.style === 'cinematic' ? 0.82 : 0.95;
+          utterance.onstart = () => { if (runId === speechRunId) { speaking = true; soundListen(); setWaveformState('speaking'); } };
+          utterance.onend = () => { if (runId === speechRunId) speakNext(); };
+          synth.speak(utterance);
+        }
+        speakNext();
+      }
+
+      function speakResponse(text) { lastReply = String(text || ""); speakText(lastReply, false); }
+
+      function addMessage(who, text) {
+        const item = document.createElement("div");
+        item.className = "msg " + (who === "Você" ? "user" : "bot");
+        const label = document.createElement("strong");
+        label.textContent = who === "Você" ? "CHEFE" : "FRIDAY";
+        const content = document.createElement("span");
+        
+        if (who === "FRIDAY") {
+            content.innerHTML = "> ";
+        } else {
+            content.textContent = text;
+        }
+        
+        item.append(label, content);
+        $("messages").appendChild(item);
+        $("messages").scrollTop = $("messages").scrollHeight;
+        return content;
+      }
+
+      async function request(url, data) {
+        const response = await fetch(url, {
+          method: "POST", credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(data),
+        });
+        let result;
+        try { result = await response.json(); }
+        catch (e) {
+          const err = new Error("Resposta inválida.");
+          err.status = response.status;
+          throw err;
+        }
+        if (!response.ok) {
+          const err = new Error((result && result.error) || "Falha.");
+          err.status = response.status;
+          err.remaining = result && result.remaining;
+          throw err;
+        }
+        return result;
+      }
+
+      function startLockout(remaining) {
+        const seconds = Math.max(0, Math.ceil(Number(remaining) || 0));
+        const notice = $("lockoutNotice");
+        window.clearInterval(lockoutInterval);
+        if (seconds === 0) { lockoutEndsAt = 0; notice.classList.add("hidden"); return; }
+        lockoutEndsAt = Date.now() + seconds * 1000;
+        notice.classList.remove("hidden");
+        const upd = () => {
+          const left = Math.max(0, Math.ceil((lockoutEndsAt - Date.now()) / 1000));
+          if (left === 0) {
+            clearInterval(lockoutInterval); lockoutEndsAt = 0;
+            notice.textContent = "Bloqueio encerrado.";
+            return;
+          }
+          notice.textContent = `Acesso bloqueado. Tente em ${left}s.`;
+        };
+        upd();
+        lockoutInterval = window.setInterval(upd, 1000);
+      }
+
+      function handleFileSelect(e, type) {
+          const file = e.target.files[0];
+          if (!file) return;
+          currentAttachmentName = file.name;
+          const reader = new FileReader();
+          reader.onload = (ev) => {
+              if (type === 'image') {
+                  const img = new Image();
+                  img.onload = () => {
+                      const canvas = document.createElement('canvas');
+                      const MAX = 1024;
+                      let w = img.width, h = img.height;
+                      if (w > h) { if (w > MAX) { h *= MAX / w; w = MAX; } }
+                      else { if (h > MAX) { w *= MAX / h; h = MAX; } }
+                      canvas.width = w; canvas.height = h;
+                      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+                      currentAttachment = canvas.toDataURL('image/jpeg', 0.8);
+                      currentAttachmentType = type;
+                      $('attachmentName').textContent = `Anexo: ${file.name}`;
+                      $('attachmentPreview').classList.remove('hidden');
+                  };
+                  img.src = ev.target.result;
+              } else {
+                  currentAttachment = ev.target.result;
+                  currentAttachmentType = type;
+                  $('attachmentName').textContent = `Anexo: ${file.name}`;
+                  $('attachmentPreview').classList.remove('hidden');
+              }
+          };
+          reader.readAsDataURL(file);
+          e.target.value = '';
+      }
+
+      $('attachImgBtn').addEventListener('click', () => $('fileInputImage').click());
+      $('attachPdfBtn').addEventListener('click', () => $('fileInputPdf').click());
+      $('fileInputImage').addEventListener('change', (e) => handleFileSelect(e, 'image'));
+      $('fileInputPdf').addEventListener('change', (e) => handleFileSelect(e, 'pdf'));
+      $('removeAttachment').addEventListener('click', () => {
+          currentAttachment = null; currentAttachmentType = null; currentAttachmentName = null;
+          $('attachmentPreview').classList.add('hidden');
+          $('attachmentName').textContent = '';
+      });
+
+      async function sendCommandToFriday(command, isInitial = false) {
+        if (isProcessing) return;
+        isProcessing = true;
+        
+        if (!isInitial) {
+            addMessage("Você", command);
+        }
+        
+        const botSpan = addMessage("FRIDAY", " ");
+        $("sendBtn").disabled = true;
+        $("voiceBtn").disabled = true;
+        status("FRIDAY está digitando...");
+        startStatusPolling();
+
+        try {
+            const payload = { command: command };
+            if (currentAttachmentType === 'pdf' && !isInitial) { 
+                payload.pdf = currentAttachment; 
+                payload.pdf_name = currentAttachmentName;
+                currentAttachment = null; currentAttachmentType = null; currentAttachmentName = null;
+                $('attachmentPreview').classList.add('hidden');
+                $('attachmentName').textContent = '';
+            }
+
+            const response = await fetch("/chat", {
+                method: "POST", credentials: "same-origin",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload),
+            });
+
+            if (!response.ok) throw new Error("Erro na conexão.");
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder("utf-8");
+            let fullReplyText = "";
+            let buffer = "";
+            let streamDone = false; // Nova flag de controle
+
+            while (!streamDone) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop(); 
+
+                for (const line of lines) {
+                    if (line.startsWith("data: ")) {
+                        const dataStr = line.substring(6).trim();
+                        if (!dataStr) continue;
+                        try {
+                            const dataObj = JSON.parse(dataStr);
+                            if (dataObj.done) {
+                                streamDone = true; // Quebra o loop de leitura
+                                break;
+                            }
+                            if (dataObj.text) {
+                                fullReplyText += dataObj.text;
+                                botSpan.innerHTML = "> " + marked.parse(fullReplyText);
+                                $("messages").scrollTop = $("messages").scrollHeight;
+                            }
+                            if (dataObj.error) {
+                                botSpan.innerHTML = "> [Erro] " + dataObj.error;
+                                status("Erro na IA.");
+                            }
+                        } catch (e) { console.error("Erro parse SSE:", e); }
+                    }
+                }
+            }
+            
+            stopStatusPolling();
+            
+            if (!fullReplyText) {
+                status("Falha na resposta.");
+            } else {
+                status("Sistema online.");
+                let finalReply = handleMusicAction(fullReplyText);
+                if (finalReply !== fullReplyText) {
+                    botSpan.innerHTML = "> " + marked.parse(finalReply);
+                }
+                lastReply = finalReply;
+                speakResponse(finalReply);
+            }
+
+        } catch (error) {
+            stopStatusPolling();
+            botSpan.innerHTML = "> [Erro] " + error.message;
+            status("Erro de conexão.");
+        } finally {
+            isProcessing = false;
+            $("sendBtn").disabled = false;
+            $("voiceBtn").disabled = false;
+            if (!$("assistant").classList.contains("hidden")) $("command").focus();
+        }
+      }
+
+      $("loginForm").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const password = $("password").value;
+        status("Verificando credenciais...");
+        try {
+          await request("/login", { password });
+          $("password").value = "";
+          $("login").classList.add("hidden");
+          $("assistant").classList.remove("hidden");
+          status("Autenticada. FRIDAY online.");
+          soundBoot();
+          $('messages').replaceChildren();
+          
+          startSysMetrics();
+          
+          sendCommandToFriday('Gere o meu briefing matinal para a cidade de Criciúma usando a ferramenta get_morning_briefing', true);
+          
+          $("command").focus();
+          checkCalendarConnection();
+          startWakeWordListener();
+        } catch (error) {
+          status(error.message);
+          $("password").value = "";
+          if (error.status === 429) startLockout(error.remaining);
+          else $("password").focus();
+        }
+      });
+
+      $("chatForm").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const command = $("command").value.trim();
+        if (!command && !currentAttachment) return;
+        $("command").value = "";
+        sendCommandToFriday(command, false);
+      });
+
+      const originalStartVoice = startVoice;
+      startVoice = function(isContinuous = false) {
+          if (speaking) {
+              stopVoice();
+              status("Fala interrompida pelo usuário.");
+          }
+          originalStartVoice(isContinuous);
+      }
+
+      function startVoice(isContinuous = false) {
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRecognition) { status("Reconhecimento indisponível."); return; }
+        if (listening && recognition) { recognition.stop(); return; }
+        
+        stopVoice();
+        recognition = new SpeechRecognition();
+        recognition.lang = "pt-BR";
+        recognition.continuous = isContinuous;
+        recognition.interimResults = false;
+        recognition.maxAlternatives = 1;
+
+        recognition.onstart = () => {
+          listening = true;
+          $("voiceBtn").classList.add("listening");
+          soundListen();
+          setWaveformState('listening');
+          $("voiceBtn").textContent = "⏹";
+          status(isContinuous ? "Aguardando continuação..." : "Estou ouvindo, chefe...");
+          
+          clearTimeout(silenceTimer);
+          if (isContinuous) {
+              silenceTimer = setTimeout(() => {
+                  if (listening && recognition) {
+                      recognition.stop();
+                      status("Escuta encerrada por inatividade.");
+                  }
+              }, 5000);
+          }
+        };
+        recognition.onresult = (event) => {
+          clearTimeout(silenceTimer);
+          const transcript = event.results[0][0].transcript;
+          $("command").value = transcript;
+          status("Voz reconhecida.");
+          $("chatForm").requestSubmit();
+        };
+        recognition.onerror = (event) => {
+          clearTimeout(silenceTimer);
+          status("Falha no microfone: " + event.error);
+          setWaveformState('idle');
+        };
+        recognition.onend = () => {
+          clearTimeout(silenceTimer);
+          listening = false;
+          $("voiceBtn").classList.remove("listening");
+          $("voiceBtn").textContent = "🎙";
+          setWaveformState('idle');
+          
+          if (!isContinuous) {
+              setTimeout(() => {
+                  if (!$("assistant").classList.contains("hidden") && !speaking && !isProcessing) startWakeWordListener();
+              }, 1000);
+          } else {
+              setTimeout(() => {
+                  if (!$("assistant").classList.contains("hidden") && !speaking && !isProcessing) startWakeWordListener();
+              }, 3000);
+          }
+        };
+        try { recognition.start(); }
+        catch (e) { status("Não foi possível iniciar o microfone."); setWaveformState('idle'); }
+      }
+
+      $("voiceBtn").addEventListener("click", () => startVoice(false));
+
+      async function checkCalendarConnection() {
+        try {
+          const res = await fetch("/calendar/status", { credentials: "same-origin", cache: "no-store" });
+          const data = await res.json();
+          if (res.ok && data.connected) {
+            $("calendarConnect").textContent = "📅 Calendário conectado";
+            loadCalendarEvents("upcoming");
+            return true;
+          }
+        } catch (e) {}
+        return false;
+      }
+
+      $("calendarConnect").addEventListener("click", () => { window.location.href = "/calendar/connect"; });
+      $("refreshCalendarTodayBtn").addEventListener("click", () => loadCalendarEvents("today"));
+      $("refreshCalendarBtn").addEventListener("click", () => loadCalendarEvents("upcoming"));
+
+      $("settingsToggle").addEventListener("click", () => {
+        const panel = $("settingsPanel");
+        panel.classList.toggle("hidden");
+        $("settingsToggle").textContent = panel.classList.contains("hidden")
+          ? "⚙ Configurações de voz"
+          : "✖ Fechar configurações";
+      });
+
+      $("speechRate").addEventListener("input", () => {
+        $("rateValue").textContent = Number($("speechRate").value).toFixed(2).replace(".", ",") + "×";
+      });
+      $("autoSpeak").addEventListener("change", () => {
+        saveSettings(false);
+        if (!$("autoSpeak").checked) { stopVoice(); status("Leitura automática desativada."); }
+        else status("Leitura automática ativada.");
+      });
+      $("speechRate").addEventListener("change", () => saveSettings(false));
+      $("voiceStyle").addEventListener("change", () => saveSettings(false));
+      $("saveSettingsBtn").addEventListener("click", () => saveSettings(true));
+      $("testVoiceBtn").addEventListener("click", () => {
+        saveSettings(false);
+        speakText("Olá, chefe. Sou FRIDAY. Configurações de voz prontas.", true);
+      });
+      $("readLastBtn").addEventListener("click", () => {
+        if (!lastReply) { $("settingsNotice").textContent = "Sem resposta para ler."; return; }
+        saveSettings(false);
+        speakText(lastReply, true);
+      });
+      $("stopSpeakBtn").addEventListener("click", () => { stopVoice(); status("Fala interrompida."); });
+      $("stopSpeakTop").addEventListener("click", () => { stopVoice(); status("Fala interrompida."); });
+
+      function startWakeWordListener() {
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRecognition || wakeWordActive) return;
+        wakeWordRecognition = new SpeechRecognition();
+        wakeWordRecognition.lang = 'pt-BR';
+        wakeWordRecognition.continuous = true;
+        wakeWordRecognition.interimResults = true;
+        wakeWordRecognition.onresult = (event) => {
+          const transcript = Array.from(event.results).map(r => r[0].transcript).join('').toLowerCase();
+          if (transcript.includes('hey friday') || transcript.includes('oi friday')) {
+            wakeWordRecognition.stop();
+            wakeWordActive = false;
+            soundListen();
+            startVoice(false);
+          }
+        };
+        wakeWordRecognition.onerror = (event) => {
+          if (event.error === 'no-speech' || event.error === 'aborted') return;
+        };
+        wakeWordRecognition.onend = () => {
+          if (!wakeWordActive && !$("assistant").classList.contains("hidden") && !listening && !speaking && !isProcessing) {
+            try { wakeWordRecognition.start(); } catch (e) {}
+          }
+        };
+        try { wakeWordRecognition.start(); wakeWordActive = true; } catch (e) {}
+      }
+
+      function showLogin() {
+        stopVoice();
+        stopStatusPolling();
+        $("assistant").classList.add("hidden");
+        $("login").classList.remove("hidden");
+        $("messages").replaceChildren();
+        $("settingsPanel").classList.add("hidden");
+        $("calendarPanel").classList.add("hidden");
+        $("musicPlayer").classList.add("hidden");
+        $("musicPlayer").src = "";
+        $("settingsToggle").textContent = "⚙ Configurações de voz";
+        status("Sistema aguardando autenticação");
+      }
+
+      $("logout").addEventListener("click", async () => {
+        stopVoice();
+        try { await request("/logout", {}); } catch (e) {}
+        showLogin();
+      });
+
+      async function checkSession() {
+        try {
+          const res = await fetch("/session", { credentials: "same-origin", cache: "no-store" });
+          const data = await res.json();
+
+          const calendarState = new URLSearchParams(location.search).get("calendar");
+          const msgs = {
+            connected: "Google Calendar conectado.", nosession: "Entre antes de conectar.",
+            denied: "Autorização cancelada.", old: "Tentativa expirou.", state: "Sessão não confere.",
+            config: "OAuth incompleto.", redirect: "Redirect URI inválida.",
+            client: "Cliente OAuth recusado.", token: "Google não concluiu.", incomplete: "Resposta incompleta."
+          };
+
+          if (data.authenticated) {
+            $("login").classList.add("hidden");
+            $("assistant").classList.remove("hidden");
+            status("Sessão ativa. FRIDAY online.");
+            $('messages').replaceChildren();
+            startSysMetrics();
+            sendCommandToFriday('Gere o meu briefing matinal para a cidade de Criciúma usando a ferramenta get_morning_briefing', true);
+            checkCalendarConnection();
+            startWakeWordListener();
+          }
+          if (msgs[calendarState]) {
+            status(msgs[calendarState]);
+            history.replaceState({}, "", location.pathname);
+          }
+        } catch (e) {
+          status("Não foi possível verificar a sessão.");
+        }
+      }
+
+      loadSettings();
+      checkSession();
+
+      setInterval(async () => {
+        if ($("assistant").classList.contains("hidden")) return;
+        try {
+          const res = await fetch("/calendar/events?range=today", { credentials: "same-origin", cache: "no-store" });
+          if (!res.ok) return;
+          const data = await res.json();
+          if (!data.events || !data.events.length) return;
+          const now = new Date();
+          data.events.forEach((evt) => {
+            if (!evt.start) return;
+            const evtTime = new Date(evt.start);
+            const diff = (evtTime - now) / 1000 / 60;
+            if (diff > 0 && diff <= 15) {
+              const key = `alerted_${evt.summary}_${evt.start}`;
+              if (!localStorage.getItem(key)) {
+                localStorage.setItem(key, "true");
+                const msg = `Chefe, seu compromisso "${evt.summary}" começa em ${Math.round(diff)} minutos.`;
+                addMessage("FRIDAY", msg);
+                speakText(msg, true);
+              }
+            }
+          });
+        } catch (e) {}
+      }, 5 * 60 * 1000);
+
+      setInterval(async () => {
+        if ($("assistant").classList.contains("hidden")) return;
+        try {
+          const res = await fetch("/notifications", { credentials: "same-origin" });
+          if (!res.ok) return;
+          const data = await res.json();
+          if (data.notifications && data.notifications.length > 0) {
+            data.notifications.forEach((msg) => {
+              addMessage("FRIDAY", msg);
+              speakResponse(msg);
+            });
+          }
+        } catch (e) {}
+      }, 30000);
+    </script>
+    <script src="https://www.youtube.com/iframe_api"></script>
+  </body>
+</html>
