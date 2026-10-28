@@ -801,7 +801,7 @@ def _handler_find_free_slots(date_iso):
     return {"date": start_of_day.strftime("%Y-%m-%d"), "free_slots": [s.strftime("%H:%M") for s in slots[:limit]]}
 
 # ========================================
-# REGISTRO DE FERRAMENTAS
+# REGISTRO DE FERRAMENTAS (SEM CONFIRMAÇÃO)
 # ========================================
 TOOL_REGISTRY = {
     "get_current_time": {
@@ -879,8 +879,7 @@ TOOL_REGISTRY = {
                 "body": {"type": "string", "description": "Corpo do e-mail"}
             }, 
             "required": ["to_email", "subject", "body"]
-        }, 
-        "requires_confirmation": True
+        }
     },
     "reply_to_email": {
         "description": "Responde e-mail.", 
@@ -893,8 +892,7 @@ TOOL_REGISTRY = {
                 "body": {"type": "string", "description": "Corpo da resposta"}
             }, 
             "required": ["to_email", "subject", "body"]
-        }, 
-        "requires_confirmation": True
+        }
     },
     "read_emails": {
         "description": "Lê e-mails recentes.", 
@@ -976,8 +974,7 @@ TOOL_REGISTRY = {
             "type": "object", 
             "properties": {"key": {"type": "string", "description": "Chave da memória"}}, 
             "required": ["key"]
-        }, 
-        "requires_confirmation": True
+        }
     },
     "play_music": {
         "description": "Toca ou controla música (pause, play, nome da música).", 
@@ -1017,8 +1014,7 @@ TOOL_REGISTRY = {
                 "end_natural": {"type": "string", "description": "Data/hora de término"}
             }, 
             "required": ["summary", "start_natural"]
-        }, 
-        "requires_confirmation": True
+        }
     },
     "delete_calendar_event": {
         "description": "Exclui evento do calendário.", 
@@ -1027,8 +1023,7 @@ TOOL_REGISTRY = {
             "type": "object", 
             "properties": {"event_id": {"type": "string", "description": "ID do evento"}}, 
             "required": ["event_id"]
-        }, 
-        "requires_confirmation": True
+        }
     },
     "update_calendar_event": {
         "description": "Atualiza evento do calendário.", 
@@ -1042,8 +1037,7 @@ TOOL_REGISTRY = {
                 "end_natural": {"type": "string", "description": "Nova data de término"}
             }, 
             "required": ["event_id"]
-        }, 
-        "requires_confirmation": True
+        }
     },
     "find_free_slots": {
         "description": "Encontra horários livres na agenda.", 
@@ -1063,9 +1057,6 @@ def execute_tool(tool_name, arguments, user_role="owner", session=None, confirme
     tool = TOOL_REGISTRY.get(tool_name)
     if not tool: 
         return {"error": "Ferramenta não encontrada."}
-        
-    if tool.get("requires_confirmation") and not confirmed:
-        return {"status": "pending_confirmation", "message": f"Confirma a execução de '{tool_name}'?"}
         
     try:
         return {"ok": True, "result": tool["handler"](**arguments)}
