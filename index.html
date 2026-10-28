@@ -1058,7 +1058,7 @@
           });
           const data = await response.json();
           if (!response.ok) {
-            container.innerHTML = `<p class="awareness-note" style="color: #ff8a8a;">${data.error || "Erro."}</p>`;
+            container.innerHTML = `<p class="awareness-note" style="color: #ff8a8a;">${data.error || data.detail || "Erro."}</p>`;
             return;
           }
           if (!data.events || data.events.length === 0) {
@@ -1251,12 +1251,13 @@
         let result;
         try { result = await response.json(); }
         catch (e) {
-          const err = new Error("Resposta inválida.");
+          const text = await response.text();
+          const err = new Error(text || "Resposta inválida.");
           err.status = response.status;
           throw err;
         }
         if (!response.ok) {
-          const err = new Error((result && result.error) || "Falha.");
+          const err = new Error((result && result.detail) || (result && result.error) || "Falha.");
           err.status = response.status;
           err.remaining = result && result.remaining;
           throw err;
@@ -1363,7 +1364,7 @@
             const decoder = new TextDecoder("utf-8");
             let fullReplyText = "";
             let buffer = "";
-            let streamDone = false; // Nova flag de controle
+            let streamDone = false;
 
             while (!streamDone) {
                 const { done, value } = await reader.read();
@@ -1380,7 +1381,7 @@
                         try {
                             const dataObj = JSON.parse(dataStr);
                             if (dataObj.done) {
-                                streamDone = true; // Quebra o loop de leitura
+                                streamDone = true;
                                 break;
                             }
                             if (dataObj.text) {
