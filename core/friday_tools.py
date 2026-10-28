@@ -1,3 +1,4 @@
+# core/friday_tools.py
 import json
 import logging
 import os
@@ -678,7 +679,7 @@ def _handler_get_calendar_events(range_value="upcoming"):
 def _handler_create_calendar_event(summary, start_natural, end_natural=None):
     start_dt = _parse_natural_date(start_natural)
     if not start_dt: 
-        return {"error": "Data inválida."}
+        return {"error": "Data de início inválida."}
         
     end_dt = _parse_natural_date(end_natural) if end_natural else start_dt + timedelta(hours=1)
     
@@ -690,14 +691,14 @@ def _handler_create_calendar_event(summary, start_natural, end_natural=None):
         
     access_token = ctx()
     if not access_token: 
-        return {"error": "Calendar indisponível."}
+        return {"error": "Calendar indisponível (Token inválido ou expirado)."}
         
     payload = {"summary": summary, "start": {"dateTime": start_dt.isoformat(), "timeZone": "America/Sao_Paulo"}, "end": {"dateTime": end_dt.isoformat(), "timeZone": "America/Sao_Paulo"}}
     res = create(access_token, payload)
     
     if res:
         return {"ok": True, "summary": summary, "start": start_dt.isoformat()}
-    return {"error": "Falha ao criar."}
+    return {"error": "O Google recusou a criação do evento."}
 
 def _handler_delete_calendar_event(event_id):
     ctx = _CALENDAR_CONTEXT.get("access_token_provider")
@@ -925,7 +926,7 @@ TOOL_REGISTRY = {
         }
     },
     "create_task": {
-        "description": "Cria uma tarefa (to-do).", 
+        "description": "Cria uma tarefa (to-do) na lista de tarefas.", 
         "handler": _handler_create_task, 
         "parameters": {
             "type": "object", 
@@ -1006,7 +1007,7 @@ TOOL_REGISTRY = {
         }
     },
     "create_calendar_event": {
-        "description": "Cria evento.", 
+        "description": "Cria um evento na agenda do Google Calendar.", 
         "handler": _handler_create_calendar_event, 
         "parameters": {
             "type": "object", 
@@ -1020,7 +1021,7 @@ TOOL_REGISTRY = {
         "requires_confirmation": True
     },
     "delete_calendar_event": {
-        "description": "Exclui evento.", 
+        "description": "Exclui evento do calendário.", 
         "handler": _handler_delete_calendar_event, 
         "parameters": {
             "type": "object", 
@@ -1030,7 +1031,7 @@ TOOL_REGISTRY = {
         "requires_confirmation": True
     },
     "update_calendar_event": {
-        "description": "Atualiza evento.", 
+        "description": "Atualiza evento do calendário.", 
         "handler": _handler_update_calendar_event, 
         "parameters": {
             "type": "object", 
