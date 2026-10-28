@@ -808,7 +808,7 @@
         return String(text).replace(/\*\*(.*?)\*\*/g, "$1").replace(/\*(.*?)\*/g, "$1").replace(/`([^`]*)`/g, "$1").replace(/https?:\/\/\S+/g, "link omitido").replace(/^\s*[-*]\s+/gm, "").trim();
       }
 
-      async function speakText(text, force = false) {
+            async function speakText(text, force = false) {
         if (!force && !voiceSettings.autoSpeak) return;
         const cleanText = cleanSpeechText(text);
         if (!cleanText) return;
@@ -821,17 +821,27 @@
         try {
           const response = await fetch(`/tts?text=${encodeURIComponent(cleanText)}`);
           if (!response.ok) throw new Error('TTS falhou');
+          
           const audioBlob = await response.blob();
+          if (audioBlob.size === 0) throw new Error('Áudio vazio'); // Se a ElevenLabs falhar, cai no fallback
+          
           const audioUrl = URL.createObjectURL(audioBlob);
           const audio = new Audio(audioUrl);
           
           setupAudioAnalyser(audio);
           
-          audio.onplay = () => { if (runId === speechRunId) { speaking = true; soundListen(); setWaveformState('speaking'); } };
+          audio.onplay = () => {
+              if (runId === speechRunId) { speaking = true; soundListen(); setWaveformState('speaking'); }
+          };
           audio.onended = () => {
               if (runId === speechRunId) {
                   speaking = false; status('Sistema online.'); setWaveformState('idle');
                   URL.revokeObjectURL(audioUrl);
+                  if ($("autoSpeak").checked) {
+                      setTimeout(() => {
+                          if (!$("assistant").classList.contains("hidden") && !listening && !isProcessing) startVoice(true);
+                      }, 800);
+                  }
               }
           };
           audio.onerror = () => { browserSpeak(cleanText, runId); };
