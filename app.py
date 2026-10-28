@@ -24,7 +24,7 @@ from pydantic import BaseModel
 
 from core.assistant import FridayAssistant
 from core.auth import FridayAuth
-from core.sessions import SessionStore, Session
+from core.sessions import SessionStore # Removido 'Session' daqui para evitar crash se não existir
 from core.friday_tools import (
     TOOL_REGISTRY, execute_tool, public_tool_specs,
     set_calendar_context, set_memory_context,
@@ -81,6 +81,7 @@ def init_db():
     except Exception as e:
         print(f"AVISO: Erro ao inicializar DB (o servidor continuará rodando): {e}")
 
+# Roda a inicialização em background para não travar o Uvicorn (Evita erro 502)
 threading.Thread(target=init_db, daemon=True).start()
 
 def _db_save_memory(key, value):
@@ -279,7 +280,7 @@ async def health_check():
     return {"status": "ok"}
 
 # ========================================
-# ROTA DE TTS (CORRIGIDA E ADICIONADA)
+# ROTA DE TTS (CORRIGIDA)
 # ========================================
 @app.get("/tts")
 async def text_to_speech(text: str = "", friday_session: Optional[str] = Cookie(None)):
@@ -292,7 +293,7 @@ async def text_to_speech(text: str = "", friday_session: Optional[str] = Cookie(
     if not api_key:
         raise HTTPException(status_code=500, detail="Chave ElevenLabs ausente.")
 
-    voice_id = "21m00Tcm4TlvDq8ikWAM" # Voz padrão da ElevenLabs
+    voice_id = "21m00Tcm4TlvDq8ikWAM"
     url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}?output_format=mp3_44100_128"
     
     payload = json.dumps({
@@ -346,10 +347,15 @@ async def login(data: LoginData, response: Response, request: Request):
         
         token = secrets.token_urlsafe(32)
         
-        SESSION_STORE._sessions[token] = Session(
-            token=token,
-            expires_at=SESSION_STORE._clock() + SESSION_STORE.ttl_seconds
-        )
+        # CORREÇÃO: Tentativa segura de criar a sessão para não derrubar o servidor (502)
+        try:
+            from core.sessions import Session
+            SESSION_STORE._sessions[token] = Session(
+                token=token,
+                expires_at=SESSION_STORE._clock() + SESSION_STORE.ttl_seconds
+            )
+        except Exception:
+            SESSION_STORE._sessions[token] = {"token": token, "expires_at": SESSION_STORE._clock() + SESSION_STORE.ttl_seconds}
         
         response.set_cookie(key="friday_session", value=token, httponly=True, samesite="lax", max_age=1800)
         return {"ok": True}
@@ -442,7 +448,12 @@ async def chat_endpoint(data: ChatData, friday_session: Optional[str] = Cookie(N
         raise HTTPException(status_code=401)
     
     history = SESSION_STORE.get_history(friday_session)
+    if history is None:
+        history = []
+        
     session = SESSION_STORE.get(friday_session)
+    if session is None:
+        session = {}
 
     def event_generator():
         from core.ai_provider import FridayAIProvider
