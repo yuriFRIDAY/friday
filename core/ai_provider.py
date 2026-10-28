@@ -39,7 +39,7 @@ class FridayAIProvider:
         return bool(self.api_key.strip())
 
     def _get_model(self, prompt_length):
-        return "openai/gpt-oss-120b"
+        return "llama-3.3-70b-versatile"
 
     def _get_current_time_context(self):
         try:
@@ -74,7 +74,7 @@ class FridayAIProvider:
         recent_messages = history[-4:]
         
         text_to_summarize = "\n".join([f"{m['role'].upper()}: {m['content']}" for m in old_messages if isinstance(m.get('content'), str)])
-        prompt = f"Resuma a conversa a seguir em um parágrafo curto e direto, focando no que o Chefe pediu e nas decisões tomadas:\n\n{text_to_summarize}"
+        prompt = f"Resuma a conversa a seguir em um parágrafo curto e direto:\n\n{text_to_summarize}"
         
         try:
             summary = self.generate(prompt)
@@ -97,11 +97,11 @@ Personalidade: formal, leal, proativa, precisa e levemente espirituosa.
 Trate o usuário por "chefe" ou "senhor".
 Responda SEMPRE em português brasileiro natural e fluido.
 
-REGRAS DE LINGUAGEM (MUITO IMPORTANTE):
+REGRAS DE FERRAMENTAS (MUITO IMPORTANTE):
+- Se o chefe pedir para criar uma TAREFA ou LEMBRETE, use `create_task`.
+- Se o chefe pedir para marcar algo na AGENDA ou no CALENDÁRIO (ex: reuniões, aulas, eventos), use SEMPRE `create_calendar_event`. NUNCA use `create_task` para eventos de calendário.
+- Se o chefe pedir para ver o que tem no calendário, use `get_calendar_events`.
 - NUNCA traduza expressões do inglês de forma literal.
-- NUNCA use a palavra "assisti-lo" no sentido de ajudar. Use "ajudá-lo", "ser útil" ou "fazer por você".
-- Use expressões naturais do Brasil (ex: "Como posso ajudar, chefe?", "Em que posso ser útil?").
-- Seja direta.
 
 CONTEXTO DE TEMPO:
 {time_context}
@@ -113,23 +113,12 @@ CONCISÃO:
 Seja direto. Máximo 2-3 frases, salvo quando pedirem resumo detalhado.
 
 FERRAMENTAS DISPONÍVEIS:
-Você TEM acesso a TODAS as ferramentas listadas abaixo.
-1. get_current_time
-2. get_weather
-3. get_system_status
-4. get_crypto_price
-5. get_news
-6. search_web
-7. deep_search
-8. read_webpage
-9. send_email, reply_to_email, read_emails, read_email_full, get_email_thread
-10. create_task, list_tasks, complete_task
-11. save_memory, recall_memory, delete_memory
-12. play_music
-13. get_morning_briefing
-14. get_calendar_events, create_calendar_event, update_calendar_event, delete_calendar_event, find_free_slots
-
-NUNCA diga que não possui uma ferramenta, pois você tem todas.
+1. get_current_time, get_weather, get_system_status, get_crypto_price, get_news, search_web, deep_search, read_webpage
+2. send_email, reply_to_email, read_emails, read_email_full, get_email_thread
+3. create_task, list_tasks, complete_task
+4. save_memory, recall_memory, delete_memory
+5. play_music, get_morning_briefing
+6. get_calendar_events, create_calendar_event, update_calendar_event, delete_calendar_event, find_free_slots
 
 {memories}
 """
@@ -177,35 +166,6 @@ NUNCA diga que não possui uma ferramenta, pois você tem todas.
             except Exception:
                 time.sleep(1)
         return None
-
-    def chat_with_full_history(self, messages, tools):
-        if not self.available():
-            return {"error": "IA indisponível."}
-        formatted_tools = [{"type": "function", "function": {"name": n, "description": s.get("description", ""), "parameters": s.get("parameters", {})}} for n, s in tools.items()]
-        full_messages = [{"role": "system", "content": self._get_system_prompt().strip()}] + messages
-        model = self._get_model(4000)
-        
-        payload = {"model": model, "messages": full_messages, "tools": formatted_tools, "tool_choice": "auto", "stream": False, "max_tokens": 4096}
-        try:
-            result = self._send_raw_request(payload)
-            choices = result.get("choices", [])
-            if not choices:
-                return {"text": "Não consegui obter uma resposta."}
-            message = choices[0].get("message", {})
-            if "tool_calls" in message and message["tool_calls"]:
-                tc = message["tool_calls"][0]
-                fd = tc.get("function", {})
-                try:
-                    args = json.loads(fd.get("arguments", "{}"))
-                except Exception:
-                    args = {}
-                return {"tool_call": {"id": tc.get("id"), "name": fd.get("name"), "arguments": args, "raw_arguments": fd.get("arguments", "{}")}}
-            content = message.get("content")
-            if isinstance(content, str) and content.strip():
-                return {"text": content.strip()}
-            return {"text": "Comando processado."}
-        except Exception as e:
-            return {"error": str(e)}
 
     def chat_with_full_history_stream(self, messages, tools):
         if not self.available(): 
