@@ -6,7 +6,10 @@
     <meta name="theme-color" content="#050914" />
     <title>FRIDAY | Stark Systems</title>
     
+    <!-- Favicon Embutido -->
     <link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj48Y2lyY2xlIGN4PSI1MCIgY3k9IjUwIiByPSI0NSIgZmlsbD0iIzA1MGExMyIgc3Ryb2tlPSIjNzNlZGZmIiBzdHJva2Utd2lkdGg9IjQiLz48cGF0aCBkPSJNNTAgMjAgTDUwIDgwIE0yMCA1MCBMODAgNTAiIHN0cm9rZT0iIzczZWRmZiIgc3Ryb2tlLXdpZHRoPSI0Ii8+PC9zdmc+">
+    
+    <!-- PWA Config -->
     <link rel="manifest" href="/manifest.json" />
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -16,8 +19,6 @@
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    
-    <!-- Highlight.js para código -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/atom-one-dark.min.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
 
@@ -25,7 +26,7 @@
       :root {
         color-scheme: dark;
         --bg: #050a13;
-        --panel: rgba(10, 19, 32, 0.65); /* Mais transparente para o Glassmorphism */
+        --panel: rgba(10, 19, 32, 0.65);
         --panel-soft: rgba(13, 28, 45, 0.5);
         --cyan: #73edff;
         --cyan-bright: #c2f9ff;
@@ -45,14 +46,13 @@
         margin: 0;
         min-height: 100vh;
         color: var(--text);
-        /* Fundo mais rico */
         background: radial-gradient(circle at 15% 50%, rgba(22, 98, 160, 0.15), transparent 40%),
                     radial-gradient(circle at 85% 30%, rgba(37, 138, 255, 0.1), transparent 40%),
                     linear-gradient(145deg, #03060c, #081321 55%, #040811);
         font-family: Inter, "Segoe UI", Arial, sans-serif;
         font-size: 14px;
         -webkit-font-smoothing: antialiased;
-        overflow: hidden; /* Evita scroll geral */
+        overflow: hidden;
       }
 
       body::before {
@@ -186,10 +186,9 @@
         grid-template-columns: minmax(250px, 0.8fr) minmax(0, 1.8fr);
         gap: 20px;
         flex: 1;
-        min-height: 0; /* Previne overflow no grid flex */
+        min-height: 0;
       }
 
-      /* GLASSMORPHISM PANELS */
       .panel {
         position: relative;
         min-width: 0;
@@ -203,7 +202,6 @@
         flex-direction: column;
       }
 
-      /* Bordas brilhantes */
       .panel::before {
         content: "";
         position: absolute;
@@ -218,7 +216,6 @@
         overflow-y: auto;
       }
 
-      /* --- THREE.JS CONTAINER --- */
       .reactor-wrap {
         position: relative;
         width: 100%;
@@ -228,6 +225,7 @@
         justify-content: center;
         align-items: center;
       }
+      
       #three-container {
         width: 100%;
         height: 100%;
@@ -283,7 +281,6 @@
       .sidebar-note { width: 100%; margin-top: auto; padding-top: 20px; color: var(--muted); font-size: 9px; line-height: 1.8; z-index: 2; border-top: 1px solid var(--line); }
       .sidebar-note span { color: #a9dced; letter-spacing: 0.13em; }
 
-      /* --- MAIN PANEL --- */
       .main-panel { padding: 25px; overflow: hidden; }
       
       .main-header {
@@ -307,9 +304,9 @@
         border-radius: 4px;
         font-size: 11px;
         backdrop-filter: blur(4px);
+        transition: all 0.3s ease;
       }
 
-      /* --- WAVEFORM (Ainda em CSS, mas reage ao áudio) --- */
       .waveform-container {
         display: flex;
         align-items: center;
@@ -329,10 +326,9 @@
         background: var(--cyan);
         border-radius: 2px;
         box-shadow: 0 0 10px var(--cyan);
-        transition: height 0.05s ease; /* Reage instantaneamente ao JS */
+        transition: height 0.05s ease;
       }
 
-      /* --- TOOL CARDS (Nova UI) --- */
       .tool-card {
         display: inline-flex;
         align-items: center;
@@ -342,7 +338,6 @@
         border: 1px solid rgba(115, 237, 255, 0.2);
         border-radius: 8px;
         color: var(--cyan-bright);
-        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         font-size: 12px;
         margin: 5px 0;
         animation: slide-up 0.3s ease;
@@ -360,7 +355,6 @@
       @keyframes spin { 100% { transform: rotate(360deg); } }
       @keyframes slide-up { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 
-      /* --- CHAT LOG --- */
       #messages {
         display: flex;
         flex-direction: column;
@@ -407,7 +401,6 @@
       .user strong { color: var(--blue); }
       .user span::before { content: "< "; color: var(--blue); opacity: 0.5; }
 
-      /* --- COMPOSER --- */
       .composer {
         margin-top: auto;
         padding: 15px;
@@ -431,7 +424,6 @@
       }
       #command:focus { border-color: var(--cyan); box-shadow: inset 0 0 15px rgba(115,237,255,0.1); }
 
-      /* Attachments */
       .attachment-preview { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; color: var(--cyan); font-size: 11px; }
       .attachment-preview .close { cursor: pointer; color: #ff8a8a; font-weight: bold; margin-left: auto; }
       .controls { display: flex; gap: 8px; }
@@ -456,12 +448,31 @@
       .msg span th, .msg span td { border: 1px solid rgba(255,255,255,0.1); padding: 8px; text-align: left; }
       .msg span th { background: rgba(115, 237, 255, 0.1); color: var(--cyan); }
 
-      /* Login */
       #login { width: min(100%, 400px); margin: auto; text-align: center; padding: 20px; }
       .login-symbol { color: var(--cyan); font-size: 10px; letter-spacing: 0.2em; margin-bottom: 20px; }
       .login-title { font-size: 32px; margin-bottom: 10px; font-weight: 300; color: #fff;}
       .login-copy { color: var(--muted); font-size: 13px; margin-bottom: 30px; }
       #loginForm { display: grid; gap: 15px; }
+
+      /* Settings Panel (Restaurado) */
+      .settings-panel {
+        position: absolute;
+        top: 70px; right: 25px;
+        width: 300px;
+        background: rgba(3, 10, 19, 0.95);
+        border: 1px solid var(--cyan);
+        border-radius: 12px;
+        padding: 20px;
+        z-index: 100;
+        backdrop-filter: blur(20px);
+        box-shadow: 0 0 30px rgba(0,0,0,0.8);
+      }
+      .settings-panel h2 { font-size: 12px; color: var(--cyan); margin: 0 0 15px 0; letter-spacing: 0.1em; }
+      .setting { margin-bottom: 15px; }
+      .setting label { display: block; font-size: 12px; margin-bottom: 8px; color: var(--text); }
+      .setting small { display: block; font-size: 10px; color: var(--muted); margin-top: 5px; }
+      .toggle-row { display: flex; justify-content: space-between; align-items: center; }
+      .toggle-row label { margin: 0; }
 
       @media (max-width: 850px) {
         .layout { grid-template-columns: 1fr; }
@@ -514,6 +525,25 @@
 
         <!-- MAIN CHAT -->
         <main class="panel main-panel">
+          <!-- SETTINGS PANEL (Restaurado) -->
+          <div id="settingsPanel" class="settings-panel hidden">
+            <h2>/// CONFIGURAÇÕES DE VOZ</h2>
+            <div class="setting">
+              <div class="toggle-row">
+                <label for="autoSpeak">Leitura automática</label>
+                <input id="autoSpeak" type="checkbox" checked style="width: 18px; height: 18px; accent-color: var(--cyan);" />
+              </div>
+            </div>
+            <div class="setting">
+              <label for="speechRate">Velocidade: <strong id="rateValue">0,95×</strong></label>
+              <input id="speechRate" type="range" min="0.75" max="1.2" step="0.05" value="0.95" style="padding: 0; accent-color: var(--cyan);" />
+            </div>
+            <div class="setting-buttons" style="display: flex; gap: 8px; margin-top: 20px;">
+              <button type="button" id="testVoiceBtn" style="flex: 1; font-size: 10px;">🔊 Testar</button>
+              <button type="button" id="stopSpeakBtn" style="flex: 1; font-size: 10px;">⏹ Parar</button>
+            </div>
+          </div>
+
           <div class="main-header">
             <div>
               <div class="heading">CENTRAL DE COMANDO</div>
@@ -525,7 +555,6 @@
           <div id="status" role="status" aria-live="polite">Aguardando autenticação...</div>
 
           <div id="waveform" class="waveform-container">
-            <!-- As barras serão manipuladas via JS com base no áudio real -->
             <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
             <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
           </div>
@@ -582,7 +611,7 @@
       let currentUtterance = null;
       let sysChart = null;
       
-      // --- 1. THREE.JS REACTOR SETUP ---
+      // --- THREE.JS REACTOR SETUP ---
       let scene, camera, renderer, reactorMesh, innerMesh, audioAnalyser, audioContext;
       
       function initThree() {
@@ -593,7 +622,6 @@
           renderer.setSize(container.clientWidth, container.clientHeight);
           container.appendChild(renderer.domElement);
 
-          // Geometria externa (Icosaedro)
           const geometry = new THREE.IcosahedronGeometry(1.8, 2);
           const material = new THREE.MeshBasicMaterial({ 
               color: 0x73edff, 
@@ -604,59 +632,49 @@
           reactorMesh = new THREE.Mesh(geometry, material);
           scene.add(reactorMesh);
 
-          // Geometria interna (Esfera brilhante)
           const innerGeo = new THREE.SphereGeometry(0.8, 32, 32);
           const innerMat = new THREE.MeshBasicMaterial({ color: 0x258aff, transparent: true, opacity: 0.8 });
           innerMesh = new THREE.Mesh(innerGeo, innerMat);
           scene.add(innerMesh);
 
-          // Luz Pontual para dar profundidade
           const light = new THREE.PointLight(0x73edff, 2, 10);
           light.position.set(0, 0, 0);
           scene.add(light);
 
           camera.position.z = 4;
-
           animateThree();
       }
 
       function animateThree() {
           requestAnimationFrame(animateThree);
-          
-          // Rotação base
           reactorMesh.rotation.x += 0.002;
           reactorMesh.rotation.y += 0.003;
           innerMesh.rotation.y -= 0.001;
           
-          // Se houver áudio tocando, a escala do reator pulsa
           if (audioAnalyser && window.speaking) {
               const dataArray = new Uint8Array(audioAnalyser.frequencyBinCount);
               audioAnalyser.getByteFrequencyData(dataArray);
-              // Calcula média de frequências graves/médias
               let sum = 0;
               for (let i = 0; i < 10; i++) sum += dataArray[i];
               const avg = sum / 10;
               
-              const scale = 1 + (avg / 255) * 0.4; // Pulsa até 40% maior
+              const scale = 1 + (avg / 255) * 0.4;
               reactorMesh.scale.set(scale, scale, scale);
               reactorMesh.material.opacity = 0.3 + (avg / 255) * 0.5;
               innerMesh.scale.set(scale, scale, scale);
           } else {
-              // Retorna ao normal suavemente
               reactorMesh.scale.lerp(new THREE.Vector3(1, 1, 1), 0.1);
               innerMesh.scale.lerp(new THREE.Vector3(1, 1, 1), 0.1);
               reactorMesh.material.opacity = 0.3;
           }
-
           renderer.render(scene, camera);
       }
 
-      // Inicia o Three.js quando a página carregar
       window.addEventListener('load', () => {
           if ($('three-container')) initThree();
       });
 
-      // --- 2. WEB AUDIO API SETUP (Analisador) ---
+      // --- WEB AUDIO API ---
       function setupAudioAnalyser(audioElement) {
           if (!audioContext) {
               audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -671,7 +689,7 @@
           audioAnalyser.connect(audioContext.destination);
       }
 
-      // --- 3. UI HELPERS ---
+      // --- UI HELPERS ---
       function addMessage(who, text) {
         const item = document.createElement("div");
         item.className = "msg " + (who === "Você" ? "user" : "bot");
@@ -711,7 +729,6 @@
           else if (toolName.includes("music")) { icon = "🎵"; displayName = "Controle de Mídia..."; }
 
           card.innerHTML = `<span>${icon}</span> <span>${displayName}</span>`;
-          
           item.append(label, card);
           $("messages").appendChild(item);
           $("messages").scrollTop = $("messages").scrollHeight;
@@ -719,8 +736,7 @@
 
       async function speakText(text) {
         if (!text) return;
-        // Simulação de TTS simplificada para o visualizador
-        const cleanText = text.replace(/[*#_]/g, '').substring(0, 200); // Pega um trecho
+        const cleanText = text.replace(/[*#_]/g, '').substring(0, 200);
         try {
             const response = await fetch(`/tts?text=${encodeURIComponent(cleanText)}`);
             if (!response.ok) throw new Error('TTS falhou');
@@ -728,7 +744,6 @@
             const audioUrl = URL.createObjectURL(audioBlob);
             const audio = new Audio(audioUrl);
             
-            // Conecta ao Analisador 3D
             setupAudioAnalyser(audio);
             
             audio.onplay = () => { 
@@ -750,12 +765,15 @@
       function setWaveformState(state) {
         const wf = $('waveform');
         if (!wf) return;
-        if (state === 'listening') wf.classList.add('active');
-        else if (state === 'speaking') wf.classList.add('active');
-        else wf.classList.remove('active');
+        if (state === 'listening' || state === 'speaking') {
+            wf.classList.add('active');
+            // Animação real baseada no AudioContext no Three.js
+        } else {
+            wf.classList.remove('active');
+        }
       }
 
-      // --- 4. CHAT SUBMIT & SSE STREAM ---
+      // --- CHAT SUBMIT ---
       async function sendCommandToFriday(command) {
         if (isProcessing) return;
         isProcessing = true;
@@ -796,10 +814,7 @@
                             const dataObj = JSON.parse(dataStr);
                             
                             if (dataObj.done) break;
-                            
-                            if (dataObj.tool) {
-                                addToolCard(dataObj.tool);
-                            }
+                            if (dataObj.tool) addToolCard(dataObj.tool);
                             
                             if (dataObj.text) {
                                 fullReplyText += dataObj.text;
@@ -814,7 +829,6 @@
                 }
             }
             
-            // Renderiza código com Highlight.js (se houver)
             if (window.hljs) {
                 botSpan.querySelectorAll('pre code').forEach((el) => {
                     hljs.highlightElement(el);
@@ -834,7 +848,7 @@
         }
       }
 
-      // --- BOOTSTRAP & EVENTS ---
+      // --- EVENTOS E INICIALIZAÇÃO ---
       $("loginForm").addEventListener("submit", async (event) => {
         event.preventDefault();
         try {
@@ -859,7 +873,31 @@
         sendCommandToFriday(cmd);
       });
 
-      // Simples controle do gráfico de CPU (Placeholder visual)
+      $("settingsToggle").addEventListener("click", () => {
+        $("settingsPanel").classList.toggle("hidden");
+      });
+
+      $("speechRate").addEventListener("input", () => {
+        $("rateValue").textContent = Number($("speechRate").value).toFixed(2).replace(".", ",") + "×";
+      });
+
+      $("stopSpeakBtn").addEventListener("click", () => {
+        if (currentUtterance) {
+            currentUtterance.pause();
+            currentUtterance.currentTime = 0;
+            window.speaking = false;
+            setWaveformState('idle');
+        }
+      });
+
+      $("testVoiceBtn").addEventListener("click", () => {
+        speakText("Testando as configurações de voz, chefe.");
+      });
+
+      $("logout").addEventListener("click", () => {
+        window.location.reload();
+      });
+
       function initChart() {
           const ctx = $('sysChart').getContext('2d');
           sysChart = new Chart(ctx, {
@@ -874,8 +912,8 @@
               sysChart.update();
           }, 1000);
       }
-      initChart();
-
+      
+      if ($('sysChart')) initChart();
     </script>
   </body>
 </html>
