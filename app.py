@@ -286,9 +286,13 @@ async def text_to_speech(text: str = "", friday_session: Optional[str] = Cookie(
         # Retorna vazio para o frontend usar a voz do navegador (fallback)
         return Response(content=b"", media_type="text/plain")
 
-@app.head("/")
-async def head_index():
-    return Response(status_code=200)
+@app.get("/", response_class=HTMLResponse)
+async def serve_index():
+    try:
+        with open("index.html", "r", encoding="utf-8") as f:
+            return f.read()
+    except FileNotFoundError:
+        return "<h1>Erro: index.html não encontrado.</h1>"
 
 @app.get("/manifest.json")
 async def serve_manifest():
