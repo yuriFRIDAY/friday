@@ -43,6 +43,7 @@ if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
 STATUS_QUEUE = []
+NOTIFICATION_QUEUE = []
 QUEUE_LOCK = threading.Lock()
 
 def _push_status(text):
@@ -287,6 +288,19 @@ async def get_status(friday_session: Optional[str] = Cookie(None)):
         STATUS_QUEUE.clear()
     return {"status": msgs}
 
+# CORREÇÃO: Adicionada a rota que faltava para parar o erro 404 no console
+@app.get("/notifications")
+async def get_notifications(friday_session: Optional[str] = Cookie(None)):
+    if not friday_session: 
+        raise HTTPException(status_code=401, detail="Não autorizado")
+    global NOTIFICATION_QUEUE
+    with QUEUE_LOCK:
+        if NOTIFICATION_QUEUE:
+            msgs = list(NOTIFICATION_QUEUE)
+            NOTIFICATION_QUEUE.clear()
+            return {"notifications": msgs}
+    return {"notifications": []}
+
 @app.post("/login")
 async def login(data: LoginData, response: Response, request: Request):
     try:
@@ -296,7 +310,6 @@ async def login(data: LoginData, response: Response, request: Request):
         
         token = secrets.token_urlsafe(32)
         
-        # Correção: Usando a criação de sessão original do Friday em vez do .create() inexistente
         SESSION_STORE._sessions[token] = Session(
             token=token,
             expires_at=SESSION_STORE._clock() + SESSION_STORE.ttl_seconds
