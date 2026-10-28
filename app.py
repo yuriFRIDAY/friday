@@ -255,13 +255,41 @@ class ChatData(BaseModel):
     pdf: Optional[str] = None
     pdf_name: Optional[str] = "documento.pdf"
 
-@app.get("/", response_class=HTMLResponse)
-async def serve_index():
+@app.get("/tts")
+async def text_to_speech(text: str = "", friday_session: Optional[str] = Cookie(None)):
+    if not friday_session:
+        raise HTTPException(status_code=401, detail="Não autorizado")
+    if not text:
+        raise HTTPException(status_code=400, detail="Texto vazio.")
+
+    api_key = os.getenv("ELEVENLABS_API_KEY", "").strip()
+    if not api_key:
+        # Retorna 200 vazio para o frontend usar o fallback do navegador
+        return Response(content=b"", media_type="text/plain")
+
+    voice_id = "21m00Tcm4TlvDq8ikWAM"
+    url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}?output_format=mp3_44100_128"
+    
+    payload = json.dumps({
+        "text": text,
+        "model_id": "eleven_multilingual_v2", # Modelo mais estável
+        "voice_settings": {"stability": 0.3, "similarity_boost": 0.85, "style": 0.0, "use_speaker_boost": True}
+    }).encode("utf-8")
+    
+    req = URLRequest(url, data=payload, headers={
+        "Accept": "audio/mpeg",
+        "Content-Type": "application/json",
+        "xi-api-key": api_key
+    }, method="POST")
+
     try:
-        with open("index.html", "r", encoding="utf-8") as f:
-            return f.read()
-    except FileNotFoundError:
-        return "<h1>Erro: index.html não encontrado.</h1>"
+        with urlopen(req, timeout=30) as response:
+            audio_data = response.read()
+            return Response(content=audio_data, media_type="audio/mpeg")
+    except Exception as e:
+        print(f"TTS erro ElevenLabs (usando fallback): {e}")
+        # Retorna 200 vazio para o frontend usar o fallback do navegador sem erros no console
+        return Response(content=b"", media_type="text/plain")
 
 @app.head("/")
 async def head_index():
