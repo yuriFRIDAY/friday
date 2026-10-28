@@ -288,7 +288,6 @@ async def get_status(friday_session: Optional[str] = Cookie(None)):
         STATUS_QUEUE.clear()
     return {"status": msgs}
 
-# CORREÇÃO: Adicionada a rota que faltava para parar o erro 404 no console
 @app.get("/notifications")
 async def get_notifications(friday_session: Optional[str] = Cookie(None)):
     if not friday_session: 
@@ -428,8 +427,15 @@ async def chat_endpoint(data: ChatData, friday_session: Optional[str] = Cookie(N
             tool_call_acc = {}
             has_tool = False
             full_text = ""
+            error_occurred = False # Flag para controle de erro
 
             for chunk in stream_gen:
+                # CORREÇÃO AQUI: Repassa o erro da IA para o frontend e para o log
+                if "error" in chunk:
+                    print(f"ERRO NA IA: {chunk['error']}") # Loga no Render
+                    yield f"data: {json.dumps({'error': chunk['error']})}\n\n"
+                    error_occurred = True
+                    break
                 if "text" in chunk:
                     full_text += chunk["text"]
                     yield f"data: {json.dumps({'text': chunk['text']})}\n\n"
@@ -444,6 +450,9 @@ async def chat_endpoint(data: ChatData, friday_session: Optional[str] = Cookie(N
                             tool_call_acc[idx]["name"] += tc["function"]["name"]
                         if "arguments" in tc["function"]: 
                             tool_call_acc[idx]["arguments"] += tc["function"]["arguments"]
+
+            if error_occurred:
+                break
 
             if has_tool:
                 tool_msg = json.dumps({'text': '\n\n*[Executando ferramenta...]*\n\n'})
