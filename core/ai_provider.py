@@ -39,7 +39,7 @@ class FridayAIProvider:
         return bool(self.api_key.strip())
 
     def _get_model(self, prompt_length):
-        return "llama-3.3-70b-versatile"
+        return "openai/gpt-oss-120b"
 
     def _get_current_time_context(self):
         try:
