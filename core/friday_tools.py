@@ -1,4 +1,3 @@
-# core/friday_tools.py
 import json
 import logging
 import os
@@ -20,6 +19,12 @@ from email.utils import parseaddr
 from datetime import datetime, timedelta, timezone
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
+
+try:
+    import psycopg2
+    HAS_PSYCOPG2 = True
+except ImportError:
+    HAS_PSYCOPG2 = False
 
 try:
     from zoneinfo import ZoneInfo
@@ -51,8 +56,12 @@ if os.path.exists("/data") and os.access("/data", os.W_OK):
     DATA_DIR = "/data"
 DB_PATH = os.path.join(DATA_DIR, "friday.db")
 
+DATABASE_URL = os.getenv("DATABASE_URL", "")
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+
 # ========================================
-# CONTEXTOS (MOVIDOS PARA O TOPO PARA EVITAR ERROS)
+# CONTEXTOS
 # ========================================
 _CALENDAR_CONTEXT = {}
 _MEMORY_CONTEXT = {}
@@ -69,6 +78,14 @@ def set_calendar_context(access_token_provider, events_query, today_events, crea
 
 def set_memory_context(save_func, recall_func, delete_func=None):
     _MEMORY_CONTEXT.update({"save": save_func, "recall": recall_func, "delete": delete_func})
+
+# ========================================
+# CONEXÃO DB LOCAL PARA AS TAREFAS
+# ========================================
+def _get_db():
+    if DATABASE_URL and HAS_PSYCOPG2:
+        return psycopg2.connect(DATABASE_URL)
+    return sqlite3.connect(DB_PATH)
 
 # ========================================
 # CACHE SEGURO PARA MULTI-THREAD
@@ -534,37 +551,57 @@ def _handler_get_email_thread(thread_id):
         return {"error": str(e)}
 
 # ========================================
-# HANDLERS: TAREFAS (SQLITE)
+# HANDLERS: TAREFAS (POSTGRESQL / SQLITE)
 # ========================================
 def _handler_create_task(description):
+    conn = _get_db()
+    cursor = conn.cursor()
     try:
-        with sqlite3.connect(DB_PATH) as conn:
-            conn.execute("CREATE TABLE IF NOT EXISTS tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, desc TEXT, status TEXT)")
-            conn.execute("INSERT INTO tasks (desc, status) VALUES (?, 'pending')", (description,))
-            conn.commit()
+        if DATABASE_URL and HAS_PSYCOPG2:
+            cursor.execute("INSERT INTO tasks (description, status) VALUES (%s, 'pending')", (description,))
+        else:
+            cursor.execute("INSERT INTO tasks (description, status) VALUES (?, 'pending')", (description,))
+        conn.commit()
         return f"Tarefa criada: {description}"
     except Exception as e: 
         return {"error": str(e)}
+    finally:
+        cursor.close()
+        conn.close()
 
 def _handler_list_tasks():
+    conn = _get_db()
+    cursor = conn.cursor()
     try:
-        with sqlite3.connect(DB_PATH) as conn:
-            conn.execute("CREATE TABLE IF NOT EXISTS tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, desc TEXT, status TEXT)")
-            rows = conn.execute("SELECT id, desc FROM tasks WHERE status = 'pending'").fetchall()
+        if DATABASE_URL and HAS_PSYCOPG2:
+            cursor.execute("SELECT id, description FROM tasks WHERE status = 'pending'")
+        else:
+            cursor.execute("SELECT id, description FROM tasks WHERE status = 'pending'")
+        rows = cursor.fetchall()
         if not rows: 
             return "Nenhuma tarefa pendente."
         return "Tarefas pendentes:\n" + "\n".join(f"[{r[0]}] {r[1]}" for r in rows)
     except Exception as e: 
         return {"error": str(e)}
+    finally:
+        cursor.close()
+        conn.close()
 
 def _handler_complete_task(task_id):
+    conn = _get_db()
+    cursor = conn.cursor()
     try:
-        with sqlite3.connect(DB_PATH) as conn:
-            conn.execute("UPDATE tasks SET status = 'done' WHERE id = ?", (task_id,))
-            conn.commit()
+        if DATABASE_URL and HAS_PSYCOPG2:
+            cursor.execute("UPDATE tasks SET status = 'done' WHERE id = %s", (task_id,))
+        else:
+            cursor.execute("UPDATE tasks SET status = 'done' WHERE id = ?", (task_id,))
+        conn.commit()
         return f"Tarefa {task_id} concluída."
     except Exception as e: 
         return {"error": str(e)}
+    finally:
+        cursor.close()
+        conn.close()
 
 # ========================================
 # HANDLERS: MEMÓRIA, MÚSICA E CALENDÁRIO
@@ -763,7 +800,7 @@ def _handler_find_free_slots(date_iso):
     return {"date": start_of_day.strftime("%Y-%m-%d"), "free_slots": [s.strftime("%H:%M") for s in slots[:limit]]}
 
 # ========================================
-# REGISTRO DE FERRAMENTAS (PADRÃO JSON SCHEMA)
+# REGISTRO DE FERRAMENTAS
 # ========================================
 TOOL_REGISTRY = {
     "get_current_time": {
