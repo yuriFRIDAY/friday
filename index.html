@@ -154,61 +154,27 @@
       .reactor-wrap { position: relative; width: 100%; height: 200px; margin-bottom: 10px; }
       #three-reactor { width: 100%; height: 100%; position: absolute; top:0; left:0; }
 
-      /* --- V4: HUD CIRCULAR --- */
-      .hud-ring-container {
-          position: absolute;
-          top: 50%; left: 50%;
-          transform: translate(-50%, -50%);
-          width: 220px; height: 220px;
-          pointer-events: none;
-          z-index: 0;
-      }
-      .hud-ring {
-          position: absolute; inset: 0;
-          border-radius: 50%;
-          border: 1px dashed rgba(115, 237, 255, 0.2);
-          animation: spin 15s linear infinite;
-      }
-      .hud-ring:nth-child(2) {
-          inset: 15px;
-          border: 2px solid transparent;
-          border-top-color: rgba(115, 237, 255, 0.5);
-          animation: spin 8s linear infinite reverse;
-      }
-      .hud-ring:nth-child(3) {
-          inset: 30px;
-          border: 1px solid rgba(115, 237, 255, 0.1);
-      }
-      @keyframes spin { 100% { transform: rotate(360deg); } }
-
+      /* --- V5: MINI-MAPA TÁTICO (RADAR) --- */
+      #sysChartContainer { width: 100%; height: 160px; margin-top: 10px; position: relative; z-index: 2; background: rgba(0,0,0,0.2); border: 1px solid var(--line); padding: 5px; }
+      
       .system-title { margin: 0; color: var(--cyan-bright); font-size: 26px; font-weight: 500; letter-spacing: 0.25em; z-index: 2; text-align: center; }
       .system-sub { color: var(--muted); font-size: 9px; letter-spacing: 0.12em; text-align: center; z-index: 2; }
       .system-state { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 8px 12px; color: #9fead8; background: rgba(52, 181, 145, 0.07); border: 1px solid rgba(98, 232, 192, 0.16); font-size: 9px; letter-spacing: 0.1em; z-index: 2; }
       
       .mini-heading { width: 100%; color: #7593aa; font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase; border-bottom: 1px dashed var(--line); padding-bottom: 5px; margin-top: 10px; margin-bottom: 5px; }
-      .metric { display: flex; justify-content: space-between; width: 100%; padding: 8px 0; border-bottom: 1px solid rgba(104, 211, 255, 0.09); font-size: 11px; }
-      .metric-label { color: var(--muted); }
-      .metric-value { color: #b9e8fa; font-size: 9px; letter-spacing: 0.08em; text-align: right; }
       
-      /* Gráfico CPU/RAM */
-      #sysChartContainer { width: 100%; height: 120px; margin-top: 10px; position: relative; z-index: 2; background: rgba(0,0,0,0.2); border: 1px solid var(--line); padding: 5px; }
-
-      /* Novo Painel de Status */
-      .status-panel {
-        background: rgba(0,0,0,0.4); border: 1px solid var(--line); padding: 10px; font-size: 11px; margin-top: 5px;
-      }
-      .status-item { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
-      .status-item:last-child { border-bottom: none; }
-      .status-ok { color: #4ade80; font-weight: bold; }
-      .status-warn { color: #fbbf24; font-weight: bold; }
-      .status-err { color: #f87171; font-weight: bold; }
-
       .main-panel { padding: 20px; overflow: hidden; }
       
       .main-header { display: flex; align-items: center; justify-content: space-between; padding-bottom: 15px; border-bottom: 1px solid var(--line); }
       .heading { font-size: 14px; font-weight: 600; letter-spacing: 0.15em; color: #fff; }
       .heading-sub { margin-top: 5px; color: var(--muted); font-size: 11px; }
-      .live-label { padding: 5px 10px; border: 1px solid var(--line); font-size: 10px; color: var(--cyan); }
+      
+      /* V5: BARRA DE STATUS DE CONTEXTO */
+      .context-bar {
+          display: flex; gap: 15px; margin: 10px 0; font-size: 10px; color: var(--cyan); padding: 5px 10px;
+          border: 1px solid var(--line); background: rgba(0,0,0,0.4);
+      }
+      .context-item { display: flex; align-items: center; gap: 5px; }
 
       #status { margin: 15px 0; padding: 10px; color: #9bb8cc; background: rgba(0,0,0,0.4); border-left: 2px solid var(--cyan); font-size: 11px; }
 
@@ -318,19 +284,13 @@
           </div>
         </div>
         <div class="system-chip">
-          <span class="status-dot"></span> INTERFACE V5.0 (SECURE)
+          <span class="status-dot"></span> INTERFACE V5.1 (SECURE)
         </div>
       </div>
 
       <div class="layout">
         <aside class="panel sidebar">
           <div class="reactor-wrap">
-            <!-- V4: HUD Circular -->
-            <div class="hud-ring-container">
-                <div class="hud-ring"></div>
-                <div class="hud-ring"></div>
-                <div class="hud-ring"></div>
-            </div>
             <div id="three-reactor"></div>
           </div>
           <h1 class="system-title">FRIDAY</h1>
@@ -339,26 +299,14 @@
             <span class="status-dot"></span> <span>INTERFACE PRONTA</span>
           </div>
 
-          <div class="mini-heading">SISTEMA</div>
-          <div class="metric"><span class="metric-label">Interface</span><span class="metric-value">ONLINE</span></div>
-          <div class="metric"><span class="metric-label">Canal de voz</span><span class="metric-value">STREAMING</span></div>
-          <div class="metric"><span class="metric-label">Visão</span><span class="metric-value">ATIVA</span></div>
-          
-          <div class="mini-heading" style="margin-top: 15px;">NÚCLEO DO SISTEMA</div>
+          <div class="mini-heading" style="margin-top: 15px;">MINI-MAPA TÁTICO</div>
           <div id="sysChartContainer">
               <canvas id="sysChart"></canvas>
           </div>
 
-          <div class="mini-heading">Status de Serviços</div>
-          <div class="status-panel">
-              <div class="status-item"><span>Groq AI</span><span class="status-ok">ONLINE</span></div>
-              <div class="status-item"><span>Voicebox</span><span class="status-ok" id="status-voicebox">CONECTADO</span></div>
-              <div class="status-item"><span>Database</span><span class="status-ok">POSTGRES</span></div>
-          </div>
-
           <div class="sidebar-note" style="margin-top: 15px; color: var(--muted); font-size: 9px; line-height: 1.8;">
             <span>PROJETO TONY STARK</span><br />
-            Interface Neural v5.0
+            Interface Neural v5.1
           </div>
         </aside>
 
@@ -369,6 +317,13 @@
               <div class="heading-sub">Canal seguro de interação</div>
             </div>
             <div class="live-label">STARK CORE</div>
+          </div>
+
+          <!-- V5: BARRA DE STATUS DE CONTEXTO -->
+          <div class="context-bar">
+              <div class="context-item"><span style="color:#4ade80">●</span> MIC: <span id="ctx-mic">STANDBY</span></div>
+              <div class="context-item"><span style="color:var(--cyan)">●</span> CTX: <span id="ctx-state">IDLE</span></div>
+              <div class="context-item"><span style="color:#fbbf24">●</span> TOKENS: <span>4096</span></div>
           </div>
 
           <div id="status" role="status" aria-live="polite">Sistema aguardando autenticação.</div>
@@ -505,7 +460,7 @@
       let currentAttachmentName = null;
       let statusPollingInterval = null;
 
-      // V5: Variável de Estado Global para o Fundo 3D
+      // V5: Variável de Estado Global para o Fundo 3D e Contexto
       window.fridayState = 'idle';
 
       // === THREE.JS BACKGROUND PARTICLES ===
@@ -538,16 +493,18 @@
           function animateBg() {
               requestAnimationFrame(animateBg);
               
-              // V5: Reatividade do Fundo 3D
               if (window.fridayState === 'thinking') {
                   particles.material.color.setHex(0xff8c00);
                   particles.rotation.y += 0.002;
+                  $('ctx-state').textContent = "THINKING";
               } else if (window.fridayState === 'tooling') {
                   particles.material.color.setHex(0x00ff88);
                   particles.rotation.y += 0.004;
+                  $('ctx-state').textContent = "TOOLING";
               } else {
                   particles.material.color.setHex(0x73edff);
                   particles.rotation.y += 0.0005;
+                  $('ctx-state').textContent = "IDLE";
               }
               particles.rotation.x += 0.0002;
               bgRenderer.render(bgScene, bgCamera);
@@ -656,27 +613,38 @@
           });
       }
 
-      // --- GRÁFICO DE MÉTRICAS ---
+      // --- V5: MINI-MAPA TÁTICO (RADAR) ---
       function initChart() {
           const canvas = $('sysChart');
           if (!canvas) return;
           sysChart = new Chart(canvas.getContext('2d'), {
-              type: 'line',
+              type: 'radar',
               data: {
-                  labels: [],
-                  datasets: [
-                      { label: 'CPU', data: [], borderColor: '#73edff', backgroundColor: 'rgba(115, 237, 255, 0.1)', tension: 0.4, fill: true, pointRadius: 0 },
-                      { label: 'RAM', data: [], borderColor: '#ff8c00', backgroundColor: 'rgba(255, 140, 0, 0.1)', tension: 0.4, fill: true, pointRadius: 0 }
-                  ]
+                  labels: ['CPU', 'RAM', 'DISCO', 'REDE', 'IA'],
+                  datasets: [{
+                      label: 'Sistema',
+                      data: [10, 20, 30, 40, 50], // Dados iniciais
+                      borderColor: '#73edff',
+                      backgroundColor: 'rgba(115, 237, 255, 0.2)',
+                      pointBackgroundColor: '#c2f9ff',
+                      pointBorderColor: '#fff',
+                      pointHoverBackgroundColor: '#fff',
+                      pointHoverBorderColor: '#73edff',
+                      borderWidth: 2
+                  }]
               },
               options: {
                   responsive: true, maintainAspectRatio: false,
-                  scales: { 
-                      x: { display: false }, 
-                      y: { min: 0, max: 100, grid: { color: 'rgba(115,237,255,0.05)' }, ticks: { color: '#6a8ba5', font: {size: 9} } } 
+                  scales: {
+                      r: {
+                          angleLines: { color: 'rgba(115, 237, 255, 0.1)' },
+                          grid: { color: 'rgba(115, 237, 255, 0.1)' },
+                          pointLabels: { color: '#6a8ba5', font: { size: 9, family: 'Courier New' } },
+                          ticks: { display: false, min: 0, max: 100 }
+                      }
                   },
-                  plugins: { legend: { labels: { color: '#6a8ba5', font: { size: 10 }, boxWidth: 10 } } },
-                  animation: false
+                  plugins: { legend: { display: false } },
+                  animation: { duration: 500 }
               }
           });
       }
@@ -688,16 +656,14 @@
               if (!res.ok) return;
               const data = await res.json();
               
-              const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-              
-              if (sysChart.data.labels.length > 20) {
-                  sysChart.data.labels.shift();
-                  sysChart.data.datasets[0].data.shift();
-                  sysChart.data.datasets[1].data.shift();
-              }
-              sysChart.data.labels.push(now);
-              sysChart.data.datasets[0].data.push(data.cpu);
-              sysChart.data.datasets[1].data.push(data.ram);
+              // Atualiza o radar com dados reais e simulados (para manter o efeito)
+              sysChart.data.datasets[0].data = [
+                  data.cpu, 
+                  data.ram, 
+                  Math.random() * 20 + 10, // Simulação de Disco
+                  Math.random() * 30 + 20, // Simulação de Rede
+                  window.fridayState === 'thinking' ? 90 : 20 // Pico se estiver pensando
+              ];
               sysChart.update();
           } catch(e) {}
       }
@@ -793,11 +759,18 @@
         wf.className = 'waveform-container';
         if (state === 'listening') {
             wf.classList.add('active');
+            $('ctx-mic').textContent = "LISTENING";
+            $('ctx-mic').style.color = "#4ade80";
             document.querySelectorAll('#waveform span').forEach(span => span.style.animation = 'none');
             animateMicVisualizer();
         } else if (state === 'speaking') {
             wf.classList.add('active', 'speaking');
+            $('ctx-mic').textContent = "STANDBY";
+            $('ctx-mic').style.color = "#4ade80";
             document.querySelectorAll('#waveform span').forEach(span => span.style.height = '8px');
+        } else {
+            $('ctx-mic').textContent = "STANDBY";
+            $('ctx-mic').style.color = "#6a8ba5";
         }
       }
 
@@ -892,7 +865,20 @@
         return String(text).replace(/\*\*(.*?)\*\*/g, "$1").replace(/\*(.*?)\*/g, "$1").replace(/`([^`]*)`/g, "$1").replace(/https?:\/\/\S+/g, "link omitido").replace(/^\s*[-*]\s+/gm, "").trim();
       }
 
-      // === V4: TEXT SCRAMBLE ===
+      // === V5: TEXT SCRAMBLE + TYPEWRITER ===
+      function typeWriter(element, text, speed = 20) {
+          let i = 0;
+          element.innerHTML = "> ";
+          function type() {
+              if (i < text.length) {
+                  element.innerHTML += text.charAt(i);
+                  i++;
+                  setTimeout(type, speed);
+              }
+          }
+          type();
+      }
+
       function scrambleText(element, finalText) {
           const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!<>-_\\/[]{}—=+*^?#';
           let iterations = 0;
@@ -1015,8 +1001,8 @@
           const y = e.clientY - rect.top;
           const centerX = rect.width / 2;
           const centerY = rect.height / 2;
-          const rotateX = ((y - centerY) / centerY) * -3;
-          const rotateY = ((x - centerX) / centerX) * 3;
+          const rotateX = ((y - centerY) / centerY) * -5;
+          const rotateY = ((x - centerX) / centerX) * 5;
           msgs.forEach(msg => {
               msg.style.transform = `rotateX(${rotateX}deg) rotateY(${rotateY}deg)`;
           });
@@ -1098,7 +1084,7 @@
         if (isProcessing) return;
         isProcessing = true;
         
-        window.fridayState = 'thinking'; // Muda fundo 3D
+        window.fridayState = 'thinking'; 
         if (!isInitial) { addMessage("Você", command); soundSend(); }
         
         const botSpan = addMessage("FRIDAY", " ");
@@ -1146,7 +1132,7 @@
                             if (!receivedFirstChunk) { soundReceive(); receivedFirstChunk = true; }
                             
                             if (dataObj.tool) {
-                                window.fridayState = 'tooling'; // Muda fundo 3D
+                                window.fridayState = 'tooling'; 
                                 addToolCard(dataObj.tool);
                             }
                             if (dataObj.text) {
@@ -1169,7 +1155,8 @@
                 status("Sistema online.");
                 let finalReply = handleMusicAction(fullReplyText);
                 
-                scrambleText(botSpan, finalReply);
+                // V5.1: Aplica o Typewriter ou Scramble no final
+                scrambleText(botSpan, finalReply); 
                 
                 lastReply = finalReply;
                 speakResponse(finalReply);
@@ -1181,7 +1168,7 @@
             status("Erro de conexão.");
         } finally {
             isProcessing = false;
-            window.fridayState = 'idle'; // Volta fundo 3D
+            window.fridayState = 'idle';
             $("sendBtn").disabled = false;
             $("voiceBtn").disabled = false;
             if (!$("assistant").classList.contains("hidden")) $("command").focus();
@@ -1241,7 +1228,7 @@
 
         recognition.onstart = () => {
           listening = true;
-          setupMicVisualizer(); // V5: Inicia visualizador
+          setupMicVisualizer();
           $("voiceBtn").classList.add("listening");
           soundListen(); setWaveformState('listening');
           $("voiceBtn").textContent = "⏹";
@@ -1400,11 +1387,6 @@
           }
         } catch (e) {}
       }, 30000);
-
-      // V5: Sons de Hover
-      document.querySelectorAll('button, .msg').forEach(el => {
-          el.addEventListener('mouseenter', soundHover);
-      });
 
       // Inicializa os efeitos visuais 3D
       window.addEventListener('load', () => {
