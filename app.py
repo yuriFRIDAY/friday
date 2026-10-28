@@ -24,7 +24,7 @@ from pydantic import BaseModel
 
 from core.assistant import FridayAssistant
 from core.auth import FridayAuth
-from core.sessions import SessionStore # Removido 'Session' daqui para evitar crash se não existir
+from core.sessions import SessionStore
 from core.friday_tools import (
     TOOL_REGISTRY, execute_tool, public_tool_specs,
     set_calendar_context, set_memory_context,
@@ -81,7 +81,6 @@ def init_db():
     except Exception as e:
         print(f"AVISO: Erro ao inicializar DB (o servidor continuará rodando): {e}")
 
-# Roda a inicialização em background para não travar o Uvicorn (Evita erro 502)
 threading.Thread(target=init_db, daemon=True).start()
 
 def _db_save_memory(key, value):
@@ -216,7 +215,8 @@ def _calendar_create_event(access_token, payload):
     try:
         with urlopen(req, timeout=15) as resp: 
             return json.loads(resp.read().decode())
-    except Exception: 
+    except Exception as e: 
+        print(f"ERRO NO GOOGLE CALENDAR CREATE: {e}")
         return None
 
 def _calendar_delete_event(access_token, event_id):
@@ -279,9 +279,6 @@ async def serve_sw():
 async def health_check():
     return {"status": "ok"}
 
-# ========================================
-# ROTA DE TTS (CORRIGIDA)
-# ========================================
 @app.get("/tts")
 async def text_to_speech(text: str = "", friday_session: Optional[str] = Cookie(None)):
     if not friday_session:
@@ -347,7 +344,6 @@ async def login(data: LoginData, response: Response, request: Request):
         
         token = secrets.token_urlsafe(32)
         
-        # CORREÇÃO: Tentativa segura de criar a sessão para não derrubar o servidor (502)
         try:
             from core.sessions import Session
             SESSION_STORE._sessions[token] = Session(
@@ -448,12 +444,9 @@ async def chat_endpoint(data: ChatData, friday_session: Optional[str] = Cookie(N
         raise HTTPException(status_code=401)
     
     history = SESSION_STORE.get_history(friday_session)
-    if history is None:
-        history = []
-        
+    if history is None: history = []
     session = SESSION_STORE.get(friday_session)
-    if session is None:
-        session = {}
+    if session is None: session = {}
 
     def event_generator():
         from core.ai_provider import FridayAIProvider
@@ -469,6 +462,7 @@ async def chat_endpoint(data: ChatData, friday_session: Optional[str] = Cookie(N
 
         current_messages = list(history)
         current_messages.append({"role": "user", "content": data.command})
+        response_generated = False
 
         for _ in range(5):
             stream_gen = provider.chat_with_full_history_stream(current_messages, public_tool_specs())
@@ -502,6 +496,7 @@ async def chat_endpoint(data: ChatData, friday_session: Optional[str] = Cookie(N
                 break
 
             if has_tool:
+                # Se a IA decidiu usar a ferramenta, avisa na tela
                 tool_msg = json.dumps({'text': '\n\n*[Executando ferramenta...]*\n\n'})
                 yield f"data: {tool_msg}\n\n"
                 
@@ -512,15 +507,28 @@ async def chat_endpoint(data: ChatData, friday_session: Optional[str] = Cookie(N
                     args = {}
                 
                 exec_res = execute_tool(tc_data["name"], args, session=session)
-                result = exec_res.get("result") if exec_res.get("ok") else {"error": exec_res.get("error")}
+                
+                if not exec_res.get("ok"):
+                    # CORREÇÃO: Se a ferramenta falhar, avisa o usuário e quebra o loop!
+                    err_msg = exec_res.get("error", "Erro na ferramenta.")
+                    yield f"data: {json.dumps({'text': f'Erro ao executar a ferramenta: {err_msg}'})}\n\n"
+                    break
+                
+                result = exec_res.get("result")
                 
                 current_messages.append({"role": "assistant", "content": None, "tool_calls": [{"id": tc_data["id"], "type": "function", "function": {"name": tc_data["name"], "arguments": tc_data["arguments"]}}]})
                 current_messages.append({"role": "tool", "tool_call_id": tc_data["id"], "content": json.dumps(result)})
                 continue
             else:
-                history.append({"role": "user", "content": data.command})
-                history.append({"role": "assistant", "content": full_text})
+                if full_text.strip():
+                    history.append({"role": "user", "content": data.command})
+                    history.append({"role": "assistant", "content": full_text})
+                    response_generated = True
                 break
+
+        # CORREÇÃO: Se a IA não respondeu nada depois de tentar ferramentas, avisa o usuário
+        if not response_generated and not error_occurred:
+            yield f"data: {json.dumps({'text': 'Desculpe, chefe. Tentei executar a ação mas não consegui obter uma resposta da ferramenta.'})}\n\n"
 
         yield f"data: {json.dumps({'done': True})}\n\n"
 
