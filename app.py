@@ -278,6 +278,43 @@ async def serve_sw():
 async def health_check():
     return {"status": "ok"}
 
+# ========================================
+# ROTA DE TTS (CORRIGIDA E ADICIONADA)
+# ========================================
+@app.get("/tts")
+async def text_to_speech(text: str = "", friday_session: Optional[str] = Cookie(None)):
+    if not friday_session:
+        raise HTTPException(status_code=401, detail="Não autorizado")
+    if not text:
+        raise HTTPException(status_code=400, detail="Texto vazio.")
+
+    api_key = os.getenv("ELEVENLABS_API_KEY", "").strip()
+    if not api_key:
+        raise HTTPException(status_code=500, detail="Chave ElevenLabs ausente.")
+
+    voice_id = "21m00Tcm4TlvDq8ikWAM" # Voz padrão da ElevenLabs
+    url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}?output_format=mp3_44100_128"
+    
+    payload = json.dumps({
+        "text": text,
+        "model_id": "eleven_flash_v2_5",
+        "voice_settings": {"stability": 0.3, "similarity_boost": 0.85, "style": 0.0, "use_speaker_boost": True}
+    }).encode("utf-8")
+    
+    req = URLRequest(url, data=payload, headers={
+        "Accept": "audio/mpeg",
+        "Content-Type": "application/json",
+        "xi-api-key": api_key
+    }, method="POST")
+
+    try:
+        with urlopen(req, timeout=30) as response:
+            audio_data = response.read()
+            return Response(content=audio_data, media_type="audio/mpeg")
+    except Exception as e:
+        print(f"TTS erro: {e}")
+        raise HTTPException(status_code=500, detail="Falha ao gerar áudio.")
+
 @app.get("/status")
 async def get_status(friday_session: Optional[str] = Cookie(None)):
     if not friday_session: 
@@ -427,12 +464,11 @@ async def chat_endpoint(data: ChatData, friday_session: Optional[str] = Cookie(N
             tool_call_acc = {}
             has_tool = False
             full_text = ""
-            error_occurred = False # Flag para controle de erro
+            error_occurred = False
 
             for chunk in stream_gen:
-                # CORREÇÃO AQUI: Repassa o erro da IA para o frontend e para o log
                 if "error" in chunk:
-                    print(f"ERRO NA IA: {chunk['error']}") # Loga no Render
+                    print(f"ERRO NA IA: {chunk['error']}") 
                     yield f"data: {json.dumps({'error': chunk['error']})}\n\n"
                     error_occurred = True
                     break
