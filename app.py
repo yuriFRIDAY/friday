@@ -262,33 +262,28 @@ async def text_to_speech(text: str = "", friday_session: Optional[str] = Cookie(
     if not text:
         raise HTTPException(status_code=400, detail="Texto vazio.")
 
-    api_key = os.getenv("ELEVENLABS_API_KEY", "").strip()
-    if not api_key:
-        # Retorna 200 vazio para o frontend usar o fallback do navegador
-        return Response(content=b"", media_type="text/plain")
+    # O ID do seu perfil de voz no Voicebox
+    VOICEBOX_PROFILE_ID = "seu_profile_id_aqui" # <-- COLOQUE O ID AQUI
 
-    voice_id = "21m00Tcm4TlvDq8ikWAM"
-    url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}?output_format=mp3_44100_128"
+    voicebox_url = "http://127.0.0.1:17493/generate"
     
     payload = json.dumps({
         "text": text,
-        "model_id": "eleven_multilingual_v2", # Modelo mais estável
-        "voice_settings": {"stability": 0.3, "similarity_boost": 0.85, "style": 0.0, "use_speaker_boost": True}
+        "profile_id": VOICEBOX_PROFILE_ID,
+        "language": "pt"  # Português
     }).encode("utf-8")
-    
-    req = URLRequest(url, data=payload, headers={
-        "Accept": "audio/mpeg",
-        "Content-Type": "application/json",
-        "xi-api-key": api_key
+
+    req = URLRequest(voicebox_url, data=payload, headers={
+        "Content-Type": "application/json"
     }, method="POST")
 
     try:
         with urlopen(req, timeout=30) as response:
             audio_data = response.read()
-            return Response(content=audio_data, media_type="audio/mpeg")
+            return Response(content=audio_data, media_type="audio/wav")
     except Exception as e:
-        print(f"TTS erro ElevenLabs (usando fallback): {e}")
-        # Retorna 200 vazio para o frontend usar o fallback do navegador sem erros no console
+        print(f"Erro no Voicebox: {e}")
+        # Retorna vazio para o frontend usar a voz do navegador (fallback)
         return Response(content=b"", media_type="text/plain")
 
 @app.head("/")
