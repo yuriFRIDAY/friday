@@ -245,10 +245,61 @@
       .msg span code { background: rgba(115,237,255,0.1); padding: 2px 4px; color: var(--cyan); }
       .msg span pre { background: #000; padding: 10px; border: 1px solid var(--line); overflow-x: auto; }
 
-      @media (max-width: 900px) {
-        .layout { grid-template-columns: 1fr; }
-        .sidebar { display: none; }
-        .shell { padding: 10px; }
+      /* =========================================
+         IOS & MOBILE OPTIMIZATIONS (SEM MEXER NO PC)
+         ========================================= */
+      @media (max-width: 768px) {
+        /* Força a altura dinâmica (dvh) para o Safari não sobrepor o teclado */
+        body { height: 100dvh; padding-bottom: env(safe-area-inset-bottom); }
+        .shell { padding: 10px 10px calc(10px + env(safe-area-inset-bottom)) 10px; height: 100dvh; }
+        
+        /* Esconde o HUD que polui a tela do celular */
+        .hud-code, .scanline, .scanline-move { display: none; }
+        
+        /* Topbar compacta */
+        .topbar { min-height: auto; padding-bottom: 10px; margin-bottom: 10px; }
+        .brand-name { font-size: 14px; }
+        .brand-sub, .system-chip { display: none; }
+        
+        /* Layout vertical (Chat ocupa tudo) */
+        .layout { display: flex; flex-direction: column; gap: 0; }
+        .sidebar { display: none; } /* Oculta a barra lateral no celular */
+        
+        /* Painel Principal */
+        .main-panel { padding: 10px; border-radius: 0; border: none; background: transparent; box-shadow: none; backdrop-filter: none; }
+        .main-header { padding-bottom: 10px; margin-bottom: 10px; }
+        .heading { font-size: 12px; }
+        .heading-sub { font-size: 9px; }
+        
+        /* Barra de contexto com scroll horizontal */
+        .context-bar { overflow-x: auto; white-space: nowrap; padding: 8px; gap: 10px; font-size: 9px; scrollbar-width: none; }
+        .context-bar::-webkit-scrollbar { display: none; }
+        
+        /* Mensagens ligeiramente maiores para leitura */
+        #messages { padding-right: 0; margin-bottom: 10px; }
+        .msg { max-width: 95%; font-size: 14px; padding: 12px; }
+        
+        /* Composer (Input) Organizado e com Safe Area */
+        .composer { padding: 10px; background: var(--bg); position: relative; z-index: 100; }
+        .composer-title { display: none; }
+        
+        /* Input ocupa 100% da largura e os botões vão para baixo */
+        .controls { display: flex; flex-wrap: wrap; gap: 8px; }
+        .input-wrapper { order: -1; width: 100%; margin-bottom: 5px; }
+        
+        #command {
+            font-size: 16px !important; /* Impede o zoom chato do iOS */
+            height: 48px;
+            border-radius: 24px; /* Formato pílula */
+        }
+        
+        /* Botões grandes o suficiente para o dedo (Apple HIG) */
+        .controls button { flex: 1; min-height: 48px; font-size: 14px; border-radius: 24px; }
+        .attach-btn { flex: 0 0 48px; font-size: 20px !important; }
+        .primary { flex: 2 !important; letter-spacing: 0.05em !important; }
+        
+        /* Esconde o footer no celular para ganhar espaço */
+        footer { display: none; }
       }
     </style>
   </head>
@@ -524,25 +575,21 @@
           reactorGroup = new THREE.Group();
           scene.add(reactorGroup);
 
-          // 1. Núcleo Central (Brilhante e Sólido)
           const coreGeo = new THREE.IcosahedronGeometry(0.45, 3);
           const coreMat = new THREE.MeshBasicMaterial({ color: 0x73edff, transparent: true, opacity: 0.9 });
           coreMesh = new THREE.Mesh(coreGeo, coreMat);
           reactorGroup.add(coreMesh);
 
-          // 2. Malha Interna (Gira em uma direção)
           const innerWireGeo = new THREE.IcosahedronGeometry(0.7, 2);
           const innerWireMat = new THREE.MeshBasicMaterial({ color: 0xc2f9ff, wireframe: true, transparent: true, opacity: 0.3 });
           innerWireMesh = new THREE.Mesh(innerWireGeo, innerWireMat);
           reactorGroup.add(innerWireMesh);
 
-          // 3. Gaiola Externa (Estrutural, gira na direção oposta)
           const outerCageGeo = new THREE.IcosahedronGeometry(1.3, 1);
           const outerCageMat = new THREE.MeshBasicMaterial({ color: 0x258aff, wireframe: true, transparent: true, opacity: 0.15 });
           outerCageMesh = new THREE.Mesh(outerCageGeo, outerCageMat);
           reactorGroup.add(outerCageMesh);
 
-          // 4. Anéis de Giroscópio
           const ringGeo = new THREE.TorusGeometry(1.1, 0.01, 8, 64);
           const ringMat = new THREE.MeshBasicMaterial({ color: 0x73edff, transparent: true, opacity: 0.4 });
 
@@ -552,7 +599,6 @@
           
           reactorGroup.add(ring1, ring2, ring3);
 
-          // 5. Luz do Núcleo (Efeito de Brilho)
           coreLight = new THREE.PointLight(0x73edff, 2, 5);
           reactorGroup.add(coreLight);
 
@@ -561,17 +607,14 @@
           function animateReactor() {
               requestAnimationFrame(animateReactor);
               
-              // Rotação Base
               reactorGroup.rotation.y += 0.003;
               outerCageMesh.rotation.x -= 0.002; outerCageMesh.rotation.y += 0.002;
               innerWireMesh.rotation.x += 0.005; innerWireMesh.rotation.y -= 0.005;
 
-              // Rotação dos Anéis
               ring1.rotation.z += 0.02;
               ring2.rotation.x += 0.02;
               ring3.rotation.y += 0.02;
 
-              // Pulsação e Reatividade ao Áudio
               if (audioAnalyser && speaking) {
                   const dataArray = new Uint8Array(audioAnalyser.frequencyBinCount);
                   audioAnalyser.getByteFrequencyData(dataArray);
@@ -582,23 +625,17 @@
                   coreMesh.scale.set(scale, scale, scale);
                   innerWireMesh.scale.set(scale, scale, scale);
                   coreLight.intensity = 2 + (avg / 255) * 3;
-
-                  // Anéis expandem levemente
                   ring1.scale.set(scale, scale, scale);
                   ring2.scale.set(scale, scale, scale);
                   ring3.scale.set(scale, scale, scale);
               } else {
-                  // Respiração Idle (quando não está falando)
                   const time = Date.now() * 0.002;
                   const idleScale = 1 + Math.sin(time) * 0.05;
-                  
                   coreMesh.scale.set(idleScale, idleScale, idleScale);
                   innerWireMesh.scale.set(idleScale, idleScale, idleScale);
-                  
                   ring1.scale.set(idleScale, idleScale, idleScale);
                   ring2.scale.set(idleScale, idleScale, idleScale);
                   ring3.scale.set(idleScale, idleScale, idleScale);
-                  
                   coreLight.intensity = 2 + Math.sin(time) * 0.5;
               }
               renderer.render(scene, camera);
@@ -614,9 +651,11 @@
           }
           if(renderer) {
               const container = $('three-reactor');
-              renderer.setSize(container.clientWidth, container.clientHeight);
-              camera.aspect = container.clientWidth / container.clientHeight;
-              camera.updateProjectionMatrix();
+              if(container) {
+                  renderer.setSize(container.clientWidth, container.clientHeight);
+                  camera.aspect = container.clientWidth / container.clientHeight;
+                  camera.updateProjectionMatrix();
+              }
           }
       });
 
@@ -1032,8 +1071,9 @@
         return content;
       }
 
-      // V5: Efeito Holográfico 3D
+      // Efeito Holográfico 3D
       $('messages').addEventListener('mousemove', (e) => {
+          if (window.innerWidth <= 768) return; // Desativa no celular
           const msgs = document.querySelectorAll('.msg');
           const rect = $('messages').getBoundingClientRect();
           const x = e.clientX - rect.left;
