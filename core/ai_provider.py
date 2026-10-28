@@ -39,7 +39,7 @@ class FridayAIProvider:
         return bool(self.api_key.strip())
 
     def _get_model(self, prompt_length):
-        return "openai/gpt-oss-120b"
+        return "llama-3.3-70b-versatile"
 
     def _get_current_time_context(self):
         try:
@@ -87,7 +87,7 @@ class FridayAIProvider:
         
         return recent_messages
 
-        def _get_system_prompt(self, history_context=""):
+    def _get_system_prompt(self, history_context=""):
         memories = self._get_recent_memories()
         time_context = self._get_current_time_context()
         
@@ -218,7 +218,6 @@ NUNCA diga que não possui uma ferramenta, pois você tem todas.
         
         payload = {"model": model, "messages": full_messages, "tools": formatted_tools, "tool_choice": "auto", "stream": True, "max_tokens": 4096}
         
-        # CORREÇÃO: Incluído o User-Agent para burlar o bloqueio da Cloudflare (Error 1010)
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self.api_key}",
@@ -255,7 +254,6 @@ NUNCA diga que não possui uma ferramenta, pois você tem todas.
             yield {"error": f"Erro no streaming: {str(e)}"}
 
     def _send_raw_request(self, payload):
-        # CORREÇÃO: User-Agent também foi mantido aqui por segurança
         request = Request(f"{self.base_url}/chat/completions", data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json", "Authorization": f"Bearer {self.api_key}", "User-Agent": "Mozilla/5.0"}, method="POST")
         with urlopen(request, timeout=60) as response:
             return json.loads(response.read().decode("utf-8"))
