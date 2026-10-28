@@ -563,8 +563,7 @@ class FridayHandler(BaseHTTPRequestHandler):
             parsed = urlsplit(origin)
             if (parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc
                     or parsed.username or parsed.password
-                    or parsed.path not in {"", "/"} or parsed.query or parsed.fragment):
-                return None
+                    or parsed.path not in {"", "/"} or parsed.query or parsed.fragment): return None
             parsed.port
         except ValueError: return None
         return f"{parsed.scheme.lower()}://{parsed.netloc.lower()}"
@@ -613,7 +612,6 @@ class FridayHandler(BaseHTTPRequestHandler):
         if path == "/tts":
             return self.handle_tts()
             
-        # ROTA DOS GRÁFICOS (MÉTRICAS)
         if path == "/system_metrics":
             token = self.get_session()
             if not token:
@@ -800,7 +798,7 @@ class FridayHandler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
             self.send_header("Cache-Control", "no-cache")
-            self.send_header("Connection", "keep-alive")
+            self.send_header("Connection", "close") # CORREÇÃO: Força o fechamento da conexão
             self.send_header("X-Accel-Buffering", "no")
             self.end_headers()
 
@@ -808,6 +806,8 @@ class FridayHandler(BaseHTTPRequestHandler):
                 self._stream_chat_logic(command.strip(), history, session, pdf, pdf_name)
             except Exception as e:
                 self._send_sse({"error": f"Erro crítico: {str(e)}"})
+            finally:
+                self._send_sse({"done": True}) # CORREÇÃO: Sinaliza o fim do stream
             return
 
         self.send_json(404, {"error": "Página não encontrada."})
@@ -834,7 +834,6 @@ class FridayHandler(BaseHTTPRequestHandler):
 
         normalized = command.casefold()
         
-        # 1. Checa Confirmação de Ferramenta Pendente
         pending = getattr(session, "pending_tool", None)
         if pending:
             if normalized in {"confirmar", "confirmo", "sim", "pode executar"}:
@@ -853,7 +852,6 @@ class FridayHandler(BaseHTTPRequestHandler):
                 self._send_sse({"text": "Operação cancelada, chefe."})
                 return
 
-        # 2. Checa Intenção de Música Direta
         if any(k in normalized for k in ["toque", "música", "musica", "play", "pause", "pausar", "continuar"]):
             query = command
             for word in ["FRIDAY,", "FRIDAY", "toque", "a música", "a musica", "música", "musica", "coloque", "play"]:
@@ -873,7 +871,6 @@ class FridayHandler(BaseHTTPRequestHandler):
             self._send_sse({"text": "Não consegui controlar a música."})
             return
 
-        # 3. Processamento de PDF
         if pdf_b64:
             self._send_sse({"text": "Lendo documento PDF... "})
             text = self._extract_pdf(pdf_b64)
@@ -882,7 +879,6 @@ class FridayHandler(BaseHTTPRequestHandler):
         current_messages = list(history)
         current_messages.append({"role": "user", "content": command})
 
-        # 4. Loop do Stream da IA
         for iteration in range(5):
             stream_gen = provider.chat_with_full_history_stream(current_messages, public_tool_specs())
             tool_call_accumulator = {}
@@ -934,6 +930,7 @@ class FridayHandler(BaseHTTPRequestHandler):
                 current_messages.append({
                     "role": "tool", "tool_call_id": tc_data["id"], "content": json.dumps(result, ensure_ascii=False)
                 })
+                stream_gen.close() # CORREÇÃO: Fecha o gerador antigo
                 continue
             else:
                 history.append({"role": "user", "content": command})
