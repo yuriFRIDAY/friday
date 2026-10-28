@@ -9,12 +9,13 @@ import io
 import re
 import secrets
 import traceback
+import threading
 import psycopg2
 import psycopg2.extras
 from datetime import datetime, timezone, timedelta
 from typing import Optional
-from urllib.parse import urlencode, parse_qs
-from urllib.request import Request, urlopen
+from urllib.parse import urlencode
+from urllib.request import Request as URLRequest, urlopen
 from urllib.error import HTTPError, URLError
 
 from fastapi import FastAPI, Request, Response, HTTPException, Cookie
@@ -41,6 +42,16 @@ DATABASE_URL = os.getenv("DATABASE_URL", "")
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
+STATUS_QUEUE = []
+QUEUE_LOCK = threading.Lock()
+
+def _push_status(text):
+    global STATUS_QUEUE
+    with QUEUE_LOCK:
+        STATUS_QUEUE.append(text)
+        if len(STATUS_QUEUE) > 20:
+            STATUS_QUEUE.pop(0)
+
 # ========================================
 # BANCO DE DADOS (POSTGRESQL COM FALLBACK SQLITE)
 # ========================================
@@ -50,7 +61,9 @@ def get_db():
         conn = sqlite3.connect("friday.db")
         conn.row_factory = sqlite3.Row
         return conn
-    return psycopg2.connect(DATABASE_URL, sslmode='require')
+    # Render exige sslmode=require para conexões externas, 
+    # mas para a URL interna, o padrão é suficiente e mais rápido.
+    return psycopg2.connect(DATABASE_URL)
 
 def init_db():
     conn = get_db()
@@ -79,7 +92,9 @@ def _db_save_memory(key, value):
         else:
             cursor.execute("INSERT OR REPLACE INTO ai_memory (key, value) VALUES (?, ?)", (key, value))
         conn.commit()
-    finally: cursor.close(); conn.close()
+    finally: 
+        cursor.close()
+        conn.close()
 
 def _db_recall_memory(key):
     conn = get_db(); cursor = conn.cursor()
@@ -90,7 +105,9 @@ def _db_recall_memory(key):
             cursor.execute("SELECT key, value FROM ai_memory WHERE key LIKE ? OR value LIKE ? LIMIT 1", (f"%{key}%", f"%{key}%"))
         row = cursor.fetchone()
         return f"{row[0]}: {row[1]}" if row else None
-    finally: cursor.close(); conn.close()
+    finally: 
+        cursor.close()
+        conn.close()
 
 def _db_delete_memory(key):
     conn = get_db(); cursor = conn.cursor()
@@ -101,7 +118,9 @@ def _db_delete_memory(key):
             cursor.execute("DELETE FROM ai_memory WHERE key LIKE ?", (f"%{key}%",))
         conn.commit()
         return cursor.rowcount > 0
-    finally: cursor.close(); conn.close()
+    finally: 
+        cursor.close()
+        conn.close()
 
 set_memory_context(save_func=_db_save_memory, recall_func=_db_recall_memory, delete_func=_db_delete_memory)
 
@@ -112,7 +131,10 @@ GOOGLE_OAUTH_AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_OAUTH_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GOOGLE_SCOPES = "https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/gmail.readonly"
 GOOGLE_OWNER_KEY = "owner"
-GOOGLE_TOKEN_FILE = os.getenv("FRIDAY_GOOGLE_TOKEN_FILE", "").strip() or os.path.join(os.getenv("DATA_DIR", "."), ".friday_google_tokens.json")
+DATA_DIR = os.getenv("DATA_DIR", ".")
+if os.path.exists("/data") and os.access("/data", os.W_OK):
+    DATA_DIR = "/data"
+GOOGLE_TOKEN_FILE = os.getenv("FRIDAY_GOOGLE_TOKEN_FILE", "").strip() or os.path.join(DATA_DIR, ".friday_google_tokens.json")
 
 GOOGLE_OAUTH_CLIENT_ID = os.getenv("GOOGLE_OAUTH_CLIENT_ID", "").strip()
 GOOGLE_OAUTH_CLIENT_SECRET = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET", "").strip()
@@ -142,18 +164,21 @@ def _save_owner_calendar_tokens(access_token, refresh_token, expires_in, scope):
         os.makedirs(os.path.dirname(GOOGLE_TOKEN_FILE) or ".", exist_ok=True)
         with open(GOOGLE_TOKEN_FILE, "w", encoding="utf-8") as h:
             json.dump(GOOGLE_TOKEN_STORE, h)
-    except Exception: pass
+    except Exception: 
+        pass
 
 def _usable_calendar_access_token():
     record = GOOGLE_TOKEN_STORE.get(GOOGLE_OWNER_KEY)
-    if not record: return None
+    if not record: 
+        return None
     if time.time() < float(record.get("expires_at", 0)) - 60:
         return record["access_token"]
     refresh_token = record.get("refresh_token")
-    if not refresh_token: return None
+    if not refresh_token: 
+        return None
     
     try:
-        req = Request(GOOGLE_OAUTH_TOKEN_URL, data=urlencode({
+        req = URLRequest(GOOGLE_OAUTH_TOKEN_URL, data=urlencode({
             "client_id": GOOGLE_OAUTH_CLIENT_ID,
             "client_secret": GOOGLE_OAUTH_CLIENT_SECRET,
             "refresh_token": refresh_token,
@@ -170,12 +195,15 @@ def _usable_calendar_access_token():
 def _calendar_events_query(access_token, time_min=None, time_max=None, max_results=10):
     params = {"maxResults": str(max_results), "singleEvents": "true", "orderBy": "startTime"}
     params["timeMin"] = time_min or time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-    if time_max: params["timeMax"] = time_max
+    if time_max: 
+        params["timeMax"] = time_max
     
-    req = Request("https://www.googleapis.com/calendar/v3/calendars/primary/events?" + urlencode(params), headers={"Authorization": "Bearer " + access_token})
+    req = URLRequest("https://www.googleapis.com/calendar/v3/calendars/primary/events?" + urlencode(params), headers={"Authorization": "Bearer " + access_token})
     try:
-        with urlopen(req, timeout=15) as resp: result = json.loads(resp.read().decode())
-    except Exception: return None
+        with urlopen(req, timeout=15) as resp: 
+            result = json.loads(resp.read().decode())
+    except Exception: 
+        return None
     
     return [{"id": item.get("id", ""), "summary": item.get("summary", "(sem título)"), "start": (item.get("start") or {}).get("dateTime", ""), "hangoutLink": item.get("hangoutLink", "")} for item in (result.get("items") or [])[:max_results]]
 
@@ -184,22 +212,28 @@ def _calendar_today_events(access_token):
     return _calendar_events_query(access_token, time.strftime("%Y-%m-%dT00:00:00", now) + "Z", time.strftime("%Y-%m-%dT23:59:59", now) + "Z", 20)
 
 def _calendar_create_event(access_token, payload):
-    req = Request("https://www.googleapis.com/calendar/v3/calendars/primary/events", data=json.dumps(payload).encode(), headers={"Content-Type": "application/json", "Authorization": "Bearer " + access_token}, method="POST")
+    req = URLRequest("https://www.googleapis.com/calendar/v3/calendars/primary/events", data=json.dumps(payload).encode(), headers={"Content-Type": "application/json", "Authorization": "Bearer " + access_token}, method="POST")
     try:
-        with urlopen(req, timeout=15) as resp: return json.loads(resp.read().decode())
-    except Exception: return None
+        with urlopen(req, timeout=15) as resp: 
+            return json.loads(resp.read().decode())
+    except Exception: 
+        return None
 
 def _calendar_delete_event(access_token, event_id):
-    req = Request(f"https://www.googleapis.com/calendar/v3/calendars/primary/events/{event_id}", headers={"Authorization": "Bearer " + access_token}, method="DELETE")
+    req = URLRequest(f"https://www.googleapis.com/calendar/v3/calendars/primary/events/{event_id}", headers={"Authorization": "Bearer " + access_token}, method="DELETE")
     try:
-        with urlopen(req, timeout=15): return {"ok": True}
-    except Exception: return None
+        with urlopen(req, timeout=15): 
+            return {"ok": True}
+    except Exception: 
+        return None
 
 def _calendar_update_event(access_token, event_id, payload):
-    req = Request(f"https://www.googleapis.com/calendar/v3/calendars/primary/events/{event_id}", data=json.dumps(payload).encode(), headers={"Content-Type": "application/json", "Authorization": "Bearer " + access_token}, method="PATCH")
+    req = URLRequest(f"https://www.googleapis.com/calendar/v3/calendars/primary/events/{event_id}", data=json.dumps(payload).encode(), headers={"Content-Type": "application/json", "Authorization": "Bearer " + access_token}, method="PATCH")
     try:
-        with urlopen(req, timeout=15) as resp: return json.loads(resp.read().decode())
-    except Exception: return None
+        with urlopen(req, timeout=15) as resp: 
+            return json.loads(resp.read().decode())
+    except Exception: 
+        return None
 
 set_calendar_context(
     access_token_provider=_usable_calendar_access_token,
@@ -241,6 +275,16 @@ async def serve_sw():
 async def health_check():
     return {"status": "ok"}
 
+@app.get("/status")
+async def get_status(friday_session: Optional[str] = Cookie(None)):
+    if not friday_session: 
+        raise HTTPException(status_code=401, detail="Não autorizado")
+    global STATUS_QUEUE
+    with QUEUE_LOCK:
+        msgs = list(STATUS_QUEUE)
+        STATUS_QUEUE.clear()
+    return {"status": msgs}
+
 @app.post("/login")
 async def login(data: LoginData, response: Response, request: Request):
     client_ip = request.client.host if request.client else "0.0.0.0"
@@ -260,10 +304,12 @@ async def check_session(friday_session: Optional[str] = Cookie(None)):
 
 @app.get("/system_metrics")
 async def get_metrics(friday_session: Optional[str] = Cookie(None)):
-    if not friday_session: raise HTTPException(status_code=401)
+    if not friday_session: 
+        raise HTTPException(status_code=401)
     try:
         load1, _, _ = os.getloadavg()
-        with open('/proc/meminfo', 'r') as f: lines = f.readlines()
+        with open('/proc/meminfo', 'r') as f: 
+            lines = f.readlines()
         mem_total = int(lines[0].split()[1])
         mem_free = int(lines[1].split()[1])
         ram_percent = round((mem_total - mem_free) / mem_total * 100, 1)
@@ -273,8 +319,10 @@ async def get_metrics(friday_session: Optional[str] = Cookie(None)):
 
 @app.get("/calendar/connect")
 async def calendar_connect(friday_session: Optional[str] = Cookie(None)):
-    if not friday_session: return RedirectResponse(url="/?calendar=nosession")
-    if GOOGLE_TOKEN_STORE.get(GOOGLE_OWNER_KEY): return RedirectResponse(url="/?calendar=connected")
+    if not friday_session: 
+        return RedirectResponse(url="/?calendar=nosession")
+    if GOOGLE_TOKEN_STORE.get(GOOGLE_OWNER_KEY): 
+        return RedirectResponse(url="/?calendar=connected")
     
     params = {
         "client_id": GOOGLE_OAUTH_CLIENT_ID,
@@ -290,17 +338,19 @@ async def calendar_connect(friday_session: Optional[str] = Cookie(None)):
 async def google_callback(request: Request):
     query = request.query_params
     code = query.get("code")
-    if not code: return RedirectResponse(url="/?calendar=denied")
+    if not code: 
+        return RedirectResponse(url="/?calendar=denied")
     
     try:
-        req = Request(GOOGLE_OAUTH_TOKEN_URL, data=urlencode({
+        req = URLRequest(GOOGLE_OAUTH_TOKEN_URL, data=urlencode({
             "code": code,
             "client_id": GOOGLE_OAUTH_CLIENT_ID,
             "client_secret": GOOGLE_OAUTH_CLIENT_SECRET,
             "redirect_uri": GOOGLE_OAUTH_REDIRECT_URI,
             "grant_type": "authorization_code",
         }).encode(), headers={"Content-Type": "application/x-www-form-urlencoded"}, method="POST")
-        with urlopen(req, timeout=15) as resp: res = json.loads(resp.read().decode())
+        with urlopen(req, timeout=15) as resp: 
+            res = json.loads(resp.read().decode())
         _save_owner_calendar_tokens(res["access_token"], res.get("refresh_token"), res.get("expires_in", 3600), res.get("scope", ""))
         return RedirectResponse(url="/?calendar=connected")
     except Exception:
@@ -308,21 +358,26 @@ async def google_callback(request: Request):
 
 @app.get("/calendar/status")
 async def calendar_status(friday_session: Optional[str] = Cookie(None)):
-    if not friday_session: return JSONResponse(status_code=401, content={"connected": False})
+    if not friday_session: 
+        return JSONResponse(status_code=401, content={"connected": False})
     return {"connected": bool(GOOGLE_TOKEN_STORE.get(GOOGLE_OWNER_KEY))}
 
 @app.get("/calendar/events")
 async def calendar_events(range: str = "upcoming", friday_session: Optional[str] = Cookie(None)):
-    if not friday_session: raise HTTPException(status_code=401)
+    if not friday_session: 
+        raise HTTPException(status_code=401)
     at = _usable_calendar_access_token()
-    if not at: raise HTTPException(status_code=409, detail="Calendar desconectado.")
+    if not at: 
+        raise HTTPException(status_code=409, detail="Calendar desconectado.")
     
     events = _calendar_today_events(at) if range == "today" else _calendar_events_query(at)
     return {"events": events or []}
 
 @app.post("/chat")
 async def chat_endpoint(data: ChatData, friday_session: Optional[str] = Cookie(None)):
-    if not friday_session: raise HTTPException(status_code=401)
+    if not friday_session: 
+        raise HTTPException(status_code=401)
+    
     history = SESSION_STORE.get_history(friday_session)
     session = SESSION_STORE.get(friday_session)
 
@@ -337,7 +392,7 @@ async def chat_endpoint(data: ChatData, friday_session: Optional[str] = Cookie(N
 
         if data.pdf:
             yield f"data: {json.dumps({'text': 'Lendo documento PDF... '})}\n\n"
-            # (Lógica de leitura de PDF pode ser chamada aqui se necessário)
+            # (Lógica de extração de PDF pode ser implementada aqui se necessário)
 
         current_messages = list(history)
         current_messages.append({"role": "user", "content": data.command})
@@ -359,14 +414,18 @@ async def chat_endpoint(data: ChatData, friday_session: Optional[str] = Cookie(N
                     if idx not in tool_call_acc:
                         tool_call_acc[idx] = {"id": tc.get("id", ""), "name": "", "arguments": ""}
                     if "function" in tc:
-                        if "name" in tc["function"]: tool_call_acc[idx]["name"] += tc["function"]["name"]
-                        if "arguments" in tc["function"]: tool_call_acc[idx]["arguments"] += tc["function"]["arguments"]
+                        if "name" in tc["function"]: 
+                            tool_call_acc[idx]["name"] += tc["function"]["name"]
+                        if "arguments" in tc["function"]: 
+                            tool_call_acc[idx]["arguments"] += tc["function"]["arguments"]
 
             if has_tool:
                 yield f"data: {json.dumps({'text': '\\n\\n*[Executando ferramenta...]*\\n\\n'})}\n\n"
                 tc_data = tool_call_acc[0]
-                try: args = json.loads(tc_data["arguments"])
-                except: args = {}
+                try: 
+                    args = json.loads(tc_data["arguments"])
+                except: 
+                    args = {}
                 
                 exec_res = execute_tool(tc_data["name"], args, session=session)
                 result = exec_res.get("result") if exec_res.get("ok") else {"error": exec_res.get("error")}
