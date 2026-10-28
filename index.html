@@ -154,7 +154,6 @@
       .reactor-wrap { position: relative; width: 100%; height: 200px; margin-bottom: 10px; }
       #three-reactor { width: 100%; height: 100%; position: absolute; top:0; left:0; }
 
-      /* --- V5: MINI-MAPA TÁTICO (RADAR) --- */
       #sysChartContainer { width: 100%; height: 160px; margin-top: 10px; position: relative; z-index: 2; background: rgba(0,0,0,0.2); border: 1px solid var(--line); padding: 5px; }
       
       .system-title { margin: 0; color: var(--cyan-bright); font-size: 26px; font-weight: 500; letter-spacing: 0.25em; z-index: 2; text-align: center; }
@@ -169,7 +168,6 @@
       .heading { font-size: 14px; font-weight: 600; letter-spacing: 0.15em; color: #fff; }
       .heading-sub { margin-top: 5px; color: var(--muted); font-size: 11px; }
       
-      /* V5: BARRA DE STATUS DE CONTEXTO */
       .context-bar {
           display: flex; gap: 15px; margin: 10px 0; font-size: 10px; color: var(--cyan); padding: 5px 10px;
           border: 1px solid var(--line); background: rgba(0,0,0,0.4);
@@ -201,7 +199,6 @@
 
       .chat-label { display: flex; justify-content: space-between; margin: 10px 0; color: var(--muted); font-size: 9px; letter-spacing: 0.1em; }
 
-      /* V5: Hologram 3D no Chat */
       #messages { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding-right: 5px; margin-bottom: 15px; perspective: 1200px; }
       #messages::-webkit-scrollbar { width: 4px; }
       #messages::-webkit-scrollbar-thumb { background: var(--cyan); }
@@ -512,8 +509,10 @@
           animateBg();
       }
 
-      // === THREE.JS REACTOR (SIDEBAR) ===
-      let scene, camera, renderer, reactorMesh, innerMesh, audioAnalyser, audioContext;
+      // === V5.2: REATOR DE ARCO (SIDEBAR) ===
+      let scene, camera, renderer, audioAnalyser, audioContext;
+      let reactorGroup, coreMesh, innerWireMesh, outerCageMesh, ring1, ring2, ring3, coreLight;
+      
       function initReactor() {
           const container = $('three-reactor');
           scene = new THREE.Scene();
@@ -522,35 +521,85 @@
           renderer.setSize(container.clientWidth, container.clientHeight);
           container.appendChild(renderer.domElement);
 
-          const geometry = new THREE.IcosahedronGeometry(1.2, 1);
-          const material = new THREE.MeshBasicMaterial({ color: 0x73edff, wireframe: true, transparent: true, opacity: 0.4 });
-          reactorMesh = new THREE.Mesh(geometry, material);
-          scene.add(reactorMesh);
+          reactorGroup = new THREE.Group();
+          scene.add(reactorGroup);
 
-          const innerGeo = new THREE.SphereGeometry(0.5, 32, 32);
-          const innerMat = new THREE.MeshBasicMaterial({ color: 0x258aff, transparent: true, opacity: 0.8 });
-          innerMesh = new THREE.Mesh(innerGeo, innerMat);
-          scene.add(innerMesh);
+          // 1. Núcleo Central (Brilhante e Sólido)
+          const coreGeo = new THREE.IcosahedronGeometry(0.45, 3);
+          const coreMat = new THREE.MeshBasicMaterial({ color: 0x73edff, transparent: true, opacity: 0.9 });
+          coreMesh = new THREE.Mesh(coreGeo, coreMat);
+          reactorGroup.add(coreMesh);
 
-          camera.position.z = 2.5;
+          // 2. Malha Interna (Gira em uma direção)
+          const innerWireGeo = new THREE.IcosahedronGeometry(0.7, 2);
+          const innerWireMat = new THREE.MeshBasicMaterial({ color: 0xc2f9ff, wireframe: true, transparent: true, opacity: 0.3 });
+          innerWireMesh = new THREE.Mesh(innerWireGeo, innerWireMat);
+          reactorGroup.add(innerWireMesh);
+
+          // 3. Gaiola Externa (Estrutural, gira na direção oposta)
+          const outerCageGeo = new THREE.IcosahedronGeometry(1.3, 1);
+          const outerCageMat = new THREE.MeshBasicMaterial({ color: 0x258aff, wireframe: true, transparent: true, opacity: 0.15 });
+          outerCageMesh = new THREE.Mesh(outerCageGeo, outerCageMat);
+          reactorGroup.add(outerCageMesh);
+
+          // 4. Anéis de Giroscópio
+          const ringGeo = new THREE.TorusGeometry(1.1, 0.01, 8, 64);
+          const ringMat = new THREE.MeshBasicMaterial({ color: 0x73edff, transparent: true, opacity: 0.4 });
+
+          ring1 = new THREE.Mesh(ringGeo, ringMat); ring1.rotation.x = Math.PI / 2;
+          ring2 = new THREE.Mesh(ringGeo, ringMat); ring2.rotation.y = Math.PI / 2;
+          ring3 = new THREE.Mesh(ringGeo, ringMat); ring3.rotation.x = Math.PI / 3; ring3.rotation.y = Math.PI / 3;
+          
+          reactorGroup.add(ring1, ring2, ring3);
+
+          // 5. Luz do Núcleo (Efeito de Brilho)
+          coreLight = new THREE.PointLight(0x73edff, 2, 5);
+          reactorGroup.add(coreLight);
+
+          camera.position.z = 3.5;
           
           function animateReactor() {
               requestAnimationFrame(animateReactor);
-              reactorMesh.rotation.x += 0.005;
-              reactorMesh.rotation.y += 0.01;
-              innerMesh.rotation.y -= 0.005;
               
+              // Rotação Base
+              reactorGroup.rotation.y += 0.003;
+              outerCageMesh.rotation.x -= 0.002; outerCageMesh.rotation.y += 0.002;
+              innerWireMesh.rotation.x += 0.005; innerWireMesh.rotation.y -= 0.005;
+
+              // Rotação dos Anéis
+              ring1.rotation.z += 0.02;
+              ring2.rotation.x += 0.02;
+              ring3.rotation.y += 0.02;
+
+              // Pulsação e Reatividade ao Áudio
               if (audioAnalyser && speaking) {
                   const dataArray = new Uint8Array(audioAnalyser.frequencyBinCount);
                   audioAnalyser.getByteFrequencyData(dataArray);
                   let sum = 0; for (let i = 0; i < 10; i++) sum += dataArray[i];
                   const avg = sum / 10;
-                  const scale = 1 + (avg / 255) * 0.5;
-                  reactorMesh.scale.set(scale, scale, scale);
-                  innerMesh.scale.set(scale, scale, scale);
+                  
+                  const scale = 1 + (avg / 255) * 0.6;
+                  coreMesh.scale.set(scale, scale, scale);
+                  innerWireMesh.scale.set(scale, scale, scale);
+                  coreLight.intensity = 2 + (avg / 255) * 3;
+
+                  // Anéis expandem levemente
+                  ring1.scale.set(scale, scale, scale);
+                  ring2.scale.set(scale, scale, scale);
+                  ring3.scale.set(scale, scale, scale);
               } else {
-                  reactorMesh.scale.lerp(new THREE.Vector3(1, 1, 1), 0.1);
-                  innerMesh.scale.lerp(new THREE.Vector3(1, 1, 1), 0.1);
+                  // Respiração Idle (quando não está falando)
+                  const time = Date.now() * 0.002;
+                  const idleScale = 1 + Math.sin(time) * 0.05;
+                  
+                  coreMesh.scale.set(idleScale, idleScale, idleScale);
+                  innerWireMesh.scale.set(idleScale, idleScale, idleScale);
+                  
+                  ring1.scale.set(idleScale, idleScale, idleScale);
+                  ring2.scale.set(idleScale, idleScale, idleScale);
+                  ring3.scale.set(idleScale, idleScale, idleScale);
+                  
+                  coreLight.intensity = 2 + Math.sin(time) * 0.5;
               }
               renderer.render(scene, camera);
           }
@@ -562,6 +611,12 @@
               bgRenderer.setSize(window.innerWidth, window.innerHeight);
               bgCamera.aspect = window.innerWidth / window.innerHeight;
               bgCamera.updateProjectionMatrix();
+          }
+          if(renderer) {
+              const container = $('three-reactor');
+              renderer.setSize(container.clientWidth, container.clientHeight);
+              camera.aspect = container.clientWidth / container.clientHeight;
+              camera.updateProjectionMatrix();
           }
       });
 
@@ -623,7 +678,7 @@
                   labels: ['CPU', 'RAM', 'DISCO', 'REDE', 'IA'],
                   datasets: [{
                       label: 'Sistema',
-                      data: [10, 20, 30, 40, 50], // Dados iniciais
+                      data: [10, 20, 30, 40, 50],
                       borderColor: '#73edff',
                       backgroundColor: 'rgba(115, 237, 255, 0.2)',
                       pointBackgroundColor: '#c2f9ff',
@@ -656,13 +711,12 @@
               if (!res.ok) return;
               const data = await res.json();
               
-              // Atualiza o radar com dados reais e simulados (para manter o efeito)
               sysChart.data.datasets[0].data = [
                   data.cpu, 
                   data.ram, 
-                  Math.random() * 20 + 10, // Simulação de Disco
-                  Math.random() * 30 + 20, // Simulação de Rede
-                  window.fridayState === 'thinking' ? 90 : 20 // Pico se estiver pensando
+                  Math.random() * 20 + 10,
+                  Math.random() * 30 + 20,
+                  window.fridayState === 'thinking' ? 90 : 20
               ];
               sysChart.update();
           } catch(e) {}
@@ -729,7 +783,6 @@
 
       let audioCtx = null;
       
-      // V5: SONS DE UI
       function playTone(freq, type, duration, vol=0.1) {
           try {
               if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -863,20 +916,6 @@
 
       function cleanSpeechText(text) {
         return String(text).replace(/\*\*(.*?)\*\*/g, "$1").replace(/\*(.*?)\*/g, "$1").replace(/`([^`]*)`/g, "$1").replace(/https?:\/\/\S+/g, "link omitido").replace(/^\s*[-*]\s+/gm, "").trim();
-      }
-
-      // === V5: TEXT SCRAMBLE + TYPEWRITER ===
-      function typeWriter(element, text, speed = 20) {
-          let i = 0;
-          element.innerHTML = "> ";
-          function type() {
-              if (i < text.length) {
-                  element.innerHTML += text.charAt(i);
-                  i++;
-                  setTimeout(type, speed);
-              }
-          }
-          type();
       }
 
       function scrambleText(element, finalText) {
@@ -1155,7 +1194,6 @@
                 status("Sistema online.");
                 let finalReply = handleMusicAction(fullReplyText);
                 
-                // V5.1: Aplica o Typewriter ou Scramble no final
                 scrambleText(botSpan, finalReply); 
                 
                 lastReply = finalReply;
