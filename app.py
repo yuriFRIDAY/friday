@@ -152,7 +152,6 @@ def _db_delete_memory(key):
     finally: cursor.close(); conn.close()
 
 def _db_get_recent_memories():
-    """Retorna as 5 memórias mais recentes para o RAG."""
     conn = get_db(); cursor = conn.cursor()
     try:
         if DATABASE_URL:
@@ -289,15 +288,12 @@ class ChatData(BaseModel):
     image: Optional[str] = None
     image_name: Optional[str] = "image.jpg"
 
-# TTS EM STREAMING (Redução de Latência)
 @app.get("/tts")
 async def text_to_speech(text: str = "", friday_session: Optional[str] = Cookie(None)):
     if not friday_session: raise HTTPException(status_code=401)
     if not text: raise HTTPException(status_code=400)
-
     api_key = os.getenv("ELEVENLABS_API_KEY", "").strip()
     if not api_key: raise HTTPException(status_code=500, detail="Chave ElevenLabs ausente.")
-
     voice_id = "21m00Tcm4TlvDq8ikWAM"
     url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}?output_format=mp3_44100_128"
     payload = json.dumps({
@@ -305,7 +301,6 @@ async def text_to_speech(text: str = "", friday_session: Optional[str] = Cookie(
         "voice_settings": {"stability": 0.3, "similarity_boost": 0.85, "style": 0.0, "use_speaker_boost": True}
     }).encode("utf-8")
     req = URLRequest(url, data=payload, headers={"Accept": "audio/mpeg", "Content-Type": "application/json", "xi-api-key": api_key}, method="POST")
-
     try:
         response = urlopen(req, timeout=30)
         def audio_stream():
@@ -325,10 +320,8 @@ async def serve_index():
 
 @app.get("/manifest.json")
 async def serve_manifest(): return JSONResponse(content=json.load(open("manifest.json", "r")))
-
 @app.get("/sw.js")
 async def serve_sw(): return Response(content=open("sw.js", "r").read(), media_type="application/javascript")
-
 @app.get("/health")
 async def health_check(): return {"status": "ok"}
 
@@ -417,7 +410,6 @@ async def calendar_events(range: str = "upcoming", friday_session: Optional[str]
     events = _calendar_today_events(at) if range == "today" else _calendar_events_query(at)
     return {"events": events or []}
 
-# CHAT ENDPOINT (Histórico DB + RAG + Visão)
 @app.post("/chat")
 async def chat_endpoint(data: ChatData, friday_session: Optional[str] = Cookie(None)):
     if not friday_session: raise HTTPException(401)
@@ -434,7 +426,6 @@ async def chat_endpoint(data: ChatData, friday_session: Optional[str] = Cookie(N
             yield f"data: {json.dumps({'done': True})}\n\n"
             return
 
-        # 1. Processamento de PDF
         user_content = (data.command or "").strip()
         if data.pdf and HAS_PYPDF2:
             try:
@@ -449,13 +440,11 @@ async def chat_endpoint(data: ChatData, friday_session: Optional[str] = Cookie(N
 
         if not user_content: user_content = "Olá"
 
-        # 2. RAG (Memórias)
         memories = _db_get_recent_memories()
         rag_context = ""
         if memories:
             rag_context = "Memórias sobre o Chefe:\n" + "\n".join([f"- {m}" for m in memories]) + "\n\n"
 
-        # 3. Formatação do Payload (Texto + Imagem)
         final_message_content = []
         if data.image:
             final_message_content.append({"type": "text", "text": rag_context + user_content})
@@ -503,7 +492,8 @@ async def chat_endpoint(data: ChatData, friday_session: Optional[str] = Cookie(N
                 exec_res = execute_tool(tc_data["name"], args, session=session, confirmed=True)
 
                 if not exec_res.get("ok"):
-                    yield f"data: {json.dumps({'text': f'Erro: {exec_res.get('error', '')}'})}\n\n"
+                    err_msg = exec_res.get("error", "Erro desconhecido na ferramenta")
+                    yield f"data: {json.dumps({'text': f'Erro: {err_msg}'})}\n\n"
                     break
 
                 result = exec_res.get("result")
