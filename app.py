@@ -61,7 +61,7 @@ def _push_status(text):
             STATUS_QUEUE.pop(0)
 
 def _push_notification(text):
-    """Enfileira toast notification. Frontend polla /notifications a cada 30s."""
+    """Enfileira toast notification. Frontend polla /notifications a cada 15s."""
     if not text:
         return
     global NOTIFICATION_QUEUE
@@ -138,7 +138,6 @@ def init_db():
         print("Banco de dados inicializado com sucesso.")
     except Exception as e:
         print(f"AVISO: Erro ao inicializar DB (o servidor continuará rodando): {e}")
-        _push_notification(f"⚠ Banco de dados indisponível: {str(e)[:80]}")
 
 threading.Thread(target=init_db, daemon=True).start()
 
@@ -493,9 +492,6 @@ async def calendar_events(range: str = "upcoming", friday_session: Optional[str]
     events = _calendar_today_events(at) if range == "today" else _calendar_events_query(at)
     return {"events": events or []}
 
-# ========================================
-# CHAT ENDPOINT (COM PDF + NOTIFICAÇÕES)
-# ========================================
 @app.post("/chat")
 async def chat_endpoint(data: ChatData, friday_session: Optional[str] = Cookie(None)):
     if not friday_session:
@@ -517,9 +513,6 @@ async def chat_endpoint(data: ChatData, friday_session: Optional[str] = Cookie(N
             yield f"data: {json.dumps({'done': True})}\n\n"
             return
 
-        # ═══════════════════════════════════════════
-        # ✅ PDF: extrai texto e enriquece a mensagem
-        # ═══════════════════════════════════════════
         user_content = (data.command or "").strip()
 
         if data.pdf:
@@ -612,7 +605,6 @@ async def chat_endpoint(data: ChatData, friday_session: Optional[str] = Cookie(N
 
                 result = exec_res.get("result")
 
-                # ✅ Notificação para tools relevantes
                 if exec_res.get("ok"):
                     _notify_tool(tc_data["name"], args, result)
 
