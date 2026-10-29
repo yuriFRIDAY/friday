@@ -309,19 +309,41 @@ input:checked + .slider:before{transform:translateX(18px);background:var(--cyan)
   </div>
 </div>
 
-<div id="login" class="login-overlay">
-  <div class="login-backdrop"></div>
-  <div class="login-panel">
-    <div class="login-brand">FRIDAY</div>
-    <div class="login-sub">STARK INTELLIGENCE SYSTEM</div>
-    <div class="login-code">// ACCESS: RESTRICTED</div>
-    <form id="loginForm">
-      <input id="password" type="password" placeholder="ACCESS CODE" autocomplete="current-password" required />
-      <button class="hud-btn primary big" type="submit">INITIALIZE</button>
-    </form>
-    <p id="lockoutNotice" class="lockout-notice hidden" role="alert"></p>
+  <!-- ============ LOGIN OVERLAY ============ -->
+  <div id="login" class="login-overlay">
+    <div class="login-glow"></div>
+    <div class="login-rings">
+      <div class="ring ring-1"></div>
+      <div class="ring ring-2"></div>
+      <div class="ring ring-3"></div>
+    </div>
+    
+    <div class="login-panel">
+      <div class="login-brand">
+        <span class="brand-letter">F</span>
+        <span class="brand-letter">R</span>
+        <span class="brand-letter">I</span>
+        <span class="brand-letter">D</span>
+        <span class="brand-letter">A</span>
+        <span class="brand-letter">Y</span>
+      </div>
+      <div class="login-sub">STARK INTELLIGENCE SYSTEM</div>
+      
+      <div class="login-divider"></div>
+      
+      <form id="loginForm">
+        <div class="input-wrapper">
+          <input id="password" type="password" placeholder="ACCESS CODE" autocomplete="current-password" required />
+          <div class="input-glow"></div>
+        </div>
+        <button class="hud-btn primary login-btn" type="submit">
+          <span>INITIALIZE</span>
+        </button>
+      </form>
+      
+      <p id="lockoutNotice" class="lockout-notice hidden" role="alert"></p>
+    </div>
   </div>
-</div>
 
 <div id="bootOverlay" class="boot-overlay hidden">
   <div class="boot-title">FRIDAY</div>
