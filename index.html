@@ -18,6 +18,7 @@
 
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/atom-one-dark.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
 
@@ -526,13 +527,18 @@
       justify-content: center;
       overflow: hidden;
       flex-shrink: 0;
+      touch-action: none;
     }
     #three-reactor {
       position: absolute;
       inset: 0;
       width: 100%;
       height: 100%;
-      cursor: crosshair;
+      cursor: grab;
+      z-index: 1;
+    }
+    #three-reactor:active {
+      cursor: grabbing;
     }
 
     /* RING DE TEXTO ROTATIVO */
@@ -734,7 +740,6 @@
       box-shadow: 0 0 5px var(--purple);
     }
 
-    /* Typing indicator */
     .msg.typing span::after {
       content: '';
       display: inline-block;
@@ -1903,7 +1908,6 @@
         html += `<span class="day-num${active}">${String(i).padStart(2, '0')}</span>`;
       }
       $('topDays').innerHTML = html;
-      // Auto-scroll até o dia ativo
       requestAnimationFrame(() => {
         const el = document.querySelector('.day-num.active');
         if (el) {
@@ -1986,7 +1990,7 @@
     }
 
     // ============================================
-    // LIVE BARS (disco + energia)
+    // LIVE BARS
     // ============================================
     setInterval(() => {
       document.querySelectorAll('.bar-fill[data-min]').forEach(el => {
@@ -2051,7 +2055,6 @@
     // ATALHOS DE TECLADO
     // ============================================
     document.addEventListener('keydown', (e) => {
-      // Esc: fecha modal / para voz
       if (e.key === 'Escape') {
         if (!$('settingsModal').classList.contains('hidden')) {
           $('settingsModal').classList.add('hidden');
@@ -2060,13 +2063,11 @@
           status("Interrompido.");
         }
       }
-      // Ctrl/Cmd + K: foca no input
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         const cmd = $('command');
         if (cmd && !$('assistant').classList.contains('hidden')) cmd.focus();
       }
-      // Ctrl/Cmd + /: toggle settings
       if ((e.ctrlKey || e.metaKey) && e.key === '/') {
         e.preventDefault();
         $('settingsModal').classList.toggle('hidden');
@@ -2282,25 +2283,78 @@
     }
 
     // ============================================
-    // REACTOR
+    // REACTOR (Espaço 3D Interativo)
     // ============================================
-    let scene, camera, renderer, audioAnalyser, audioContext;
-    let reactorGroup, coreMesh, coreMat, orbitalParticles;
+    let scene, camera, renderer, controls, audioAnalyser, audioContext;
+    let reactorGroup, coreMesh, coreMat, orbitalParticles, reactorStars, polarGrid;
 
     function initReactor() {
       const container = $('three-reactor');
       if (!container) return;
 
+      // Se já inicializou, apenas atualiza o tamanho e retorna
+      if (renderer) {
+        renderer.setSize(container.clientWidth, container.clientHeight);
+        camera.aspect = container.clientWidth / container.clientHeight;
+        camera.updateProjectionMatrix();
+        return;
+      }
+
       scene = new THREE.Scene();
-      camera = new THREE.PerspectiveCamera(50, container.clientWidth / container.clientHeight, 0.1, 1000);
-      camera.position.set(0, 0, 6);
-      camera.lookAt(0, 0, 0);
+      scene.fog = new THREE.FogExp2(0x000610, 0.05);
+
+      camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 1000);
+      camera.position.set(0, 1.5, 6.5);
 
       renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
       renderer.setSize(container.clientWidth, container.clientHeight);
       renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
       container.appendChild(renderer.domElement);
 
+      // ORBIT CONTROLS
+      controls = new THREE.OrbitControls(camera, renderer.domElement);
+      controls.enableDamping = true;
+      controls.dampingFactor = 0.05;
+      controls.enablePan = false;
+      controls.minDistance = 3;
+      controls.maxDistance = 10;
+      controls.maxPolarAngle = Math.PI / 1.5;
+      controls.autoRotate = true;
+      controls.autoRotateSpeed = 1.0;
+
+      let autoRotateTimeout;
+      controls.addEventListener('start', () => {
+        controls.autoRotate = false;
+        clearTimeout(autoRotateTimeout);
+      });
+      controls.addEventListener('end', () => {
+        autoRotateTimeout = setTimeout(() => {
+          controls.autoRotate = true;
+        }, 3000);
+      });
+
+      // GRADE POLAR E ESTRELAS
+      polarGrid = new THREE.PolarGridHelper(5, 16, 8, 64, 0x00e5ff, 0x003344);
+      polarGrid.position.y = -1.5;
+      polarGrid.material.transparent = true;
+      polarGrid.material.opacity = 0.15;
+      scene.add(polarGrid);
+
+      const starsGeo = new THREE.BufferGeometry();
+      const starsCount = 800;
+      const starPositions = new Float32Array(starsCount * 3);
+      for (let i = 0; i < starsCount * 3; i += 3) {
+        starPositions[i] = (Math.random() - 0.5) * 40;
+        starPositions[i+1] = (Math.random() - 0.5) * 40;
+        starPositions[i+2] = (Math.random() - 0.5) * 40;
+      }
+      starsGeo.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
+      reactorStars = new THREE.Points(starsGeo, new THREE.PointsMaterial({
+        color: 0x5ee7f2, size: 0.08, transparent: true, opacity: 0.4, blending: THREE.AdditiveBlending
+      }));
+      scene.add(reactorStars);
+
+      // NÚCLEO E ANÉIS
       reactorGroup = new THREE.Group();
       scene.add(reactorGroup);
 
@@ -2314,21 +2368,18 @@
         return new THREE.Mesh(geo, mat);
       }
 
-      coreMat = new THREE.MeshBasicMaterial({
-        color: 0x00e5ff, transparent: true, opacity: 0.95
-      });
+      coreMat = new THREE.MeshBasicMaterial({ color: 0x00e5ff, transparent: true, opacity: 0.95 });
       coreMesh = new THREE.Mesh(new THREE.SphereGeometry(0.5, 48, 48), coreMat);
       reactorGroup.add(coreMesh);
 
       const halo = new THREE.Mesh(
         new THREE.SphereGeometry(0.7, 32, 32),
-        new THREE.MeshBasicMaterial({
-          color: 0x00e5ff, transparent: true, opacity: 0.12, blending: THREE.AdditiveBlending
-        })
+        new THREE.MeshBasicMaterial({ color: 0x00e5ff, transparent: true, opacity: 0.12, blending: THREE.AdditiveBlending })
       );
       reactorGroup.add(halo);
 
       reactorGroup.add(arcSegment(0.63, 0.65, 0, Math.PI * 2, 0x00e5ff, 0.45, 128));
+      
       for (let i = 0; i < 24; i++) {
         const seg = (Math.PI * 2) / 24;
         reactorGroup.add(arcSegment(0.78, 0.80, i * seg + seg * 0.15, seg * 0.7, 0x5ee7f2, 0.55));
@@ -2338,6 +2389,7 @@
         reactorGroup.add(arcSegment(0.92, 1.05, i * seg, seg * 0.9, 0x00e5ff, 0.6));
       }
       reactorGroup.add(arcSegment(1.13, 1.16, 0, Math.PI * 2, 0x00e5ff, 0.28, 128));
+      
       for (let i = 0; i < 4; i++) {
         const seg = (Math.PI * 2) / 4;
         reactorGroup.add(arcSegment(1.22, 1.32, i * seg + seg * 0.15, seg * 0.45, 0xff2b4a, 0.75));
@@ -2348,12 +2400,14 @@
         reactorGroup.add(arcSegment(1.38, 1.42, angle, segLen, 0x00e5ff, i % 5 === 0 ? 0.7 : 0.35));
       }
       reactorGroup.add(arcSegment(1.58, 1.60, 0, Math.PI * 2, 0x5ee7f2, 0.18, 128));
+      
       for (let i = 0; i < 48; i++) {
         const seg = (Math.PI * 2) / 48;
         reactorGroup.add(arcSegment(1.73, 1.76, i * seg, seg * 0.55, 0x00e5ff, 0.4));
       }
 
-      const particleCount = 100;
+      // Partículas orbitando
+      const particleCount = 150;
       const pGeo = new THREE.BufferGeometry();
       const pPos = new Float32Array(particleCount * 3);
       const pData = [];
@@ -2363,34 +2417,21 @@
         pData.push({ r, a, speed: 0.0008 + Math.random() * 0.002 });
         pPos[i*3] = Math.cos(a) * r;
         pPos[i*3+1] = Math.sin(a) * r;
-        pPos[i*3+2] = (Math.random() - 0.5) * 0.1;
+        pPos[i*3+2] = (Math.random() - 0.5) * 0.2;
       }
       pGeo.setAttribute('position', new THREE.BufferAttribute(pPos, 3));
       orbitalParticles = new THREE.Points(pGeo, new THREE.PointsMaterial({
-        color: 0x5ee7f2, size: 0.035, transparent: true, opacity: 0.75, blending: THREE.AdditiveBlending
+        color: 0x5ee7f2, size: 0.04, transparent: true, opacity: 0.75, blending: THREE.AdditiveBlending
       }));
       reactorGroup.add(orbitalParticles);
 
-      // PARALLAX com mouse
-      let targetRotX = 0, targetRotY = 0;
-      container.addEventListener('mousemove', (e) => {
-        const rect = container.getBoundingClientRect();
-        targetRotX = ((e.clientY - rect.top) / rect.height - 0.5) * 0.25;
-        targetRotY = ((e.clientX - rect.left) / rect.width - 0.5) * 0.25;
-      });
-      container.addEventListener('mouseleave', () => {
-        targetRotX = 0;
-        targetRotY = 0;
-      });
-
+      // ANIMAÇÃO
       let t = 0;
       function animateReactor() {
         requestAnimationFrame(animateReactor);
         t += 0.016;
 
-        // Parallax suave
-        reactorGroup.rotation.x += (targetRotX - reactorGroup.rotation.x) * 0.05;
-        reactorGroup.rotation.y += (targetRotY - reactorGroup.rotation.y) * 0.05;
+        if (controls) controls.update(); 
 
         const pulse = 1 + Math.sin(t * 2.5) * 0.08;
         coreMesh.scale.setScalar(pulse);
@@ -2418,6 +2459,9 @@
         } else {
           coreMat.color.setHex(0x00e5ff);
         }
+
+        reactorStars.rotation.y = t * 0.02;
+        polarGrid.rotation.y = -t * 0.05;
 
         renderer.render(scene, camera);
       }
@@ -2678,7 +2722,7 @@
     function speakResponse(text) { lastReply = String(text || ""); speakText(lastReply, false); }
 
     // ============================================
-    // MESSAGES (com timestamp)
+    // MESSAGES
     // ============================================
     function addMessage(who, text) {
       const item = document.createElement("div");
@@ -2880,7 +2924,6 @@
         if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         if (audioCtx.state === 'suspended') audioCtx.resume();
 
-        // Mostra atalhos na primeira sessão
         if (!localStorage.getItem('friday_shortcuts_shown')) {
           setTimeout(() => {
             addMessage("FRIDAY", "💡 **Atalhos:** `Ctrl+K` focar · `Ctrl+/` configurações · `Esc` parar.");
@@ -3085,14 +3128,23 @@
     }, 30000);
 
     // ============================================
-    // INIT
+    // INIT E RESIZE OBSERVER
     // ============================================
     loadVisualPreferences();
     checkSession();
 
     window.addEventListener('load', () => {
       if (!document.body.classList.contains('hide-particles')) initBgParticles();
-      if (!document.body.classList.contains('hide-sidebar')) initReactor();
+      
+      const reactorContainer = $('three-reactor');
+      if (reactorContainer) {
+        const ro = new ResizeObserver(() => {
+          if (window.fridayState !== 'idle' || !$('assistant').classList.contains('hidden')) {
+            initReactor();
+          }
+        });
+        ro.observe(reactorContainer);
+      }
     });
   </script>
   <script src="https://www.youtube.com/iframe_api"></script>
