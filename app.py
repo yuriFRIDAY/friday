@@ -53,6 +53,14 @@ def _push_status(text):
         if len(STATUS_QUEUE) > 20:
             STATUS_QUEUE.pop(0)
 
+def _push_notification(text):
+    """Adiciona uma notificação assíncrona à fila (opcional, para uso futuro)."""
+    global NOTIFICATION_QUEUE
+    with QUEUE_LOCK:
+        NOTIFICATION_QUEUE.append(text)
+        if len(NOTIFICATION_QUEUE) > 20:
+            NOTIFICATION_QUEUE.pop(0)
+
 # ========================================
 # BANCO DE DADOS (POSTGRESQL COM FALLBACK SQLITE)
 # ========================================
@@ -91,7 +99,7 @@ def _db_save_memory(key, value):
         else:
             cursor.execute("INSERT OR REPLACE INTO ai_memory (key, value) VALUES (?, ?)", (key, value))
         conn.commit()
-    finally: 
+    finally:
         cursor.close()
         conn.close()
 
@@ -104,7 +112,7 @@ def _db_recall_memory(key):
             cursor.execute("SELECT key, value FROM ai_memory WHERE key LIKE ? OR value LIKE ? LIMIT 1", (f"%{key}%", f"%{key}%"))
         row = cursor.fetchone()
         return f"{row[0]}: {row[1]}" if row else None
-    finally: 
+    finally:
         cursor.close()
         conn.close()
 
@@ -117,7 +125,7 @@ def _db_delete_memory(key):
             cursor.execute("DELETE FROM ai_memory WHERE key LIKE ?", (f"%{key}%",))
         conn.commit()
         return cursor.rowcount > 0
-    finally: 
+    finally:
         cursor.close()
         conn.close()
 
@@ -163,19 +171,19 @@ def _save_owner_calendar_tokens(access_token, refresh_token, expires_in, scope):
         os.makedirs(os.path.dirname(GOOGLE_TOKEN_FILE) or ".", exist_ok=True)
         with open(GOOGLE_TOKEN_FILE, "w", encoding="utf-8") as h:
             json.dump(GOOGLE_TOKEN_STORE, h)
-    except Exception: 
+    except Exception:
         pass
 
 def _usable_calendar_access_token():
     record = GOOGLE_TOKEN_STORE.get(GOOGLE_OWNER_KEY)
-    if not record: 
+    if not record:
         return None
     if time.time() < float(record.get("expires_at", 0)) - 60:
         return record["access_token"]
     refresh_token = record.get("refresh_token")
-    if not refresh_token: 
+    if not refresh_token:
         return None
-    
+
     try:
         req = URLRequest(GOOGLE_OAUTH_TOKEN_URL, data=urlencode({
             "client_id": GOOGLE_OAUTH_CLIENT_ID,
@@ -183,7 +191,7 @@ def _usable_calendar_access_token():
             "refresh_token": refresh_token,
             "grant_type": "refresh_token",
         }).encode(), headers={"Content-Type": "application/x-www-form-urlencoded"}, method="POST")
-        
+
         with urlopen(req, timeout=15) as resp:
             res = json.loads(resp.read().decode())
             _save_owner_calendar_tokens(res["access_token"], refresh_token, res.get("expires_in", 3600), res.get("scope", ""))
@@ -194,16 +202,16 @@ def _usable_calendar_access_token():
 def _calendar_events_query(access_token, time_min=None, time_max=None, max_results=10):
     params = {"maxResults": str(max_results), "singleEvents": "true", "orderBy": "startTime"}
     params["timeMin"] = time_min or time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-    if time_max: 
+    if time_max:
         params["timeMax"] = time_max
-    
+
     req = URLRequest("https://www.googleapis.com/calendar/v3/calendars/primary/events?" + urlencode(params), headers={"Authorization": "Bearer " + access_token})
     try:
-        with urlopen(req, timeout=15) as resp: 
+        with urlopen(req, timeout=15) as resp:
             result = json.loads(resp.read().decode())
-    except Exception: 
+    except Exception:
         return None
-    
+
     return [{"id": item.get("id", ""), "summary": item.get("summary", "(sem título)"), "start": (item.get("start") or {}).get("dateTime", ""), "hangoutLink": item.get("hangoutLink", "")} for item in (result.get("items") or [])[:max_results]]
 
 def _calendar_today_events(access_token):
@@ -213,26 +221,26 @@ def _calendar_today_events(access_token):
 def _calendar_create_event(access_token, payload):
     req = URLRequest("https://www.googleapis.com/calendar/v3/calendars/primary/events", data=json.dumps(payload).encode(), headers={"Content-Type": "application/json", "Authorization": "Bearer " + access_token}, method="POST")
     try:
-        with urlopen(req, timeout=15) as resp: 
+        with urlopen(req, timeout=15) as resp:
             return json.loads(resp.read().decode())
-    except Exception as e: 
+    except Exception as e:
         print(f"ERRO NO GOOGLE CALENDAR CREATE: {e}")
         return None
 
 def _calendar_delete_event(access_token, event_id):
     req = URLRequest(f"https://www.googleapis.com/calendar/v3/calendars/primary/events/{event_id}", headers={"Authorization": "Bearer " + access_token}, method="DELETE")
     try:
-        with urlopen(req, timeout=15): 
+        with urlopen(req, timeout=15):
             return {"ok": True}
-    except Exception: 
+    except Exception:
         return None
 
 def _calendar_update_event(access_token, event_id, payload):
     req = URLRequest(f"https://www.googleapis.com/calendar/v3/calendars/primary/events/{event_id}", data=json.dumps(payload).encode(), headers={"Content-Type": "application/json", "Authorization": "Bearer " + access_token}, method="PATCH")
     try:
-        with urlopen(req, timeout=15) as resp: 
+        with urlopen(req, timeout=15) as resp:
             return json.loads(resp.read().decode())
-    except Exception: 
+    except Exception:
         return None
 
 set_calendar_context(
@@ -255,6 +263,7 @@ class ChatData(BaseModel):
     pdf: Optional[str] = None
     pdf_name: Optional[str] = "documento.pdf"
 
+# ---------- ROTA /tts (única, ElevenLabs) ----------
 @app.get("/tts")
 async def text_to_speech(text: str = "", friday_session: Optional[str] = Cookie(None)):
     if not friday_session:
@@ -262,30 +271,34 @@ async def text_to_speech(text: str = "", friday_session: Optional[str] = Cookie(
     if not text:
         raise HTTPException(status_code=400, detail="Texto vazio.")
 
-    # O ID do seu perfil de voz no Voicebox
-    VOICEBOX_PROFILE_ID = "seu_profile_id_aqui" # <-- COLOQUE O ID AQUI
+    api_key = os.getenv("ELEVENLABS_API_KEY", "").strip()
+    if not api_key:
+        raise HTTPException(status_code=500, detail="Chave ElevenLabs ausente.")
 
-    voicebox_url = "http://127.0.0.1:17493/generate"
-    
+    voice_id = "21m00Tcm4TlvDq8ikWAM"
+    url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}?output_format=mp3_44100_128"
+
     payload = json.dumps({
         "text": text,
-        "profile_id": VOICEBOX_PROFILE_ID,
-        "language": "pt"  # Português
+        "model_id": "eleven_flash_v2_5",
+        "voice_settings": {"stability": 0.3, "similarity_boost": 0.85, "style": 0.0, "use_speaker_boost": True}
     }).encode("utf-8")
 
-    req = URLRequest(voicebox_url, data=payload, headers={
-        "Content-Type": "application/json"
+    req = URLRequest(url, data=payload, headers={
+        "Accept": "audio/mpeg",
+        "Content-Type": "application/json",
+        "xi-api-key": api_key
     }, method="POST")
 
     try:
         with urlopen(req, timeout=30) as response:
             audio_data = response.read()
-            return Response(content=audio_data, media_type="audio/wav")
+            return Response(content=audio_data, media_type="audio/mpeg")
     except Exception as e:
-        print(f"Erro no Voicebox: {e}")
-        # Retorna vazio para o frontend usar a voz do navegador (fallback)
-        return Response(content=b"", media_type="text/plain")
+        print(f"TTS erro: {e}")
+        raise HTTPException(status_code=500, detail="Falha ao gerar áudio.")
 
+# ---------- ESTÁTICOS ----------
 @app.get("/", response_class=HTMLResponse)
 async def serve_index():
     try:
@@ -302,47 +315,15 @@ async def serve_manifest():
 async def serve_sw():
     return Response(content=open("sw.js", "r").read(), media_type="application/javascript")
 
+# ---------- HEALTH ----------
 @app.get("/health")
 async def health_check():
     return {"status": "ok"}
 
-@app.get("/tts")
-async def text_to_speech(text: str = "", friday_session: Optional[str] = Cookie(None)):
-    if not friday_session:
-        raise HTTPException(status_code=401, detail="Não autorizado")
-    if not text:
-        raise HTTPException(status_code=400, detail="Texto vazio.")
-
-    api_key = os.getenv("ELEVENLABS_API_KEY", "").strip()
-    if not api_key:
-        raise HTTPException(status_code=500, detail="Chave ElevenLabs ausente.")
-
-    voice_id = "21m00Tcm4TlvDq8ikWAM"
-    url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}?output_format=mp3_44100_128"
-    
-    payload = json.dumps({
-        "text": text,
-        "model_id": "eleven_flash_v2_5",
-        "voice_settings": {"stability": 0.3, "similarity_boost": 0.85, "style": 0.0, "use_speaker_boost": True}
-    }).encode("utf-8")
-    
-    req = URLRequest(url, data=payload, headers={
-        "Accept": "audio/mpeg",
-        "Content-Type": "application/json",
-        "xi-api-key": api_key
-    }, method="POST")
-
-    try:
-        with urlopen(req, timeout=30) as response:
-            audio_data = response.read()
-            return Response(content=audio_data, media_type="audio/mpeg")
-    except Exception as e:
-        print(f"TTS erro: {e}")
-        raise HTTPException(status_code=500, detail="Falha ao gerar áudio.")
-
+# ---------- STATUS / NOTIFICAÇÕES ----------
 @app.get("/status")
 async def get_status(friday_session: Optional[str] = Cookie(None)):
-    if not friday_session: 
+    if not friday_session:
         raise HTTPException(status_code=401, detail="Não autorizado")
     global STATUS_QUEUE
     with QUEUE_LOCK:
@@ -352,7 +333,7 @@ async def get_status(friday_session: Optional[str] = Cookie(None)):
 
 @app.get("/notifications")
 async def get_notifications(friday_session: Optional[str] = Cookie(None)):
-    if not friday_session: 
+    if not friday_session:
         raise HTTPException(status_code=401, detail="Não autorizado")
     global NOTIFICATION_QUEUE
     with QUEUE_LOCK:
@@ -362,24 +343,18 @@ async def get_notifications(friday_session: Optional[str] = Cookie(None)):
             return {"notifications": msgs}
     return {"notifications": []}
 
+# ---------- AUTH ----------
 @app.post("/login")
 async def login(data: LoginData, response: Response, request: Request):
     try:
         client_ip = request.client.host if request.client else "0.0.0.0"
         if not auth.authenticate(data.password, client_key=client_ip):
             raise HTTPException(status_code=401, detail="Senha incorreta.")
-        
-        token = secrets.token_urlsafe(32)
-        
-        try:
-            from core.sessions import Session
-            SESSION_STORE._sessions[token] = Session(
-                token=token,
-                expires_at=SESSION_STORE._clock() + SESSION_STORE.ttl_seconds
-            )
-        except Exception:
-            SESSION_STORE._sessions[token] = {"token": token, "expires_at": SESSION_STORE._clock() + SESSION_STORE.ttl_seconds}
-        
+
+        # ✅ CORRIGIDO: usa create() em vez de manipular _sessions manualmente.
+        #    O código anterior tinha fallback para dict que quebraria get_history().
+        token = SESSION_STORE.create()
+
         response.set_cookie(key="friday_session", value=token, httponly=True, samesite="lax", max_age=1800)
         return {"ok": True}
     except HTTPException as he:
@@ -394,13 +369,24 @@ async def check_session(friday_session: Optional[str] = Cookie(None)):
         return {"authenticated": True}
     return {"authenticated": False}
 
+# ✅ NOVO: /history — restaura mensagens após F5 (necessário para memória frontend)
+@app.get("/history")
+async def get_history(friday_session: Optional[str] = Cookie(None)):
+    if not friday_session:
+        raise HTTPException(status_code=401, detail="Não autorizado")
+    history = SESSION_STORE.get_history(friday_session)
+    if history is None:
+        return {"history": []}
+    return {"history": history}
+
+# ---------- MÉTRICAS ----------
 @app.get("/system_metrics")
 async def get_metrics(friday_session: Optional[str] = Cookie(None)):
-    if not friday_session: 
+    if not friday_session:
         raise HTTPException(status_code=401)
     try:
         load1, _, _ = os.getloadavg()
-        with open('/proc/meminfo', 'r') as f: 
+        with open('/proc/meminfo', 'r') as f:
             lines = f.readlines()
         mem_total = int(lines[0].split()[1])
         mem_free = int(lines[1].split()[1])
@@ -409,13 +395,14 @@ async def get_metrics(friday_session: Optional[str] = Cookie(None)):
     except Exception:
         return {"cpu": 0, "ram": 0}
 
+# ---------- GOOGLE OAUTH ----------
 @app.get("/calendar/connect")
 async def calendar_connect(friday_session: Optional[str] = Cookie(None)):
-    if not friday_session: 
+    if not friday_session:
         return RedirectResponse(url="/?calendar=nosession")
-    if GOOGLE_TOKEN_STORE.get(GOOGLE_OWNER_KEY): 
+    if GOOGLE_TOKEN_STORE.get(GOOGLE_OWNER_KEY):
         return RedirectResponse(url="/?calendar=connected")
-    
+
     params = {
         "client_id": GOOGLE_OAUTH_CLIENT_ID,
         "redirect_uri": GOOGLE_OAUTH_REDIRECT_URI,
@@ -430,9 +417,9 @@ async def calendar_connect(friday_session: Optional[str] = Cookie(None)):
 async def google_callback(request: Request):
     query = request.query_params
     code = query.get("code")
-    if not code: 
+    if not code:
         return RedirectResponse(url="/?calendar=denied")
-    
+
     try:
         req = URLRequest(GOOGLE_OAUTH_TOKEN_URL, data=urlencode({
             "code": code,
@@ -441,7 +428,7 @@ async def google_callback(request: Request):
             "redirect_uri": GOOGLE_OAUTH_REDIRECT_URI,
             "grant_type": "authorization_code",
         }).encode(), headers={"Content-Type": "application/x-www-form-urlencoded"}, method="POST")
-        with urlopen(req, timeout=15) as resp: 
+        with urlopen(req, timeout=15) as resp:
             res = json.loads(resp.read().decode())
         _save_owner_calendar_tokens(res["access_token"], res.get("refresh_token"), res.get("expires_in", 3600), res.get("scope", ""))
         return RedirectResponse(url="/?calendar=connected")
@@ -450,35 +437,38 @@ async def google_callback(request: Request):
 
 @app.get("/calendar/status")
 async def calendar_status(friday_session: Optional[str] = Cookie(None)):
-    if not friday_session: 
+    if not friday_session:
         return JSONResponse(status_code=401, content={"connected": False})
     return {"connected": bool(GOOGLE_TOKEN_STORE.get(GOOGLE_OWNER_KEY))}
 
 @app.get("/calendar/events")
 async def calendar_events(range: str = "upcoming", friday_session: Optional[str] = Cookie(None)):
-    if not friday_session: 
+    if not friday_session:
         raise HTTPException(status_code=401)
     at = _usable_calendar_access_token()
-    if not at: 
+    if not at:
         raise HTTPException(status_code=409, detail="Calendar desconectado.")
-    
+
     events = _calendar_today_events(at) if range == "today" else _calendar_events_query(at)
     return {"events": events or []}
 
+# ---------- CHAT (streaming SSE) ----------
 @app.post("/chat")
 async def chat_endpoint(data: ChatData, friday_session: Optional[str] = Cookie(None)):
-    if not friday_session: 
+    if not friday_session:
         raise HTTPException(status_code=401)
-    
+
     history = SESSION_STORE.get_history(friday_session)
-    if history is None: history = []
+    if history is None:
+        history = []
     session = SESSION_STORE.get(friday_session)
-    if session is None: session = {}
+    if session is None:
+        session = {}
 
     def event_generator():
         from core.ai_provider import FridayAIProvider
         provider = FridayAIProvider()
-        
+
         if not provider.available():
             yield f"data: {json.dumps({'error': 'IA não configurada (Groq API Key).'})}\n\n"
             yield f"data: {json.dumps({'done': True})}\n\n"
@@ -500,7 +490,7 @@ async def chat_endpoint(data: ChatData, friday_session: Optional[str] = Cookie(N
 
             for chunk in stream_gen:
                 if "error" in chunk:
-                    print(f"ERRO NA IA: {chunk['error']}") 
+                    print(f"ERRO NA IA: {chunk['error']}")
                     yield f"data: {json.dumps({'error': chunk['error']})}\n\n"
                     error_occurred = True
                     break
@@ -514,9 +504,9 @@ async def chat_endpoint(data: ChatData, friday_session: Optional[str] = Cookie(N
                     if idx not in tool_call_acc:
                         tool_call_acc[idx] = {"id": tc.get("id", ""), "name": "", "arguments": ""}
                     if "function" in tc:
-                        if "name" in tc["function"]: 
+                        if "name" in tc["function"]:
                             tool_call_acc[idx]["name"] += tc["function"]["name"]
-                        if "arguments" in tc["function"]: 
+                        if "arguments" in tc["function"]:
                             tool_call_acc[idx]["arguments"] += tc["function"]["arguments"]
 
             if error_occurred:
@@ -524,23 +514,22 @@ async def chat_endpoint(data: ChatData, friday_session: Optional[str] = Cookie(N
 
             if has_tool:
                 tc_data = tool_call_acc[0]
-                try: 
+                try:
                     args = json.loads(tc_data["arguments"])
-                except: 
+                except:
                     args = {}
-                
-                # NOVO: Avisa o frontend qual ferramenta está sendo usada
+
                 yield f"data: {json.dumps({'tool': tc_data['name']})}\n\n"
-                
+
                 exec_res = execute_tool(tc_data["name"], args, session=session, confirmed=True)
-                
+
                 if not exec_res.get("ok"):
                     err_msg = exec_res.get("error", "Erro na ferramenta.")
                     yield f"data: {json.dumps({'text': f'Erro ao executar a ferramenta: {err_msg}'})}\n\n"
                     break
-                
+
                 result = exec_res.get("result")
-                
+
                 current_messages.append({"role": "assistant", "content": None, "tool_calls": [{"id": tc_data["id"], "type": "function", "function": {"name": tc_data["name"], "arguments": tc_data["arguments"]}}]})
                 current_messages.append({"role": "tool", "tool_call_id": tc_data["id"], "content": json.dumps(result)})
                 continue
@@ -557,6 +546,7 @@ async def chat_endpoint(data: ChatData, friday_session: Optional[str] = Cookie(N
         yield f"data: {json.dumps({'done': True})}\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
+
 
 if __name__ == "__main__":
     import uvicorn
