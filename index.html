@@ -49,8 +49,11 @@ body::after{content:'';position:fixed;inset:0;background:repeating-linear-gradie
 
 /* TOAST */
 .toast-container{position:fixed;top:64px;left:50%;transform:translateX(-50%);z-index:900;display:flex;flex-direction:column;gap:8px;pointer-events:none;max-width:520px;width:calc(100% - 40px);align-items:center}
-.toast{background:linear-gradient(180deg,rgba(2,15,28,0.98),rgba(0,8,16,0.98));border:1px solid var(--cyan);padding:12px 20px 12px 40px;font-family:var(--font-mono);font-size:11px;letter-spacing:0.08em;color:var(--text-bright);box-shadow:0 0 40px var(--cyan-glow),inset 0 0 20px rgba(0,229,255,0.05);transform:translateY(-30px);opacity:0;transition:all 0.4s cubic-bezier(0.34,1.56,0.64,1);pointer-events:auto;position:relative;max-width:100%}
+.toast{background:linear-gradient(180deg,rgba(2,15,28,0.98),rgba(0,8,16,0.98));border:1px solid var(--cyan);padding:12px 20px 12px 40px;font-family:var(--font-mono);font-size:11px;letter-spacing:0.08em;color:var(--text-bright);box-shadow:0 0 40px var(--cyan-glow),inset 0 0 20px rgba(0,229,255,0.05);transform:translateY(-30px);opacity:0;transition:all 0.4s cubic-bezier(0.34,1.56,0.64,1);pointer-events:auto;position:relative;max-width:100%;cursor:pointer;user-select:none}
 .toast::before{content:'>';position:absolute;left:16px;top:50%;transform:translateY(-50%);color:var(--cyan);animation:blink 1s step-end infinite}
+.toast.has-icon{padding-left:20px}
+.toast.has-icon::before{display:none}
+.toast:hover{background:linear-gradient(180deg,rgba(0,25,45,0.99),rgba(0,15,28,0.99));border-color:var(--cyan-2)}
 .toast.show{transform:translateY(0);opacity:1}
 .toast.hide{transform:translateY(-30px);opacity:0}
 @keyframes blink{50%{opacity:0}}
@@ -429,7 +432,6 @@ input:checked + .slider:before{transform:translateX(18px);background:var(--cyan)
       <div class="reactor-stage" id="reactorStage">
         <canvas id="three-reactor"></canvas>
 
-        <!-- NOVO: Indicator de "thinking" + botão Cancel -->
         <div id="thinkingIndicator" class="thinking-indicator hidden">
           <span class="thinking-dot"></span>
           <span id="thinkingTime">0.0s</span>
@@ -566,38 +568,76 @@ let bootTime = Date.now();
 let bootRunning = false;
 window.fridayState = 'idle';
 
-// ───── PATCH 2: Cancel + Timer vars ─────
 let currentAbortController = null;
 let thinkingTimer = null;
 let thinkingStart = 0;
 
-// ───── PATCH 3: Cursor Spring vars ─────
 let cursorTargetX = -100, cursorTargetY = -100;
 let cursorX = -100, cursorY = -100;
 
-// ───── PATCH 5: Ambience ─────
 let ambienceNodes = null;
+
+let lastAIResponseTime = 0;
 
 const MONTHS_PT = ['JAN','FEV','MAR','ABR','MAI','JUN','JUL','AGO','SET','OUT','NOV','DEZ'];
 const WEEKDAYS_PT = ['DOM','SEG','TER','QUA','QUI','SEX','SÁB'];
 
-// ───── TOAST ─────
-function showToast(text, duration = 4200) {
+// ═══════════════════════════════════════════════════════════
+// TOAST — v2: click to dismiss, dedup, adaptive icon, sound
+// ═══════════════════════════════════════════════════════════
+const recentToasts = new Map();  // text -> timestamp
+function showToast(text, duration = 5000) {
   const container = $('toastContainer');
   if (!container) return;
+
+  const now = Date.now();
+  const lastSeen = recentToasts.get(text) || 0;
+  if (now - lastSeen < 10000) {
+    console.log('[TOAST] Skipped duplicate:', text);
+    return;
+  }
+  recentToasts.set(text, now);
+  for (const [k, t] of recentToasts) {
+    if (now - t > 60000) recentToasts.delete(k);
+  }
+
+  if (container.children.length >= 3) {
+    const oldest = container.firstChild;
+    if (oldest) oldest.remove();
+  }
+
   const toast = document.createElement('div');
   toast.className = 'toast';
   toast.textContent = text;
-  container.appendChild(toast);
-  requestAnimationFrame(() => toast.classList.add('show'));
-  setTimeout(() => {
+
+  const firstChar = String(text).trim().charAt(0);
+  if (/[\u{1F300}-\u{1F9FF}\u{1F600}-\u{1F64F}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}]/u.test(firstChar)) {
+    toast.classList.add('has-icon');
+  }
+
+  let dismissed = false;
+  let timer;
+  const dismiss = () => {
+    if (dismissed) return;
+    dismissed = true;
+    clearTimeout(timer);
     toast.classList.remove('show');
     toast.classList.add('hide');
     setTimeout(() => toast.remove(), 500);
-  }, duration);
+  };
+  toast.addEventListener('click', dismiss);
+
+  container.appendChild(toast);
+  requestAnimationFrame(() => toast.classList.add('show'));
+
+  try { playTone(880, 'sine', 0.08, 0.025); } catch(e) {}
+
+  timer = setTimeout(dismiss, duration);
 }
 
-// ───── CLOCK ─────
+// ═══════════════════════════════════════════════════════════
+// CLOCK
+// ═══════════════════════════════════════════════════════════
 function buildDayStrip() {
   const now = new Date();
   const days = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
@@ -627,7 +667,9 @@ function updateClocks() {
 }
 buildDayStrip(); updateClocks(); setInterval(updateClocks, 1000);
 
-// ───── SPARKLINES ─────
+// ═══════════════════════════════════════════════════════════
+// SPARKLINES
+// ═══════════════════════════════════════════════════════════
 const sparkHistory = { cpu: [], ram: [] };
 const SPARK_MAX = 30;
 function pushSpark(key, v) { const arr = sparkHistory[key]; arr.push(v); if (arr.length > SPARK_MAX) arr.shift(); }
@@ -664,7 +706,9 @@ function redrawSparklines() {
   drawSparkline('sparkRam', sparkHistory.ram, color);
 }
 
-// ───── GAUGES ─────
+// ═══════════════════════════════════════════════════════════
+// GAUGES
+// ═══════════════════════════════════════════════════════════
 function updateGauge(id, value) {
   const el = document.getElementById('gauge' + id);
   const valEl = document.getElementById('gauge' + id + 'Val');
@@ -722,7 +766,9 @@ setInterval(() => {
   }
 }, 5000);
 
-// ───── PREFS ─────
+// ═══════════════════════════════════════════════════════════
+// PREFS
+// ═══════════════════════════════════════════════════════════
 function loadVisualPreferences() {
   if (localStorage.getItem('friday_hide_sidebar') === 'true') { document.body.classList.add('hide-sidebar'); $('toggleSidebar').checked = false; }
   if (localStorage.getItem('friday_hide_chart') === 'true') { document.body.classList.add('hide-chart'); $('toggleChart').checked = false; }
@@ -743,7 +789,9 @@ $('toggleParticles').addEventListener('change', e => {
 $('openSettingsBtn').addEventListener('click', () => $('settingsModal').classList.remove('hidden'));
 $('closeSettingsBtn').addEventListener('click', () => $('settingsModal').classList.add('hidden'));
 
-// ───── KEYBOARD SHORTCUTS ─────
+// ═══════════════════════════════════════════════════════════
+// KEYBOARD SHORTCUTS
+// ═══════════════════════════════════════════════════════════
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
     if (!$('palette').classList.contains('hidden')) { closePalette(); return; }
@@ -761,7 +809,9 @@ document.addEventListener('keydown', e => {
   }
 });
 
-// ───── BOOT ─────
+// ═══════════════════════════════════════════════════════════
+// BOOT SEQUENCE
+// ═══════════════════════════════════════════════════════════
 async function runBootSequence() {
   if (bootRunning) return;
   bootRunning = true;
@@ -781,7 +831,9 @@ async function runBootSequence() {
   bootRunning = false;
 }
 
-// ───── PWA + MIC ─────
+// ═══════════════════════════════════════════════════════════
+// PWA + MIC
+// ═══════════════════════════════════════════════════════════
 window.addEventListener('beforeinstallprompt', e => {
   e.preventDefault();
   deferredPrompt = e;
@@ -812,7 +864,9 @@ $('requestMicBtn').addEventListener('click', async () => {
   }
 });
 
-// ───── VOICES ─────
+// ═══════════════════════════════════════════════════════════
+// VOICES
+// ═══════════════════════════════════════════════════════════
 function loadVoices() {
   availableVoices = window.speechSynthesis.getVoices();
   const select = $('voiceSelect');
@@ -851,7 +905,9 @@ function browserSpeak(text, runId, forceTest = false) {
   synth.speak(utterance);
 }
 
-// ───── AMBIENCE (PATCH 5) ─────
+// ═══════════════════════════════════════════════════════════
+// AMBIENCE
+// ═══════════════════════════════════════════════════════════
 function startAmbience() {
   if (ambienceNodes) return;
   try {
@@ -875,7 +931,9 @@ function stopAmbience() {
   }
 }
 
-// ───── BG PARTICLES ─────
+// ═══════════════════════════════════════════════════════════
+// BG PARTICLES
+// ═══════════════════════════════════════════════════════════
 let bgScene, bgCamera, bgRenderer, particlesMesh, linesMesh;
 function initBgParticles() {
   if (document.body.classList.contains('hide-particles')) return;
@@ -935,7 +993,9 @@ function initBgParticles() {
   animateBg();
 }
 
-// ───── STATE PALETTE ─────
+// ═══════════════════════════════════════════════════════════
+// STATE PALETTE
+// ═══════════════════════════════════════════════════════════
 const STATE_PALETTE = {
   idle:      { primary: 0x00e5ff, secondary: 0x5ee7f2, accent: 0x8b5cf6, bloomStrength: 0.85, bloomThreshold: 0.85 },
   thinking:  { primary: 0xff9f00, secondary: 0xffce5c, accent: 0xff7b00, bloomStrength: 1.35, bloomThreshold: 0.7 },
@@ -945,7 +1005,9 @@ const STATE_PALETTE = {
   error:     { primary: 0xff2b4a, secondary: 0xff5c74, accent: 0xff0044, bloomStrength: 1.5, bloomThreshold: 0.65 }
 };
 
-// ───── REACTOR ─────
+// ═══════════════════════════════════════════════════════════
+// REACTOR
+// ═══════════════════════════════════════════════════════════
 let scene, camera, renderer, composer, bloomPass, controls, audioAnalyser, audioContext;
 let reactorGroup, coreMesh, coreMat, haloMesh, orbitalParticles, reactorStars, polarGrid, sweepMesh, sweepMat;
 let subsystemNodes = [];
@@ -1151,7 +1213,6 @@ function initReactor() {
     const rect = stage.getBoundingClientRect();
     reactorMouseVec.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
     reactorMouseVec.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
-    // PATCH 3: Atualiza target do cursor (não posição direta)
     cursorTargetX = e.clientX; cursorTargetY = e.clientY;
   });
   stage.addEventListener('pointerdown', (e) => {
@@ -1404,7 +1465,6 @@ function spawnBeam(targetPos, color) {
 }
 function dimReactorHint() { if (!reactorHintDimmed && reactorHintEl) { reactorHintDimmed = true; reactorHintEl.classList.add('dimmed'); } }
 
-// ───── PATCH 3: Cursor Spring Loop ─────
 function animateHudCursor() {
   requestAnimationFrame(animateHudCursor);
   cursorX += (cursorTargetX - cursorX) * 0.18;
@@ -1440,7 +1500,6 @@ function setupAudioAnalyser(audioElement) {
   } catch(e) {}
 }
 
-// ───── MIC VISUALIZER ─────
 let micContext, micAnalyser, micSource, micDataArray;
 async function setupMicVisualizer() {
   if (micContext) return;
@@ -1483,7 +1542,6 @@ if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => { navigator.serviceWorker.register('/sw.js').catch(() => {}); });
 }
 
-// ───── MUSIC ─────
 window.onYouTubeIframeAPIReady = function() { ytPlayer = new YT.Player('musicPlayer', { events: { 'onReady': () => {} } }); };
 function handleMusicAction(text) {
   if (text.includes('[MUSIC_ACTION:pause]')) { if (ytPlayer && ytPlayer.pauseVideo) ytPlayer.pauseVideo(); return text.replace('[MUSIC_ACTION:pause]', '').trim(); }
@@ -1574,7 +1632,6 @@ async function loadCalendarEvents(range = "upcoming") {
   } catch (e) { container.innerHTML = '<p class="awareness-note" style="color: var(--red);">Erro de conexão.</p>'; }
 }
 
-// ───── PATCH 1: Memory Loader ─────
 async function loadHistoryFromBackend() {
   try {
     const res = await fetch('/history', { credentials: 'same-origin' });
@@ -1730,7 +1787,6 @@ $('removeAttachment').addEventListener('click', () => {
   $('attachmentPreview').classList.add('hidden'); $('attachmentName').textContent = '';
 });
 
-// ───── PATCH 2: Cancel Listener ─────
 $('cancelBtn').addEventListener('click', () => {
   if (currentAbortController) {
     currentAbortController.abort();
@@ -1748,7 +1804,6 @@ async function sendCommandToFriday(command, isInitial = false) {
   $("sendBtn").disabled = true; $("voiceBtn").disabled = true;
   status("FRIDAY está processando..."); startStatusPolling();
 
-  // PATCH 2: AbortController + timer
   currentAbortController = new AbortController();
   thinkingStart = Date.now();
   $('thinkingIndicator').classList.remove('hidden');
@@ -1769,7 +1824,7 @@ async function sendCommandToFriday(command, isInitial = false) {
       method: "POST", credentials: "same-origin",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
-      signal: currentAbortController.signal  // ← PATCH 2
+      signal: currentAbortController.signal
     });
     if (!response.ok) throw new Error("Erro na conexão.");
     const reader = response.body.getReader();
@@ -1808,6 +1863,7 @@ async function sendCommandToFriday(command, isInitial = false) {
       const finalReply = handleMusicAction(fullReplyText);
       scrambleText(botSpan, finalReply);
       lastReply = finalReply; speakResponse(finalReply);
+      lastAIResponseTime = Date.now();
     }
   } catch (error) {
     stopStatusPolling();
@@ -1821,7 +1877,6 @@ async function sendCommandToFriday(command, isInitial = false) {
       setTimeout(() => { window.fridayState = 'idle'; }, 2000);
     }
   } finally {
-    // PATCH 2: Cleanup
     clearInterval(thinkingTimer);
     $('thinkingIndicator').classList.add('hidden');
     $('cancelBtn').classList.add('hidden');
@@ -1845,9 +1900,9 @@ $("loginForm").addEventListener("submit", async (event) => {
     $("assistant").classList.remove("hidden");
     status("Autenticada. FRIDAY online.");
     soundBoot();
-    startAmbience();  // PATCH 5
+    startAmbience();
     $('messages').replaceChildren();
-    await loadHistoryFromBackend();  // PATCH 1
+    await loadHistoryFromBackend();
     startSysMetrics();
     initReactor();
     requestAnimationFrame(() => initReactor());
@@ -1949,7 +2004,7 @@ function startWakeWordListener() {
 }
 
 function showLogin() {
-  stopVoice(); stopStatusPolling(); stopAmbience();  // PATCH 5
+  stopVoice(); stopStatusPolling(); stopAmbience();
   $("assistant").classList.add("hidden"); $("login").classList.remove("hidden");
   $("messages").replaceChildren(); $("settingsModal").classList.add("hidden");
   $("calendarPanel").classList.add("hidden"); $("musicPlayer").classList.add("hidden");
@@ -1979,9 +2034,9 @@ async function checkSession() {
       await runBootSequence();
       $("assistant").classList.remove("hidden");
       status("Sessão ativa. FRIDAY online.");
-      startAmbience();  // PATCH 5
+      startAmbience();
       $('messages').replaceChildren();
-      await loadHistoryFromBackend();  // PATCH 1
+      await loadHistoryFromBackend();
       startSysMetrics();
       initReactor();
       requestAnimationFrame(() => initReactor());
@@ -2010,7 +2065,8 @@ setInterval(async () => {
         if (!localStorage.getItem(key)) {
           localStorage.setItem(key, "true");
           const msg = `Chefe, seu compromisso "${evt.summary}" começa em ${Math.round(diff)} minutos.`;
-          addMessage("FRIDAY", msg); speakText(msg, true); showToast(msg);
+          showToast(msg, 8000);
+          speakText(msg, true);
         }
       }
     });
@@ -2023,13 +2079,21 @@ setInterval(async () => {
     const res = await fetch("/notifications", { credentials: "same-origin" });
     if (!res.ok) return;
     const data = await res.json();
-    if (data.notifications && data.notifications.length > 0) {
-      data.notifications.forEach(msg => { addMessage("FRIDAY", msg); speakResponse(msg); showToast(msg); });
-    }
-  } catch (e) {}
-}, 30000);
+    if (!data.notifications || data.notifications.length === 0) return;
 
-// ───── PATCH 4: Command Palette ─────
+    const now = Date.now();
+    const timeSinceAI = now - lastAIResponseTime;
+
+    data.notifications.forEach(msg => {
+      if (timeSinceAI < 30000 && !msg.includes('[CRITICAL]')) {
+        console.log('[TOAST] Skip (chat já cobre):', msg);
+        return;
+      }
+      showToast(msg, 5000);
+    });
+  } catch (e) {}
+}, 15000);
+
 const PALETTE_COMMANDS = [
   { name: 'Focar input', shortcut: 'Ctrl+K', action: () => $('command').focus() },
   { name: 'Configurações', shortcut: 'Ctrl+/', action: () => $('settingsModal').classList.remove('hidden') },
