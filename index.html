@@ -32,7 +32,7 @@ body[data-state="listening"]{--cyan:#00ff88;--cyan-2:#5effa1;--cyan-dim:#008a4a;
 body[data-state="tooling"]{--cyan:#00ff88;--cyan-2:#5effa1;--cyan-dim:#008a4a;--cyan-glow:rgba(0,255,136,0.55);--state-glow:rgba(0,255,136,0.06)}
 body[data-state="error"]{--cyan:#ff2b4a;--cyan-2:#ff5c74;--cyan-dim:#8a1527;--cyan-glow:rgba(255,43,74,0.55);--state-glow:rgba(255,43,74,0.07)}
 *,*::before,*::after{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-html{min-height:100%;background:var(--bg);-webkit-text-size-adjust:100%;text-size-adjust:100%}
+html{min-height:100%;background:var(--bg);-webkit-text-size-adjust:100%}
 body{margin:0;min-height:100vh;min-height:100dvh;color:var(--text);background:radial-gradient(ellipse 1200px 800px at 50% 40%,var(--state-glow),transparent 65%),radial-gradient(ellipse 900px 600px at 0% 100%,rgba(0,229,255,0.04),transparent 60%),var(--bg);font-family:var(--font-tech);font-size:14px;-webkit-font-smoothing:antialiased;overflow:hidden;overscroll-behavior:none;transition:background 0.8s ease}
 body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(0,229,255,0.025) 1px,transparent 1px),linear-gradient(90deg,rgba(0,229,255,0.025) 1px,transparent 1px);background-size:40px 40px;z-index:1;pointer-events:none;mask-image:radial-gradient(ellipse at center,#000 15%,transparent 85%);-webkit-mask-image:radial-gradient(ellipse at center,#000 15%,transparent 85%)}
 body::after{content:'';position:fixed;inset:0;background:repeating-linear-gradient(0deg,transparent 0px,transparent 2px,rgba(0,229,255,0.015) 2px,rgba(0,229,255,0.015) 3px);pointer-events:none;z-index:2}
@@ -55,7 +55,20 @@ body::after{content:'';position:fixed;inset:0;background:repeating-linear-gradie
 .toast.hide{transform:translateY(-30px);opacity:0}
 @keyframes blink{50%{opacity:0}}
 
-/* HUD (same shell) */
+/* THINKING INDICATOR + CANCEL */
+.thinking-indicator{position:absolute;top:20px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:8px;padding:6px 14px;background:rgba(255,159,0,0.15);border:1px solid var(--orange);font-family:var(--font-mono);font-size:10px;letter-spacing:0.15em;color:var(--orange);text-transform:uppercase;z-index:5;animation:pulse-dot 1.5s ease-in-out infinite}
+.thinking-dot{width:6px;height:6px;border-radius:50%;background:var(--orange);box-shadow:0 0 8px var(--orange)}
+.cancel-btn{position:absolute;top:20px;right:20px;z-index:5}
+
+/* COMMAND PALETTE */
+.palette-overlay{position:fixed;inset:0;background:rgba(0,3,8,0.75);backdrop-filter:blur(6px);z-index:2000;display:flex;align-items:flex-start;justify-content:center;padding-top:15vh}
+.palette-box{width:100%;max-width:560px;background:rgba(2,12,24,0.98);border:1px solid var(--cyan);box-shadow:0 0 60px rgba(0,229,255,0.25)}
+#paletteInput{width:100%;padding:16px 20px;background:transparent;border:none;border-bottom:1px solid var(--line);color:var(--text-bright);font-family:var(--font-mono);font-size:14px;outline:none}
+.palette-results{max-height:50vh;overflow-y:auto}
+.palette-item{display:flex;justify-content:space-between;align-items:center;padding:12px 20px;cursor:pointer;font-family:var(--font-mono);font-size:12px;color:var(--text);border-bottom:1px solid rgba(0,229,255,0.05)}
+.palette-item:hover,.palette-item.selected{background:rgba(0,229,255,0.1);color:#fff}
+.palette-item .shortcut{font-size:10px;color:var(--text-dim);padding:2px 8px;border:1px solid var(--line)}
+
 .hud{position:relative;z-index:20;width:100%;height:100vh;height:100dvh;display:flex;flex-direction:column}
 .hud-top{display:grid;grid-template-columns:1fr auto auto;align-items:center;gap:20px;padding:8px 22px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,rgba(0,20,34,0.6),transparent);flex-shrink:0;position:relative}
 .hud-top::after{content:'';position:absolute;bottom:-1px;left:22px;right:22px;height:1px;background:linear-gradient(90deg,transparent,var(--cyan),transparent);opacity:0.4}
@@ -141,7 +154,7 @@ body::after{content:'';position:fixed;inset:0;background:repeating-linear-gradie
 .reactor-hint.dimmed{opacity:0}
 .reactor-hint b{color:var(--cyan);font-weight:500}
 
-.hud-cursor{position:fixed;top:0;left:0;width:28px;height:28px;pointer-events:none;z-index:500;transform:translate(-50%,-50%);opacity:0;transition:width 0.15s ease,height 0.15s ease,opacity 0.15s ease}
+.hud-cursor{position:fixed;top:0;left:0;width:28px;height:28px;pointer-events:none;z-index:500;opacity:0;transition:width 0.15s ease,height 0.15s ease,opacity 0.15s ease;will-change:transform;transform:translate(-100px,-100px) translate(-50%,-50%)}
 .hud-cursor.visible{opacity:1}
 .hud-cursor.hover{width:42px;height:42px}
 .hud-cursor .corner{position:absolute;width:6px;height:6px;border-color:var(--cyan);border-style:solid;border-width:0;transition:border-color 0.15s ease}
@@ -194,6 +207,7 @@ body::after{content:'';position:fixed;inset:0;background:repeating-linear-gradie
 .hud-btn.sm{min-height:34px;padding:0 10px;font-size:12px}
 .hud-btn.primary{background:linear-gradient(135deg,rgba(0,229,255,0.9),rgba(0,150,180,0.9));color:#000;border:none;font-weight:700;box-shadow:0 0 15px var(--cyan-glow)}
 .hud-btn.danger{border-color:rgba(255,43,74,0.35);color:rgba(255,43,74,0.9)}
+.hud-btn.danger:hover:not(:disabled){background:rgba(255,43,74,0.15);border-color:var(--red);color:var(--red);box-shadow:0 0 15px rgba(255,43,74,0.4)}
 .hud-icon-btn{background:transparent;border:1px solid rgba(0,229,255,0.25);color:var(--cyan);width:32px;height:32px;padding:0;cursor:pointer;font-size:14px;display:inline-flex;align-items:center;justify-content:center;transition:all 0.2s}
 .hud-icon-btn:hover{transform:rotate(90deg);border-color:var(--cyan);box-shadow:0 0 12px var(--cyan-glow)}
 
@@ -286,6 +300,13 @@ input:checked + .slider:before{transform:translateX(18px);background:var(--cyan)
   <span class="corner tl"></span><span class="corner tr"></span>
   <span class="corner bl"></span><span class="corner br"></span>
   <span class="center-dot"></span>
+</div>
+
+<div id="palette" class="palette-overlay hidden">
+  <div class="palette-box">
+    <input id="paletteInput" type="text" placeholder="Digite um comando..." autocomplete="off" />
+    <div id="paletteResults" class="palette-results"></div>
+  </div>
 </div>
 
 <div id="login" class="login-overlay">
@@ -407,6 +428,14 @@ input:checked + .slider:before{transform:translateX(18px);background:var(--cyan)
     <section class="hud-center">
       <div class="reactor-stage" id="reactorStage">
         <canvas id="three-reactor"></canvas>
+
+        <!-- NOVO: Indicator de "thinking" + botão Cancel -->
+        <div id="thinkingIndicator" class="thinking-indicator hidden">
+          <span class="thinking-dot"></span>
+          <span id="thinkingTime">0.0s</span>
+        </div>
+        <button id="cancelBtn" class="hud-btn danger sm cancel-btn hidden" type="button">⨯ CANCELAR</button>
+
         <svg class="reactor-text-ring" viewBox="0 0 400 400" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
           <defs><path id="ringPath" d="M 200,200 m -160,0 a 160,160 0 1,1 320,0 a 160,160 0 1,1 -320,0" fill="none"/></defs>
           <text font-family="JetBrains Mono, monospace" font-size="10" letter-spacing="5"><textPath href="#ringPath" startOffset="0%">· STARK INDUSTRIES · FRIDAY OS · NEURAL LINK ACTIVE · MK-I ·</textPath></text>
@@ -500,7 +529,7 @@ input:checked + .slider:before{transform:translateX(18px);background:var(--cyan)
     </div>
     <div class="modal-section">
       <h3>Atalhos</h3>
-      <p style="line-height:1.8;"><strong style="color:var(--cyan);">Ctrl+K</strong> · Focar comando<br><strong style="color:var(--cyan);">Ctrl+/</strong> · Configurações<br><strong style="color:var(--cyan);">Esc</strong> · Fechar</p>
+      <p style="line-height:1.8;"><strong style="color:var(--cyan);">Ctrl+K</strong> · Focar comando<br><strong style="color:var(--cyan);">Ctrl+/</strong> · Configurações<br><strong style="color:var(--cyan);">Ctrl+Shift+P</strong> · Command Palette<br><strong style="color:var(--cyan);">Esc</strong> · Fechar</p>
     </div>
     <div class="modal-section">
       <h3>Instalação</h3>
@@ -537,10 +566,22 @@ let bootTime = Date.now();
 let bootRunning = false;
 window.fridayState = 'idle';
 
+// ───── PATCH 2: Cancel + Timer vars ─────
+let currentAbortController = null;
+let thinkingTimer = null;
+let thinkingStart = 0;
+
+// ───── PATCH 3: Cursor Spring vars ─────
+let cursorTargetX = -100, cursorTargetY = -100;
+let cursorX = -100, cursorY = -100;
+
+// ───── PATCH 5: Ambience ─────
+let ambienceNodes = null;
+
 const MONTHS_PT = ['JAN','FEV','MAR','ABR','MAI','JUN','JUL','AGO','SET','OUT','NOV','DEZ'];
 const WEEKDAYS_PT = ['DOM','SEG','TER','QUA','QUI','SEX','SÁB'];
 
-// ============ TOAST ============
+// ───── TOAST ─────
 function showToast(text, duration = 4200) {
   const container = $('toastContainer');
   if (!container) return;
@@ -556,7 +597,7 @@ function showToast(text, duration = 4200) {
   }, duration);
 }
 
-// ============ CLOCK / DATE ============
+// ───── CLOCK ─────
 function buildDayStrip() {
   const now = new Date();
   const days = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
@@ -571,7 +612,6 @@ function buildDayStrip() {
     if (el) { try { el.scrollIntoView({inline:'center',block:'nearest',behavior:'smooth'}); } catch(e) { el.scrollIntoView(); } }
   });
 }
-
 function updateClocks() {
   const now = new Date();
   const hh = String(now.getHours()).padStart(2,'0');
@@ -587,26 +627,19 @@ function updateClocks() {
 }
 buildDayStrip(); updateClocks(); setInterval(updateClocks, 1000);
 
-// ============ SPARKLINES ============
+// ───── SPARKLINES ─────
 const sparkHistory = { cpu: [], ram: [] };
 const SPARK_MAX = 30;
-function pushSpark(key, v) {
-  const arr = sparkHistory[key];
-  arr.push(v);
-  if (arr.length > SPARK_MAX) arr.shift();
-}
+function pushSpark(key, v) { const arr = sparkHistory[key]; arr.push(v); if (arr.length > SPARK_MAX) arr.shift(); }
 function drawSparkline(canvasId, values, color) {
-  const c = $(canvasId);
-  if (!c) return;
+  const c = $(canvasId); if (!c) return;
   const ctx = c.getContext('2d');
   const w = c.width, h = c.height;
   ctx.clearRect(0, 0, w, h);
   if (values.length < 2) return;
   const grad = ctx.createLinearGradient(0, 0, 0, h);
-  grad.addColorStop(0, color + '66');
-  grad.addColorStop(1, color + '00');
-  ctx.beginPath();
-  ctx.moveTo(0, h);
+  grad.addColorStop(0, color + '66'); grad.addColorStop(1, color + '00');
+  ctx.beginPath(); ctx.moveTo(0, h);
   for (let i = 0; i < values.length; i++) {
     const x = (i / (SPARK_MAX - 1)) * w;
     const y = h - (values[i] / 100) * h * 0.85 - 2;
@@ -631,7 +664,7 @@ function redrawSparklines() {
   drawSparkline('sparkRam', sparkHistory.ram, color);
 }
 
-// ============ GAUGES ============
+// ───── GAUGES ─────
 function updateGauge(id, value) {
   const el = document.getElementById('gauge' + id);
   const valEl = document.getElementById('gauge' + id + 'Val');
@@ -641,7 +674,6 @@ function updateGauge(id, value) {
   }
   if (valEl) valEl.textContent = Math.round(value);
 }
-
 function initChart() {
   sysChart = {
     data: { datasets: [{ data: [0,0,0,0,0] }] },
@@ -655,7 +687,6 @@ function initChart() {
     }
   };
 }
-
 async function pollMetrics() {
   if (!sysChart) return;
   try {
@@ -666,15 +697,12 @@ async function pollMetrics() {
     sysChart.update();
   } catch(e) {}
 }
-
 function startSysMetrics() {
   if (!sysChart) initChart();
   if (sysPollTimer) clearInterval(sysPollTimer);
   pollMetrics();
   sysPollTimer = setInterval(pollMetrics, 2000);
 }
-
-// Live bars
 setInterval(() => {
   document.querySelectorAll('.bar-fill[data-min]').forEach(el => {
     const min = +el.dataset.min, max = +el.dataset.max;
@@ -684,7 +712,6 @@ setInterval(() => {
     if (row) { const v = row.querySelector('.bar-value'); if (v) v.textContent = Math.round(val) + '%'; }
   });
 }, 3500);
-
 setInterval(() => {
   const fill = document.querySelector('.e-fill');
   const txt = document.querySelector('.e-text');
@@ -695,7 +722,7 @@ setInterval(() => {
   }
 }, 5000);
 
-// ============ PREFS ============
+// ───── PREFS ─────
 function loadVisualPreferences() {
   if (localStorage.getItem('friday_hide_sidebar') === 'true') { document.body.classList.add('hide-sidebar'); $('toggleSidebar').checked = false; }
   if (localStorage.getItem('friday_hide_chart') === 'true') { document.body.classList.add('hide-chart'); $('toggleChart').checked = false; }
@@ -713,23 +740,28 @@ $('toggleParticles').addEventListener('change', e => {
   if (e.target.checked) document.body.classList.remove('hide-particles'); else document.body.classList.add('hide-particles');
   localStorage.setItem('friday_hide_particles', !e.target.checked);
 });
-
 $('openSettingsBtn').addEventListener('click', () => $('settingsModal').classList.remove('hidden'));
 $('closeSettingsBtn').addEventListener('click', () => $('settingsModal').classList.add('hidden'));
 
+// ───── KEYBOARD SHORTCUTS ─────
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
-    if (!$('settingsModal').classList.contains('hidden')) $('settingsModal').classList.add('hidden');
-    else if (speaking || listening) { stopVoice(); status("Interrompido."); }
+    if (!$('palette').classList.contains('hidden')) { closePalette(); return; }
+    if (!$('settingsModal').classList.contains('hidden')) { $('settingsModal').classList.add('hidden'); return; }
+    if (speaking || listening) { stopVoice(); status("Interrompido."); }
   }
-  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+  if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'k') {
     e.preventDefault();
     const c = $('command'); if (c && !$('assistant').classList.contains('hidden')) c.focus();
   }
   if ((e.ctrlKey || e.metaKey) && e.key === '/') { e.preventDefault(); $('settingsModal').classList.toggle('hidden'); }
+  if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'p') {
+    e.preventDefault();
+    openPalette();
+  }
 });
 
-// ============ BOOT ============
+// ───── BOOT ─────
 async function runBootSequence() {
   if (bootRunning) return;
   bootRunning = true;
@@ -749,7 +781,7 @@ async function runBootSequence() {
   bootRunning = false;
 }
 
-// ============ PWA + MIC ============
+// ───── PWA + MIC ─────
 window.addEventListener('beforeinstallprompt', e => {
   e.preventDefault();
   deferredPrompt = e;
@@ -767,7 +799,6 @@ if (/iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream) {
   $('iosInstallInstructions').classList.remove('hidden');
   $('installStatusText').textContent = "Use o Safari para instalar.";
 }
-
 $('requestMicBtn').addEventListener('click', async () => {
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -781,7 +812,7 @@ $('requestMicBtn').addEventListener('click', async () => {
   }
 });
 
-// ============ VOICES ============
+// ───── VOICES ─────
 function loadVoices() {
   availableVoices = window.speechSynthesis.getVoices();
   const select = $('voiceSelect');
@@ -803,7 +834,6 @@ $('pitchSlider').addEventListener('input', e => { $('pitchValue').textContent = 
 $('testUltronVoiceBtn').addEventListener('click', () => {
   browserSpeak("Eu sou a FRIDAY. O sistema está sob meu controle. Como posso ajudar?", 0, true);
 });
-
 function browserSpeak(text, runId, forceTest = false) {
   if (!('speechSynthesis' in window)) return;
   const synth = window.speechSynthesis;
@@ -821,7 +851,31 @@ function browserSpeak(text, runId, forceTest = false) {
   synth.speak(utterance);
 }
 
-// ============ BG PARTICLES ============
+// ───── AMBIENCE (PATCH 5) ─────
+function startAmbience() {
+  if (ambienceNodes) return;
+  try {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    const ctx = audioCtx;
+    const osc1 = ctx.createOscillator(); osc1.type = 'sine'; osc1.frequency.value = 50;
+    const osc2 = ctx.createOscillator(); osc2.type = 'sine'; osc2.frequency.value = 75;
+    const gain = ctx.createGain(); gain.gain.value = 0.008;
+    const filter = ctx.createBiquadFilter(); filter.type = 'lowpass'; filter.frequency.value = 200;
+    osc1.connect(gain); osc2.connect(gain);
+    gain.connect(filter); filter.connect(ctx.destination);
+    osc1.start(); osc2.start();
+    ambienceNodes = { osc1, osc2, gain };
+  } catch(e) { console.warn('[AMBIENCE] Falha:', e); }
+}
+function stopAmbience() {
+  if (ambienceNodes) {
+    try { ambienceNodes.osc1.stop(); ambienceNodes.osc2.stop(); } catch(e) {}
+    ambienceNodes = null;
+  }
+}
+
+// ───── BG PARTICLES ─────
 let bgScene, bgCamera, bgRenderer, particlesMesh, linesMesh;
 function initBgParticles() {
   if (document.body.classList.contains('hide-particles')) return;
@@ -849,7 +903,6 @@ function initBgParticles() {
   lineGeo.setAttribute('position', new THREE.BufferAttribute(linePositions, 3));
   linesMesh = new THREE.LineSegments(lineGeo, new THREE.LineBasicMaterial({ color: 0x00e5ff, transparent: true, opacity: 0.08, blending: THREE.AdditiveBlending }));
   bgScene.add(linesMesh);
-
   function animateBg() {
     requestAnimationFrame(animateBg);
     const posAttr = particlesMesh.geometry.attributes.position;
@@ -882,7 +935,7 @@ function initBgParticles() {
   animateBg();
 }
 
-// ============ STATE PALETTE ============
+// ───── STATE PALETTE ─────
 const STATE_PALETTE = {
   idle:      { primary: 0x00e5ff, secondary: 0x5ee7f2, accent: 0x8b5cf6, bloomStrength: 0.85, bloomThreshold: 0.85 },
   thinking:  { primary: 0xff9f00, secondary: 0xffce5c, accent: 0xff7b00, bloomStrength: 1.35, bloomThreshold: 0.7 },
@@ -892,7 +945,7 @@ const STATE_PALETTE = {
   error:     { primary: 0xff2b4a, secondary: 0xff5c74, accent: 0xff0044, bloomStrength: 1.5, bloomThreshold: 0.65 }
 };
 
-// ============ REACTOR ============
+// ───── REACTOR ─────
 let scene, camera, renderer, composer, bloomPass, controls, audioAnalyser, audioContext;
 let reactorGroup, coreMesh, coreMat, haloMesh, orbitalParticles, reactorStars, polarGrid, sweepMesh, sweepMat;
 let subsystemNodes = [];
@@ -922,79 +975,31 @@ const SUBSYSTEMS = [
   { id: 'comms',    color: 0xffe900, name: 'COMMS',    radius: 2.65, speed: -0.0070, tilt: 0.28, phase: 7.7 }
 ];
 
-// Plasma shader
-const PLASMA_VERT = `
-varying vec3 vPosition;
-varying vec3 vNormal;
-void main() {
-  vPosition = position;
-  vNormal = normal;
-  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-}
-`;
+const PLASMA_VERT = `varying vec3 vPosition;varying vec3 vNormal;void main(){vPosition=position;vNormal=normal;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}`;
 const PLASMA_FRAG = `
-uniform float uTime;
-uniform vec3 uColorA;
-uniform vec3 uColorB;
-varying vec3 vPosition;
-varying vec3 vNormal;
-
-float hash(vec3 p) {
-  p = fract(p * 0.3183099 + vec3(0.1, 0.2, 0.3));
-  p *= 17.0;
-  return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
-}
-float noise(vec3 x) {
-  vec3 i = floor(x);
-  vec3 f = fract(x);
-  f = f * f * (3.0 - 2.0 * f);
-  return mix(
-    mix(mix(hash(i), hash(i + vec3(1,0,0)), f.x),
-        mix(hash(i + vec3(0,1,0)), hash(i + vec3(1,1,0)), f.x), f.y),
-    mix(mix(hash(i + vec3(0,0,1)), hash(i + vec3(1,0,1)), f.x),
-        mix(hash(i + vec3(0,1,1)), hash(i + vec3(1,1,1)), f.x), f.y), f.z);
-}
-float fbm(vec3 p) {
-  float v = 0.0;
-  float a = 0.5;
-  for (int i = 0; i < 3; i++) {
-    v += a * noise(p);
-    p *= 2.02;
-    a *= 0.5;
-  }
-  return v;
-}
-void main() {
-  vec3 p = vPosition * 3.0;
-  float t = uTime * 0.18;
-  float n1 = fbm(p + vec3(t, t * 0.5, 0.0));
-  float n2 = fbm(p * 1.5 + vec3(-t * 0.7, t, t * 0.3));
-  float n = (n1 + n2) * 0.5;
-  vec3 col = mix(uColorA, uColorB, smoothstep(0.2, 0.9, n));
-  vec3 viewDir = vec3(0.0, 0.0, 1.0);
-  float fresnel = pow(1.0 - abs(dot(vNormal, viewDir)), 1.5);
-  col += uColorB * fresnel * 0.8;
-  col *= 1.0 + n * 0.5;
-  gl_FragColor = vec4(col, 0.92);
-}
+uniform float uTime;uniform vec3 uColorA;uniform vec3 uColorB;varying vec3 vPosition;varying vec3 vNormal;
+float hash(vec3 p){p=fract(p*0.3183099+vec3(0.1,0.2,0.3));p*=17.0;return fract(p.x*p.y*p.z*(p.x+p.y+p.z));}
+float noise(vec3 x){vec3 i=floor(x);vec3 f=fract(x);f=f*f*(3.0-2.0*f);
+return mix(mix(mix(hash(i),hash(i+vec3(1,0,0)),f.x),mix(hash(i+vec3(0,1,0)),hash(i+vec3(1,1,0)),f.x),f.y),
+mix(mix(hash(i+vec3(0,0,1)),hash(i+vec3(1,0,1)),f.x),mix(hash(i+vec3(0,1,1)),hash(i+vec3(1,1,1)),f.x),f.y),f.z);}
+float fbm(vec3 p){float v=0.0;float a=0.5;for(int i=0;i<3;i++){v+=a*noise(p);p*=2.02;a*=0.5;}return v;}
+void main(){vec3 p=vPosition*3.0;float t=uTime*0.18;float n1=fbm(p+vec3(t,t*0.5,0.0));float n2=fbm(p*1.5+vec3(-t*0.7,t,t*0.3));float n=(n1+n2)*0.5;
+vec3 col=mix(uColorA,uColorB,smoothstep(0.2,0.9,n));vec3 viewDir=vec3(0.0,0.0,1.0);
+float fresnel=pow(1.0-abs(dot(vNormal,viewDir)),1.5);col+=uColorB*fresnel*0.8;col*=1.0+n*0.5;gl_FragColor=vec4(col,0.92);}
 `;
 
 function initReactor() {
   const canvasEl = $('three-reactor');
   const container = $('reactorStage');
   if (!canvasEl || !container) { console.warn('[REACTOR] Elementos não encontrados.'); return; }
-
   if (container.clientWidth < 20 || container.clientHeight < 20) {
     reactorInitAttempts++;
-    if (reactorInitAttempts < 50) { setTimeout(initReactor, 100); }
-    else { console.error('[REACTOR] Desisti após 50 tentativas.'); }
+    if (reactorInitAttempts < 50) setTimeout(initReactor, 100);
+    else console.error('[REACTOR] Desisti após 50 tentativas.');
     return;
   }
-
-  reactorStageEl = container;
-  reactorContainerEl = canvasEl;
-  hudCursorEl = $('hud-cursor');
-  reactorHintEl = $('reactorHint');
+  reactorStageEl = container; reactorContainerEl = canvasEl;
+  hudCursorEl = $('hud-cursor'); reactorHintEl = $('reactorHint');
   reactorContainerEls.labels = $('nodeLabels');
 
   if (renderer) {
@@ -1004,80 +1009,53 @@ function initReactor() {
     if (composer) composer.setSize(container.clientWidth, container.clientHeight);
     return;
   }
-
   console.log(`[REACTOR] ✅ Inicializando em ${container.clientWidth}x${container.clientHeight}`);
 
   scene = new THREE.Scene();
   scene.fog = new THREE.FogExp2(0x000610, 0.045);
-
   camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 1000);
   camera.position.set(0, 1.8, 7);
 
-  try {
-    renderer = new THREE.WebGLRenderer({ canvas: canvasEl, alpha: true, antialias: true });
-  } catch (err) {
-    console.error('[REACTOR] WebGL não disponível:', err);
-    return;
-  }
+  try { renderer = new THREE.WebGLRenderer({ canvas: canvasEl, alpha: true, antialias: true }); }
+  catch (err) { console.error('[REACTOR] WebGL não disponível:', err); return; }
   renderer.setSize(container.clientWidth, container.clientHeight);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   renderer.setClearColor(0x000610, 1);
 
-  // Bloom composer
-  composer = null;
-  bloomPass = null;
+  composer = null; bloomPass = null;
   try {
     if (typeof THREE.EffectComposer !== 'undefined' && typeof THREE.UnrealBloomPass !== 'undefined') {
       composer = new THREE.EffectComposer(renderer);
       composer.addPass(new THREE.RenderPass(scene, camera));
-      bloomPass = new THREE.UnrealBloomPass(
-        new THREE.Vector2(container.clientWidth, container.clientHeight),
-        0.85, 0.6, 0.85
-      );
+      bloomPass = new THREE.UnrealBloomPass(new THREE.Vector2(container.clientWidth, container.clientHeight), 0.85, 0.6, 0.85);
       composer.addPass(bloomPass);
       composer.setSize(container.clientWidth, container.clientHeight);
       console.log('[REACTOR] ✅ Bloom ativo');
-    } else {
-      console.warn('[REACTOR] Bloom indisponível — renderizando sem glow');
     }
-  } catch (err) {
-    console.warn('[REACTOR] Bloom falhou, usando render simples:', err);
-    composer = null; bloomPass = null;
-  }
+  } catch (err) { console.warn('[REACTOR] Bloom falhou:', err); composer = null; bloomPass = null; }
 
   controls = new THREE.OrbitControls(camera, renderer.domElement);
-  controls.enableDamping = true;
-  controls.dampingFactor = 0.06;
-  controls.enablePan = false;
-  controls.minDistance = 3.5;
-  controls.maxDistance = 11;
-  controls.maxPolarAngle = Math.PI / 1.7;
-  controls.autoRotate = true;
-  controls.autoRotateSpeed = 0.7;
-
+  controls.enableDamping = true; controls.dampingFactor = 0.06;
+  controls.enablePan = false; controls.minDistance = 3.5; controls.maxDistance = 11;
+  controls.maxPolarAngle = Math.PI / 1.7; controls.autoRotate = true; controls.autoRotateSpeed = 0.7;
   let autoRotateResume;
   controls.addEventListener('start', () => { controls.autoRotate = false; clearTimeout(autoRotateResume); });
   controls.addEventListener('end', () => { autoRotateResume = setTimeout(() => { controls.autoRotate = true; }, 3500); });
 
   polarGrid = new THREE.PolarGridHelper(5, 16, 8, 64, 0x00e5ff, 0x003344);
-  polarGrid.position.y = -1.6;
-  polarGrid.material.transparent = true;
-  polarGrid.material.opacity = 0.18;
+  polarGrid.position.y = -1.6; polarGrid.material.transparent = true; polarGrid.material.opacity = 0.18;
   scene.add(polarGrid);
 
   const starsGeo = new THREE.BufferGeometry();
   const starPositions = new Float32Array(800 * 3);
   for (let i = 0; i < starPositions.length; i += 3) {
-    starPositions[i] = (Math.random()-0.5)*50;
-    starPositions[i+1] = (Math.random()-0.5)*50;
-    starPositions[i+2] = (Math.random()-0.5)*50;
+    starPositions[i] = (Math.random()-0.5)*50; starPositions[i+1] = (Math.random()-0.5)*50; starPositions[i+2] = (Math.random()-0.5)*50;
   }
   starsGeo.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
   reactorStars = new THREE.Points(starsGeo, new THREE.PointsMaterial({ color: 0x5ee7f2, size: 0.07, transparent: true, opacity: 0.35, blending: THREE.AdditiveBlending }));
   scene.add(reactorStars);
 
-  reactorGroup = new THREE.Group();
-  scene.add(reactorGroup);
+  reactorGroup = new THREE.Group(); scene.add(reactorGroup);
 
   function arcSegment(inner, outer, thetaStart, thetaLength, color, opacity, segs = 64) {
     const geo = new THREE.RingGeometry(inner, outer, segs, 1, thetaStart, thetaLength);
@@ -1085,24 +1063,14 @@ function initReactor() {
     return new THREE.Mesh(geo, mat);
   }
 
-  // ===== PLASMA CORE =====
   coreMat = new THREE.ShaderMaterial({
-    uniforms: {
-      uTime: { value: 0 },
-      uColorA: { value: new THREE.Color(0x001a22) },
-      uColorB: { value: new THREE.Color(0x00e5ff) }
-    },
-    vertexShader: PLASMA_VERT,
-    fragmentShader: PLASMA_FRAG,
-    transparent: true
+    uniforms: { uTime: { value: 0 }, uColorA: { value: new THREE.Color(0x001a22) }, uColorB: { value: new THREE.Color(0x00e5ff) } },
+    vertexShader: PLASMA_VERT, fragmentShader: PLASMA_FRAG, transparent: true
   });
   coreMesh = new THREE.Mesh(new THREE.SphereGeometry(0.55, 64, 64), coreMat);
   reactorGroup.add(coreMesh);
 
-  haloMesh = new THREE.Mesh(
-    new THREE.SphereGeometry(0.78, 32, 32),
-    new THREE.MeshBasicMaterial({ color: 0x00e5ff, transparent: true, opacity: 0.1, blending: THREE.AdditiveBlending })
-  );
+  haloMesh = new THREE.Mesh(new THREE.SphereGeometry(0.78, 32, 32), new THREE.MeshBasicMaterial({ color: 0x00e5ff, transparent: true, opacity: 0.1, blending: THREE.AdditiveBlending }));
   reactorGroup.add(haloMesh);
 
   reactorGroup.add(arcSegment(0.63, 0.65, 0, Math.PI * 2, 0x00e5ff, 0.4, 128));
@@ -1111,83 +1079,59 @@ function initReactor() {
   reactorGroup.add(arcSegment(1.13, 1.16, 0, Math.PI * 2, 0x00e5ff, 0.25, 128));
   for (let i = 0; i < 4; i++) { const seg = (Math.PI*2)/4; reactorGroup.add(arcSegment(1.22, 1.32, i*seg + seg*0.15, seg*0.45, 0xff2b4a, 0.65)); }
   for (let i = 0; i < 60; i++) {
-    const angle = (Math.PI*2*i)/60;
-    const segLen = (Math.PI*2)/60 * 0.4;
+    const angle = (Math.PI*2*i)/60; const segLen = (Math.PI*2)/60 * 0.4;
     reactorGroup.add(arcSegment(1.38, 1.42, angle, segLen, 0x00e5ff, i % 5 === 0 ? 0.65 : 0.3));
   }
   reactorGroup.add(arcSegment(1.58, 1.60, 0, Math.PI * 2, 0x5ee7f2, 0.15, 128));
   for (let i = 0; i < 48; i++) { const seg = (Math.PI*2)/48; reactorGroup.add(arcSegment(1.73, 1.76, i*seg, seg*0.55, 0x00e5ff, 0.35)); }
 
-  // ===== AI GAZE (soft sweeping arc) =====
   sweepMat = new THREE.MeshBasicMaterial({ color: 0x00e5ff, transparent: true, opacity: 0.09, side: THREE.DoubleSide, blending: THREE.AdditiveBlending });
   sweepMesh = new THREE.Mesh(new THREE.RingGeometry(1.85, 2.05, 64, 1, 0, Math.PI / 3), sweepMat);
-  sweepMesh.rotation.x = -Math.PI / 2;
-  sweepMesh.position.y = 0.02;
+  sweepMesh.rotation.x = -Math.PI / 2; sweepMesh.position.y = 0.02;
   reactorGroup.add(sweepMesh);
 
-  // Orbital particles
   const particleCount = 100;
   const pGeo = new THREE.BufferGeometry();
   const pPos = new Float32Array(particleCount * 3);
   const pData = [];
   for (let i = 0; i < particleCount; i++) {
-    const r = 1.85 + Math.random() * 0.25;
-    const a = Math.random() * Math.PI * 2;
+    const r = 1.85 + Math.random() * 0.25; const a = Math.random() * Math.PI * 2;
     pData.push({ r, a, speed: 0.0008 + Math.random() * 0.002 });
-    pPos[i*3] = Math.cos(a) * r;
-    pPos[i*3+1] = Math.sin(a) * r;
-    pPos[i*3+2] = (Math.random() - 0.5) * 0.2;
+    pPos[i*3] = Math.cos(a) * r; pPos[i*3+1] = Math.sin(a) * r; pPos[i*3+2] = (Math.random() - 0.5) * 0.2;
   }
   pGeo.setAttribute('position', new THREE.BufferAttribute(pPos, 3));
   orbitalParticles = new THREE.Points(pGeo, new THREE.PointsMaterial({ color: 0x5ee7f2, size: 0.04, transparent: true, opacity: 0.75, blending: THREE.AdditiveBlending }));
   reactorGroup.add(orbitalParticles);
 
-  // Subsystem nodes
   SUBSYSTEMS.forEach((cfg) => {
-    const group = new THREE.Group();
-    reactorGroup.add(group);
-
+    const group = new THREE.Group(); reactorGroup.add(group);
     const sphere = new THREE.Mesh(new THREE.SphereGeometry(0.085, 16, 16), new THREE.MeshBasicMaterial({ color: cfg.color }));
     group.add(sphere);
-
-    const halo2 = new THREE.Mesh(new THREE.SphereGeometry(0.18, 16, 16),
-      new THREE.MeshBasicMaterial({ color: cfg.color, transparent: true, opacity: 0.25, blending: THREE.AdditiveBlending }));
+    const halo2 = new THREE.Mesh(new THREE.SphereGeometry(0.18, 16, 16), new THREE.MeshBasicMaterial({ color: cfg.color, transparent: true, opacity: 0.25, blending: THREE.AdditiveBlending }));
     group.add(halo2);
-
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.19, 0.004, 6, 32),
-      new THREE.MeshBasicMaterial({ color: cfg.color, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending }));
-    ring.rotation.x = Math.PI / 2;
-    group.add(ring);
-
-    // Orbit halos (soft, appear on hover)
-    const orbitHalo1 = new THREE.Mesh(new THREE.TorusGeometry(0.28, 0.006, 6, 40),
-      new THREE.MeshBasicMaterial({ color: cfg.color, transparent: true, opacity: 0, blending: THREE.AdditiveBlending }));
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.19, 0.004, 6, 32), new THREE.MeshBasicMaterial({ color: cfg.color, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending }));
+    ring.rotation.x = Math.PI / 2; group.add(ring);
+    const orbitHalo1 = new THREE.Mesh(new THREE.TorusGeometry(0.28, 0.006, 6, 40), new THREE.MeshBasicMaterial({ color: cfg.color, transparent: true, opacity: 0, blending: THREE.AdditiveBlending }));
     group.add(orbitHalo1);
-    const orbitHalo2 = new THREE.Mesh(new THREE.TorusGeometry(0.36, 0.004, 6, 48),
-      new THREE.MeshBasicMaterial({ color: cfg.color, transparent: true, opacity: 0, blending: THREE.AdditiveBlending }));
+    const orbitHalo2 = new THREE.Mesh(new THREE.TorusGeometry(0.36, 0.004, 6, 48), new THREE.MeshBasicMaterial({ color: cfg.color, transparent: true, opacity: 0, blending: THREE.AdditiveBlending }));
     group.add(orbitHalo2);
-
     const labelEl = document.createElement('div');
     labelEl.className = 'node-label';
     labelEl.textContent = '// ' + cfg.name;
     labelEl.style.color = '#' + cfg.color.toString(16).padStart(6, '0');
     if (reactorContainerEls.labels) reactorContainerEls.labels.appendChild(labelEl);
-
     const entry = { group, sphere, halo: halo2, ring, orbitHalo1, orbitHalo2, data: cfg, labelEl, angle: cfg.phase, wobble: Math.random() * Math.PI * 2 };
     sphere.userData.entry = entry;
     subsystemNodes.push(entry);
   });
 
-  // EQ bars
   const eqCount = 32, eqRadius = 2.05;
   for (let i = 0; i < eqCount; i++) {
     const a = (i / eqCount) * Math.PI * 2;
-    const bar = new THREE.Mesh(new THREE.BoxGeometry(0.035, 1, 0.035),
-      new THREE.MeshBasicMaterial({ color: 0x8b5cf6, transparent: true, opacity: 0, blending: THREE.AdditiveBlending }));
+    const bar = new THREE.Mesh(new THREE.BoxGeometry(0.035, 1, 0.035), new THREE.MeshBasicMaterial({ color: 0x8b5cf6, transparent: true, opacity: 0, blending: THREE.AdditiveBlending }));
     bar.position.set(Math.cos(a) * eqRadius, 0, Math.sin(a) * eqRadius);
     bar.scale.y = 0.01;
-    scene.add(bar);
-    reactorEqBars.push(bar);
+    scene.add(bar); reactorEqBars.push(bar);
   }
 
   reactorRaycaster = new THREE.Raycaster();
@@ -1207,7 +1151,8 @@ function initReactor() {
     const rect = stage.getBoundingClientRect();
     reactorMouseVec.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
     reactorMouseVec.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
-    if (hudCursorEl) { hudCursorEl.style.left = e.clientX + 'px'; hudCursorEl.style.top = e.clientY + 'px'; }
+    // PATCH 3: Atualiza target do cursor (não posição direta)
+    cursorTargetX = e.clientX; cursorTargetY = e.clientY;
   });
   stage.addEventListener('pointerdown', (e) => {
     reactorMouseDownPos = { x: e.clientX, y: e.clientY };
@@ -1223,18 +1168,15 @@ function initReactor() {
     if (dx < 6 && dy < 6) handleReactorClick();
   });
 
-  // ===== ANIMATION LOOP =====
   const tempVec = new THREE.Vector3();
   let t = 0;
 
   function animateReactor() {
     requestAnimationFrame(animateReactor);
     t += 0.016;
-
     if (controls) controls.update();
     coreMat.uniforms.uTime.value = t;
 
-    // State detection
     let effectiveState = 'idle';
     if (listening) effectiveState = 'listening';
     else if (speaking) effectiveState = 'speaking';
@@ -1248,48 +1190,38 @@ function initReactor() {
       redrawSparklines();
     }
 
-    // Smooth color lerp
     const palette = STATE_PALETTE[effectiveState];
     _tmpColor.setHex(palette.primary);
-    _tmpColor2.setHex(palette.accent);
-
     coreMat.uniforms.uColorB.value.lerp(_tmpColor, 0.05);
     haloMesh.material.color.lerp(_tmpColor, 0.05);
     sweepMat.color.lerp(_tmpColor, 0.05);
     orbitalParticles.material.color.lerp(_tmpColor, 0.05);
     reactorStars.material.color.lerp(_tmpColor, 0.05);
-
     if (bloomPass) {
       bloomPass.strength += (palette.bloomStrength - bloomPass.strength) * 0.05;
       bloomPass.threshold += (palette.bloomThreshold - bloomPass.threshold) * 0.05;
     }
 
-    // Core pulse
     const pulse = 1 + Math.sin(t * 2.5) * 0.08;
     coreMesh.scale.setScalar(pulse);
     haloMesh.scale.setScalar(pulse);
 
-    // Orbital particles
     const pAttr = orbitalParticles.geometry.attributes.position;
     const pArr = pAttr.array;
     for (let i = 0; i < particleCount; i++) {
-      const d = pData[i];
-      d.a += d.speed;
+      const d = pData[i]; d.a += d.speed;
       pArr[i*3] = Math.cos(d.a) * d.r;
       pArr[i*3+1] = Math.sin(d.a) * d.r;
     }
     pAttr.needsUpdate = true;
 
-    // Audio reactive core scale
     if (audioAnalyser && speaking) {
       const dataArr = new Uint8Array(audioAnalyser.frequencyBinCount);
       audioAnalyser.getByteFrequencyData(dataArr);
       let sum = 0; for (let i = 0; i < 8; i++) sum += dataArr[i];
-      const avg = sum / 8;
-      coreMesh.scale.setScalar(1 + (avg / 255) * 0.4);
+      coreMesh.scale.setScalar(1 + (sum / 8 / 255) * 0.4);
     }
 
-    // EQ bars
     if (audioAnalyser && speaking) {
       const eqData = new Uint8Array(audioAnalyser.frequencyBinCount);
       audioAnalyser.getByteFrequencyData(eqData);
@@ -1297,8 +1229,7 @@ function initReactor() {
         const idx = Math.floor((i / reactorEqBars.length) * eqData.length);
         const val = eqData[idx] / 255;
         const h = 0.06 + val * 0.9;
-        bar.scale.y = h;
-        bar.position.y = h / 2;
+        bar.scale.y = h; bar.position.y = h / 2;
         bar.material.opacity = 0.35 + val * 0.65;
       });
     } else {
@@ -1309,47 +1240,31 @@ function initReactor() {
       });
     }
 
-    // AI Gaze sweep
     sweepMesh.rotation.z += 0.008;
 
-    // Subsystem nodes
     subsystemNodes.forEach((entry, i) => {
       entry.angle += entry.data.speed;
       const a = entry.angle, r = entry.data.radius, tilt = entry.data.tilt;
       const wobble = Math.sin(t * 1.2 + entry.wobble) * 0.15;
       entry.group.position.set(Math.cos(a) * r, Math.sin(a) * r * Math.sin(tilt) + wobble, Math.sin(a) * r * Math.cos(tilt));
-
-      entry.ring.rotation.z += 0.02;
-      entry.ring.rotation.y += 0.015;
-
+      entry.ring.rotation.z += 0.02; entry.ring.rotation.y += 0.015;
       const hScale = 1 + Math.sin(t * 3 + i) * 0.15;
       entry.halo.scale.setScalar(hScale);
-
-      // Hover state
       const isHovered = reactorHoveredEntry === entry;
-      const targetHalo1 = isHovered ? 0.75 : 0;
-      const targetHalo2 = isHovered ? 0.45 : 0;
-      entry.orbitHalo1.material.opacity += (targetHalo1 - entry.orbitHalo1.material.opacity) * 0.15;
-      entry.orbitHalo2.material.opacity += (targetHalo2 - entry.orbitHalo2.material.opacity) * 0.15;
-
+      entry.orbitHalo1.material.opacity += ((isHovered ? 0.75 : 0) - entry.orbitHalo1.material.opacity) * 0.15;
+      entry.orbitHalo2.material.opacity += ((isHovered ? 0.45 : 0) - entry.orbitHalo2.material.opacity) * 0.15;
       if (isHovered) {
         const hs = 1.35 + Math.sin(t * 8) * 0.1;
         entry.sphere.scale.setScalar(hs);
         entry.halo.scale.setScalar(hs * 1.4);
-        entry.orbitHalo1.rotation.x += 0.02;
-        entry.orbitHalo1.rotation.y += 0.015;
-        entry.orbitHalo2.rotation.x -= 0.015;
-        entry.orbitHalo2.rotation.y -= 0.02;
-      } else {
-        entry.sphere.scale.setScalar(1);
-      }
-
+        entry.orbitHalo1.rotation.x += 0.02; entry.orbitHalo1.rotation.y += 0.015;
+        entry.orbitHalo2.rotation.x -= 0.015; entry.orbitHalo2.rotation.y -= 0.02;
+      } else entry.sphere.scale.setScalar(1);
       if (entry.labelEl) {
         entry.group.getWorldPosition(tempVec);
         tempVec.project(camera);
-        if (tempVec.z > 1) {
-          entry.labelEl.style.display = 'none';
-        } else {
+        if (tempVec.z > 1) entry.labelEl.style.display = 'none';
+        else {
           entry.labelEl.style.display = '';
           const lx = (tempVec.x * 0.5 + 0.5) * canvasEl.clientWidth;
           const ly = (-tempVec.y * 0.5 + 0.5) * canvasEl.clientHeight;
@@ -1358,7 +1273,6 @@ function initReactor() {
       }
     });
 
-    // Raycast hover
     if (reactorRaycaster) {
       reactorRaycaster.setFromCamera(reactorMouseVec, camera);
       const hits = reactorRaycaster.intersectObjects(subsystemNodes.map(n => n.sphere), false);
@@ -1381,18 +1295,13 @@ function initReactor() {
       }
     }
 
-    // Ripples
     reactorRipples = reactorRipples.filter(r => {
       r.life += 0.016;
       const p = r.life / r.maxLife;
       if (p >= 1) { scene.remove(r.mesh); r.mesh.geometry.dispose(); r.mesh.material.dispose(); return false; }
-      const s = 1 + p * 9;
-      r.mesh.scale.set(s, s, s);
-      r.mesh.material.opacity = 0.85 * (1 - p);
+      const s = 1 + p * 9; r.mesh.scale.set(s, s, s); r.mesh.material.opacity = 0.85 * (1 - p);
       return true;
     });
-
-    // Beams
     reactorBeams = reactorBeams.filter(b => {
       b.life += 0.016;
       if (b.life >= b.maxLife) { scene.remove(b.line); b.line.geometry.dispose(); b.line.material.dispose(); return false; }
@@ -1413,10 +1322,8 @@ function initReactor() {
 function handleReactorClick() {
   if (!reactorRaycaster || !reactorMouseVec) return;
   reactorRaycaster.setFromCamera(reactorMouseVec, camera);
-
   const nodeHits = reactorRaycaster.intersectObjects(subsystemNodes.map(n => n.sphere), false);
   if (nodeHits.length > 0) { activateNode(nodeHits[0].object.userData.entry); dimReactorHint(); return; }
-
   const coreHits = reactorRaycaster.intersectObject(coreMesh, false);
   if (coreHits.length > 0) {
     if (!listening && !speaking) startVoice(false); else stopVoice();
@@ -1424,7 +1331,6 @@ function handleReactorClick() {
     try { playTone(660, 'sine', 0.08, 0.05); } catch(e) {}
     dimReactorHint(); return;
   }
-
   const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 1.6);
   const hit = new THREE.Vector3();
   reactorRaycaster.ray.intersectPlane(plane, hit);
@@ -1443,16 +1349,9 @@ function activateNode(entry) {
   spawnBeam(worldPos.clone(), data.color);
   spawnRipple(new THREE.Vector3(worldPos.x, -1.6, worldPos.z), data.color);
   try { playTone(800, 'sine', 0.09, 0.05); } catch(e) {}
-
   switch (data.id) {
-    case 'voice':
-      if (!listening) startVoice(false); else stopVoice();
-      break;
-    case 'calendar':
-      $('calendarPanel').classList.remove('hidden');
-      loadCalendarEvents('upcoming');
-      status('Sincronizando agenda...');
-      break;
+    case 'voice': if (!listening) startVoice(false); else stopVoice(); break;
+    case 'calendar': $('calendarPanel').classList.remove('hidden'); loadCalendarEvents('upcoming'); status('Sincronizando agenda...'); break;
     case 'music': {
       const player = $('musicPlayer');
       if (player && player.src && !player.classList.contains('hidden')) {
@@ -1463,10 +1362,7 @@ function activateNode(entry) {
         player.classList.remove('hidden');
         if (ytPlayer && ytPlayer.playVideo) ytPlayer.playVideo();
         status('Música retomada.');
-      } else {
-        status('Nenhuma música carregada.');
-        addMessage('FRIDAY', '🎵 Nenhuma faixa carregada. Peça uma música no chat.');
-      }
+      } else { status('Nenhuma música carregada.'); addMessage('FRIDAY', '🎵 Nenhuma faixa carregada. Peça uma música no chat.'); }
       break;
     }
     case 'status': {
@@ -1478,29 +1374,13 @@ function activateNode(entry) {
       showToast('DIAGNÓSTICO · 8 subsistemas online');
       break;
     }
-    case 'chat':
-      $('command').focus();
-      status('Canal de comando ativo.');
-      break;
-    case 'stop':
-      stopVoice();
-      status('Processos de áudio interrompidos.');
-      break;
-    case 'settings':
-      $('settingsModal').classList.remove('hidden');
-      break;
+    case 'chat': $('command').focus(); status('Canal de comando ativo.'); break;
+    case 'stop': stopVoice(); status('Processos de áudio interrompidos.'); break;
+    case 'settings': $('settingsModal').classList.remove('hidden'); break;
     case 'comms': {
-      const msgs = [
-        '📡 Varredura completa. Todos os 8 subsistemas operacionais.',
-        '🧠 Núcleo neural estável. Latência média: 12ms.',
-        '🛰 Link seguro AES-256 confirmado.',
-        '⚡ Célula de energia em carga máxima.',
-        '📊 Telemetria nominal. Nenhuma anomalia.'
-      ];
+      const msgs = ['📡 Varredura completa. 8 subsistemas online.','🧠 Núcleo neural estável. Latência 12ms.','🛰 Link AES-256 confirmado.','⚡ Célula em carga máxima.','📊 Telemetria nominal.'];
       const m = msgs[Math.floor(Math.random() * msgs.length)];
-      addMessage('FRIDAY', m);
-      speakText(m, false);
-      showToast(m.replace(/[^\x00-\x7F]/g, '').trim());
+      addMessage('FRIDAY', m); speakText(m, false); showToast(m);
       break;
     }
   }
@@ -1510,12 +1390,10 @@ function spawnRipple(pos, color) {
   const geo = new THREE.RingGeometry(0.06, 0.14, 48);
   const mat = new THREE.MeshBasicMaterial({ color: color || 0x00e5ff, transparent: true, opacity: 0.9, side: THREE.DoubleSide, blending: THREE.AdditiveBlending });
   const mesh = new THREE.Mesh(geo, mat);
-  mesh.rotation.x = -Math.PI / 2;
-  mesh.position.copy(pos);
+  mesh.rotation.x = -Math.PI / 2; mesh.position.copy(pos);
   scene.add(mesh);
   reactorRipples.push({ mesh, life: 0, maxLife: 0.9 });
 }
-
 function spawnBeam(targetPos, color) {
   const points = [new THREE.Vector3(0, 0, 0), targetPos.clone()];
   const geo = new THREE.BufferGeometry().setFromPoints(points);
@@ -1524,13 +1402,16 @@ function spawnBeam(targetPos, color) {
   scene.add(line);
   reactorBeams.push({ line, life: 0, maxLife: 0.55 });
 }
+function dimReactorHint() { if (!reactorHintDimmed && reactorHintEl) { reactorHintDimmed = true; reactorHintEl.classList.add('dimmed'); } }
 
-function dimReactorHint() {
-  if (!reactorHintDimmed && reactorHintEl) {
-    reactorHintDimmed = true;
-    reactorHintEl.classList.add('dimmed');
-  }
+// ───── PATCH 3: Cursor Spring Loop ─────
+function animateHudCursor() {
+  requestAnimationFrame(animateHudCursor);
+  cursorX += (cursorTargetX - cursorX) * 0.18;
+  cursorY += (cursorTargetY - cursorY) * 0.18;
+  if (hudCursorEl) hudCursorEl.style.transform = `translate(${cursorX}px, ${cursorY}px) translate(-50%, -50%)`;
 }
+animateHudCursor();
 
 window.addEventListener('resize', () => {
   if (bgRenderer) {
@@ -1559,7 +1440,7 @@ function setupAudioAnalyser(audioElement) {
   } catch(e) {}
 }
 
-// ============ MIC VISUALIZER (real FFT) ============
+// ───── MIC VISUALIZER ─────
 let micContext, micAnalyser, micSource, micDataArray;
 async function setupMicVisualizer() {
   if (micContext) return;
@@ -1573,7 +1454,6 @@ async function setupMicVisualizer() {
     micDataArray = new Uint8Array(micAnalyser.frequencyBinCount);
   } catch(e) {}
 }
-
 function animateMicVisualizer() {
   if (!listening) return;
   requestAnimationFrame(animateMicVisualizer);
@@ -1585,8 +1465,6 @@ function animateMicVisualizer() {
     bars[i].style.height = `${Math.max(4, (val / 255) * 28)}px`;
   }
 }
-
-// Waveform for TTS
 function animateTTSVisualizer() {
   if (!speaking) return;
   requestAnimationFrame(animateTTSVisualizer);
@@ -1605,22 +1483,17 @@ if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => { navigator.serviceWorker.register('/sw.js').catch(() => {}); });
 }
 
-// ============ MUSIC ============
+// ───── MUSIC ─────
 window.onYouTubeIframeAPIReady = function() { ytPlayer = new YT.Player('musicPlayer', { events: { 'onReady': () => {} } }); };
 function handleMusicAction(text) {
   if (text.includes('[MUSIC_ACTION:pause]')) { if (ytPlayer && ytPlayer.pauseVideo) ytPlayer.pauseVideo(); return text.replace('[MUSIC_ACTION:pause]', '').trim(); }
   if (text.includes('[MUSIC_ACTION:play]')) { if (ytPlayer && ytPlayer.playVideo) ytPlayer.playVideo(); return text.replace('[MUSIC_ACTION:play]', '').trim(); }
   if (text.includes('[MUSIC_PLAY:')) {
     const match = text.match(/\[MUSIC_PLAY:(.*?)\]/);
-    if (match && match[1]) {
-      $('musicPlayer').src = match[1];
-      $('musicPlayer').classList.remove('hidden');
-      return text.replace(/\[MUSIC_PLAY:.*?\]/, '').trim();
-    }
+    if (match && match[1]) { $('musicPlayer').src = match[1]; $('musicPlayer').classList.remove('hidden'); return text.replace(/\[MUSIC_PLAY:.*?\]/, '').trim(); }
   }
   return text;
 }
-
 function startStatusPolling() {
   stopStatusPolling();
   statusPollingInterval = setInterval(async () => {
@@ -1701,6 +1574,23 @@ async function loadCalendarEvents(range = "upcoming") {
   } catch (e) { container.innerHTML = '<p class="awareness-note" style="color: var(--red);">Erro de conexão.</p>'; }
 }
 
+// ───── PATCH 1: Memory Loader ─────
+async function loadHistoryFromBackend() {
+  try {
+    const res = await fetch('/history', { credentials: 'same-origin' });
+    if (!res.ok) return;
+    const data = await res.json();
+    if (data.history && data.history.length) {
+      $('messages').replaceChildren();
+      data.history.forEach(msg => {
+        if (msg.role === 'user') addMessage('Você', msg.content);
+        else if (msg.role === 'assistant') addMessage('FRIDAY', msg.content);
+      });
+      console.log('[HISTORY] ✅ Restauradas', data.history.length, 'mensagens');
+    }
+  } catch(e) { console.warn('[HISTORY] Falha:', e); }
+}
+
 function stopVoice() {
   speechRunId++;
   clearTimeout(silenceTimer);
@@ -1712,11 +1602,9 @@ function stopVoice() {
   speaking = false;
   setWaveformState('idle');
 }
-
 function cleanSpeechText(text) {
   return String(text).replace(/\*\*(.*?)\*\*/g, "$1").replace(/\*(.*?)\*/g, "$1").replace(/`([^`]*)`/g, "$1").replace(/https?:\/\/\S+/g, "link omitido").replace(/^\s*[-*]\s+/gm, "").trim();
 }
-
 function scrambleText(element, finalText) {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!<>-_/[]{}';
   let it = 0; const max = 15;
@@ -1731,7 +1619,6 @@ function scrambleText(element, finalText) {
     if (it >= max) { clearInterval(interval); element.innerHTML = marked.parse(finalText); }
   }, 25);
 }
-
 async function speakText(text, force = false) {
   const autoEl = $("autoSpeak");
   if (!force && autoEl && !autoEl.checked) return;
@@ -1782,7 +1669,6 @@ function addMessage(who, text) {
   $("messages").scrollTop = $("messages").scrollHeight;
   return content;
 }
-
 function addToolCard(toolName) {
   const item = document.createElement("div"); item.className = "msg bot";
   const label = document.createElement("strong"); label.textContent = "SYSTEM";
@@ -1810,7 +1696,6 @@ async function request(url, data) {
   if (!response.ok) throw new Error((result && result.detail) || (result && result.error) || "Falha.");
   return result;
 }
-
 function startLockout(remaining) {
   const seconds = Math.max(0, Math.ceil(Number(remaining) || 0));
   const notice = $("lockoutNotice");
@@ -1825,7 +1710,6 @@ function startLockout(remaining) {
   };
   upd(); lockoutInterval = setInterval(upd, 1000);
 }
-
 function handleFileSelect(e, type) {
   const file = e.target.files[0]; if (!file) return;
   currentAttachmentName = file.name;
@@ -1846,6 +1730,14 @@ $('removeAttachment').addEventListener('click', () => {
   $('attachmentPreview').classList.add('hidden'); $('attachmentName').textContent = '';
 });
 
+// ───── PATCH 2: Cancel Listener ─────
+$('cancelBtn').addEventListener('click', () => {
+  if (currentAbortController) {
+    currentAbortController.abort();
+    status('Geração cancelada.');
+  }
+});
+
 async function sendCommandToFriday(command, isInitial = false) {
   if (isProcessing) return;
   isProcessing = true; window.fridayState = 'thinking';
@@ -1856,6 +1748,16 @@ async function sendCommandToFriday(command, isInitial = false) {
   $("sendBtn").disabled = true; $("voiceBtn").disabled = true;
   status("FRIDAY está processando..."); startStatusPolling();
 
+  // PATCH 2: AbortController + timer
+  currentAbortController = new AbortController();
+  thinkingStart = Date.now();
+  $('thinkingIndicator').classList.remove('hidden');
+  $('cancelBtn').classList.remove('hidden');
+  thinkingTimer = setInterval(() => {
+    const elapsed = ((Date.now() - thinkingStart) / 1000).toFixed(1);
+    $('thinkingTime').textContent = `${elapsed}s`;
+  }, 100);
+
   try {
     const payload = { command };
     if (currentAttachmentType === 'pdf' && !isInitial) {
@@ -1863,14 +1765,16 @@ async function sendCommandToFriday(command, isInitial = false) {
       currentAttachment = null; currentAttachmentType = null; currentAttachmentName = null;
       $('attachmentPreview').classList.add('hidden'); $('attachmentName').textContent = '';
     }
-
-    const response = await fetch("/chat", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+    const response = await fetch("/chat", {
+      method: "POST", credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      signal: currentAbortController.signal  // ← PATCH 2
+    });
     if (!response.ok) throw new Error("Erro na conexão.");
-
     const reader = response.body.getReader();
     const decoder = new TextDecoder("utf-8");
     let fullReplyText = "", buffer = "", streamDone = false, gotFirst = false;
-
     while (!streamDone) {
       const { done, value } = await reader.read();
       if (done) break;
@@ -1895,11 +1799,9 @@ async function sendCommandToFriday(command, isInitial = false) {
         }
       }
     }
-
     botMsgEl.classList.remove('typing');
     if (window.hljs) botSpan.querySelectorAll('pre code').forEach(el => hljs.highlightElement(el));
     stopStatusPolling();
-
     if (!fullReplyText) { status("Falha na resposta."); }
     else {
       status("Sistema online.");
@@ -1910,11 +1812,20 @@ async function sendCommandToFriday(command, isInitial = false) {
   } catch (error) {
     stopStatusPolling();
     botMsgEl.classList.remove('typing');
-    botSpan.innerHTML = "[ERRO] " + error.message;
-    status("Erro de conexão.");
-    window.fridayState = 'error';
-    setTimeout(() => { window.fridayState = 'idle'; }, 2000);
+    if (error.name === 'AbortError') {
+      botSpan.innerHTML = "_[Cancelado pelo chefe]_";
+    } else {
+      botSpan.innerHTML = "[ERRO] " + error.message;
+      status("Erro de conexão.");
+      window.fridayState = 'error';
+      setTimeout(() => { window.fridayState = 'idle'; }, 2000);
+    }
   } finally {
+    // PATCH 2: Cleanup
+    clearInterval(thinkingTimer);
+    $('thinkingIndicator').classList.add('hidden');
+    $('cancelBtn').classList.add('hidden');
+    currentAbortController = null;
     isProcessing = false;
     if (window.fridayState !== 'error') window.fridayState = 'idle';
     $("sendBtn").disabled = false; $("voiceBtn").disabled = false;
@@ -1934,7 +1845,9 @@ $("loginForm").addEventListener("submit", async (event) => {
     $("assistant").classList.remove("hidden");
     status("Autenticada. FRIDAY online.");
     soundBoot();
+    startAmbience();  // PATCH 5
     $('messages').replaceChildren();
+    await loadHistoryFromBackend();  // PATCH 1
     startSysMetrics();
     initReactor();
     requestAnimationFrame(() => initReactor());
@@ -1946,7 +1859,7 @@ $("loginForm").addEventListener("submit", async (event) => {
     if (audioCtx.state === 'suspended') audioCtx.resume();
     if (!localStorage.getItem('friday_shortcuts_shown')) {
       setTimeout(() => {
-        addMessage("FRIDAY", "💡 **Atalhos:** `Ctrl+K` focar · `Ctrl+/` configurações · `Esc` parar.\n\n🎯 **Dica:** clique nos nós ao redor do núcleo para navegar. Clique no núcleo para falar por voz.");
+        addMessage("FRIDAY", "💡 **Atalhos:** `Ctrl+K` focar · `Ctrl+/` config · `Ctrl+Shift+P` palette · `Esc` parar.\n\n🎯 **Dica:** clique nos nós ao redor do núcleo para navegar. Clique no núcleo para falar por voz.");
         localStorage.setItem('friday_shortcuts_shown', 'true');
       }, 4000);
     }
@@ -1972,16 +1885,13 @@ function startVoice(isContinuous = false) {
   recognition = new SR();
   recognition.lang = "pt-BR"; recognition.continuous = isContinuous;
   recognition.interimResults = false; recognition.maxAlternatives = 1;
-
   recognition.onstart = () => {
     listening = true; setupMicVisualizer();
     $("voiceBtn").classList.add("listening"); soundListen(); setWaveformState('listening');
     $("voiceBtn").textContent = "⏹";
     status(isContinuous ? "Aguardando continuação..." : "Estou ouvindo, chefe...");
     clearTimeout(silenceTimer);
-    if (isContinuous) {
-      silenceTimer = setTimeout(() => { if (listening && recognition) { recognition.stop(); status("Escuta encerrada."); } }, 5000);
-    }
+    if (isContinuous) silenceTimer = setTimeout(() => { if (listening && recognition) { recognition.stop(); status("Escuta encerrada."); } }, 5000);
   };
   recognition.onresult = (event) => {
     clearTimeout(silenceTimer);
@@ -2039,7 +1949,7 @@ function startWakeWordListener() {
 }
 
 function showLogin() {
-  stopVoice(); stopStatusPolling();
+  stopVoice(); stopStatusPolling(); stopAmbience();  // PATCH 5
   $("assistant").classList.add("hidden"); $("login").classList.remove("hidden");
   $("messages").replaceChildren(); $("settingsModal").classList.add("hidden");
   $("calendarPanel").classList.add("hidden"); $("musicPlayer").classList.add("hidden");
@@ -2069,7 +1979,9 @@ async function checkSession() {
       await runBootSequence();
       $("assistant").classList.remove("hidden");
       status("Sessão ativa. FRIDAY online.");
+      startAmbience();  // PATCH 5
       $('messages').replaceChildren();
+      await loadHistoryFromBackend();  // PATCH 1
       startSysMetrics();
       initReactor();
       requestAnimationFrame(() => initReactor());
@@ -2116,6 +2028,45 @@ setInterval(async () => {
     }
   } catch (e) {}
 }, 30000);
+
+// ───── PATCH 4: Command Palette ─────
+const PALETTE_COMMANDS = [
+  { name: 'Focar input', shortcut: 'Ctrl+K', action: () => $('command').focus() },
+  { name: 'Configurações', shortcut: 'Ctrl+/', action: () => $('settingsModal').classList.remove('hidden') },
+  { name: 'Parar voz', shortcut: 'Esc', action: () => stopVoice() },
+  { name: 'Recarregar agenda', shortcut: '', action: () => { $('calendarPanel').classList.remove('hidden'); loadCalendarEvents('today'); } },
+  { name: 'Conectar Google Calendar', shortcut: '', action: () => { window.location.href = '/calendar/connect'; } },
+  { name: 'Nova conversa (limpar)', shortcut: '', action: () => $('messages').replaceChildren() },
+  { name: 'Mostrar/ocultar sidebar', shortcut: '', action: () => document.body.classList.toggle('hide-sidebar') },
+  { name: 'Mostrar/ocultar telemetria', shortcut: '', action: () => document.body.classList.toggle('hide-chart') },
+  { name: 'Sair', shortcut: '', action: () => $('logout').click() },
+];
+function openPalette() {
+  $('palette').classList.remove('hidden');
+  $('paletteInput').value = '';
+  renderPaletteItems('');
+  setTimeout(() => $('paletteInput').focus(), 50);
+}
+function closePalette() { $('palette').classList.add('hidden'); }
+function renderPaletteItems(query) {
+  const q = query.toLowerCase();
+  const filtered = PALETTE_COMMANDS.filter(c => c.name.toLowerCase().includes(q));
+  const container = $('paletteResults');
+  container.innerHTML = '';
+  if (!filtered.length) {
+    container.innerHTML = '<div class="palette-item" style="color:var(--text-dim);">Nenhum comando</div>';
+    return;
+  }
+  filtered.forEach((cmd, i) => {
+    const el = document.createElement('div');
+    el.className = 'palette-item' + (i === 0 ? ' selected' : '');
+    el.innerHTML = `<span>${cmd.name}</span>${cmd.shortcut ? `<span class="shortcut">${cmd.shortcut}</span>` : ''}`;
+    el.onclick = () => { cmd.action(); closePalette(); };
+    container.appendChild(el);
+  });
+}
+$('paletteInput')?.addEventListener('input', e => renderPaletteItems(e.target.value));
+$('palette')?.addEventListener('click', e => { if (e.target.id === 'palette') closePalette(); });
 
 loadVisualPreferences();
 checkSession();
