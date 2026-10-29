@@ -1735,7 +1735,6 @@ function scrambleText(element, finalText) {
     if (it >= max) { clearInterval(interval); element.innerHTML = safeMarkedParse(finalText); }
   }, 25);
 }
-
 async function speakText(text, force = false) {
   const autoEl = $("autoSpeak");
   if (!force && autoEl && !autoEl.checked) return;
@@ -1747,9 +1746,13 @@ async function speakText(text, force = false) {
   status('FRIDAY está falando...');
   try {
     const response = await fetch(`/tts?text=${encodeURIComponent(cleanText)}`);
+    // ✅ Se o backend retornar 204 (ElevenLabs falhou/limite), pula para o fallback
+    if (response.status === 204) throw new Error('Fallback'); 
     if (!response.ok) throw new Error('TTS falhou');
+    
     const blob = await response.blob();
     if (blob.size === 0) throw new Error('Áudio vazio');
+    
     const url = URL.createObjectURL(blob);
     const audio = new Audio(url);
     setupAudioAnalyser(audio);
@@ -1766,7 +1769,8 @@ async function speakText(text, force = false) {
     await audio.play();
     return;
   } catch (e) { 
-    console.warn("[TTS] Falha na API ElevenLabs. Usando voz do navegador.");
+    // Voz nativa do navegador entra em ação silenciosamente
+    console.warn("[TTS] ElevenLabs indisponível. Usando voz nativa do navegador.");
     browserSpeak(cleanText, runId); 
   }
 }
