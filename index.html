@@ -52,6 +52,12 @@
         overflow: hidden;
       }
 
+      /* --- CLASSES DE CONTROLE DE VISIBILIDADE (V6.1) --- */
+      .hide-sidebar .sidebar { display: none !important; }
+      .hide-sidebar .layout { grid-template-columns: 1fr !important; }
+      .hide-chart #sysChartContainer { display: none !important; }
+      .hide-particles #bg-canvas { display: none !important; }
+
       /* --- BACKGROUND 3D PARTICLES --- */
       #bg-canvas {
         position: fixed;
@@ -132,8 +138,10 @@
       .brand-name { font-size: 16px; font-weight: 700; letter-spacing: 0.3em; color: #fff; }
       .brand-sub { font-size: 9px; letter-spacing: 0.2em; color: var(--muted); }
 
-      .system-chip { display: flex; gap: 20px; font-size: 10px; color: var(--cyan); border: 1px solid var(--line); padding: 5px 15px; background: rgba(0,0,0,0.3); }
+      .system-chip { display: flex; gap: 20px; font-size: 10px; color: var(--cyan); border: 1px solid var(--line); padding: 5px 15px; background: rgba(0,0,0,0.3); align-items: center; }
       .status-dot { display: inline-block; width: 7px; height: 7px; background: #62e8c0; border-radius: 50%; box-shadow: 0 0 10px rgba(98, 232, 192, 0.8); }
+      
+      .icon-btn { background: transparent; border: none; color: var(--cyan); font-size: 16px; padding: 0 5px; min-height: auto; cursor: pointer; }
 
       .layout {
         display: grid; grid-template-columns: 320px 1fr; gap: 20px; flex: 1; min-height: 0;
@@ -192,14 +200,6 @@
       .awareness-item { display: flex; align-items: center; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid rgba(104, 211, 255, 0.09); font-size: 12px; }
       .awareness-note { color: var(--muted); font-size: 10px; }
 
-      .settings { margin-bottom: 15px; padding: 15px; background: rgba(0,0,0,0.6); border: 1px solid var(--line); border-radius: 4px; }
-      .settings h2 { margin: 0 0 15px; color: var(--cyan); font-size: 10px; letter-spacing: 0.14em; }
-      .setting { margin-bottom: 15px; }
-      .setting label { display: block; margin-bottom: 8px; color: #d5e7f2; font-size: 12px; }
-      .setting small { display: block; margin-top: 8px; color: var(--muted); font-size: 10px; }
-      .toggle-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-      .setting-buttons { display: flex; flex-wrap: wrap; gap: 8px; margin: 15px 0; }
-
       .chat-label { display: flex; justify-content: space-between; margin: 10px 0; color: var(--muted); font-size: 9px; letter-spacing: 0.1em; }
 
       #messages { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding-right: 5px; margin-bottom: 15px; perspective: 1200px; }
@@ -248,7 +248,7 @@
       .msg span code { background: rgba(115,237,255,0.1); padding: 2px 4px; color: var(--cyan); }
       .msg span pre { background: #000; padding: 10px; border: 1px solid var(--line); overflow-x: auto; }
 
-      /* --- MODAL DE CONFIGURAÇÕES AVANÇADO (V6) --- */
+      /* --- MODAL DE CONFIGURAÇÕES AVANÇADO --- */
       .modal-overlay {
           position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
           background: rgba(0,0,0,0.8); backdrop-filter: blur(5px);
@@ -260,17 +260,25 @@
           max-height: 90vh; overflow-y: auto;
       }
       .modal-content h2 { margin-top: 0; color: var(--cyan); font-size: 14px; letter-spacing: 0.1em; border-bottom: 1px solid var(--line); padding-bottom: 10px; }
-      .modal-section { margin-bottom: 20px; }
+      .modal-section { margin-bottom: 20px; border-bottom: 1px dashed rgba(255,255,255,0.1); padding-bottom: 15px; }
+      .modal-section:last-of-type { border-bottom: none; }
       .modal-section h3 { font-size: 11px; color: #fff; margin-bottom: 8px; text-transform: uppercase; }
       .modal-section p { font-size: 11px; color: var(--muted); margin-bottom: 10px; line-height: 1.5; }
+      
+      /* Switches (Toggles) */
+      .switch-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; font-size: 12px; }
+      .switch { position: relative; display: inline-block; width: 34px; height: 20px; }
+      .switch input { opacity: 0; width: 0; height: 0; }
+      .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(255,255,255,0.1); transition: .4s; border-radius: 34px; }
+      .slider:before { position: absolute; content: ""; height: 14px; width: 14px; left: 3px; bottom: 3px; background-color: var(--muted); transition: .4s; border-radius: 50%; }
+      input:checked + .slider { background-color: var(--cyan); }
+      input:checked + .slider:before { transform: translateX(14px); background-color: #000; }
+
       .modal-btn { width: 100%; margin-top: 5px; }
       .status-badge { display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 9px; font-weight: bold; }
       .status-granted { background: rgba(74,222,128,0.2); color: #4ade80; }
       .status-denied { background: rgba(248,113,113,0.2); color: #f87171; }
 
-      /* =========================================
-         IOS & MOBILE OPTIMIZATIONS
-         ========================================= */
       @media (max-width: 768px) {
         body { height: 100dvh; padding-bottom: env(safe-area-inset-bottom); }
         .shell { padding: 10px 10px calc(10px + env(safe-area-inset-bottom)) 10px; height: 100dvh; }
@@ -328,8 +336,11 @@
             <div class="brand-sub">PERSONAL INTELLIGENCE</div>
           </div>
         </div>
-        <div class="system-chip" style="cursor: pointer;" onclick="$('settingsModal').classList.remove('hidden')">
-          <span class="status-dot"></span> SISTEMA / PERMISSÕES ⚙
+        <!-- BOTÃO DE CONFIGURAÇÕES NO TOPO -->
+        <div class="system-chip">
+          <span class="status-dot"></span> 
+          <span>ONLINE</span>
+          <button id="openSettingsBtn" class="icon-btn" title="Configurações e Permissões">⚙</button>
         </div>
       </div>
 
@@ -351,7 +362,7 @@
 
           <div class="sidebar-note" style="margin-top: 15px; color: var(--muted); font-size: 9px; line-height: 1.8;">
             <span>PROJETO TONY STARK</span><br />
-            Interface Neural v6.0
+            Interface Neural v6.1
           </div>
         </aside>
 
@@ -449,35 +460,54 @@
       <footer><span>STARK SYSTEMS</span> · PROJETO TONY STARK · FRIDAY</footer>
     </div>
 
-    <!-- V6: MODAL DE CONFIGURAÇÕES E PERMISSÕES -->
+    <!-- V6.1: MODAL DE CONFIGURAÇÕES E PERMISSÕES -->
     <div id="settingsModal" class="modal-overlay hidden">
       <div class="modal-content">
         <h2>/// SISTEMA E PERMISSÕES</h2>
         
+        <!-- Interface Visual -->
+        <div class="modal-section">
+          <h3>📱 Interface Visual</h3>
+          <div class="switch-row">
+            <span>Mostrar Barra Lateral (PC)</span>
+            <label class="switch"><input type="checkbox" id="toggleSidebar" checked><span class="slider"></span></label>
+          </div>
+          <div class="switch-row">
+            <span>Mostrar Mini-Mapa Tático</span>
+            <label class="switch"><input type="checkbox" id="toggleChart" checked><span class="slider"></span></label>
+          </div>
+          <div class="switch-row">
+            <span>Efeitos de Fundo (Partículas)</span>
+            <label class="switch"><input type="checkbox" id="toggleParticles" checked><span class="slider"></span></label>
+          </div>
+        </div>
+
         <!-- Instalação PWA -->
         <div class="modal-section">
-          <h3>📱 Instalação do App</h3>
-          <p id="installStatusText">Adicione a FRIDAY à sua tela de início para uma experiência em tela cheia.</p>
+          <h3>📲 Instalação do App</h3>
+          <p id="installStatusText">Adicione a FRIDAY à sua tela de início.</p>
           <button id="installPwaBtn" class="modal-btn" style="display: none;">Instalar FRIDAY</button>
           <div id="iosInstallInstructions" class="hidden" style="font-size: 11px; color: var(--muted); background: rgba(0,0,0,0.3); padding: 10px; border-radius: 4px; margin-top: 10px;">
             <strong>Como instalar no iPhone:</strong><br>
-            1. Toque no ícone de <strong>Compartilhar</strong> (quadrado com seta para cima) no Safari.<br>
-            2. Role para baixo e toque em <strong>Adicionar à Tela de Início</strong>.<br>
-            3. Confirme tocando em <strong>Adicionar</strong>.
+            1. Toque em <strong>Compartilhar</strong> no Safari.<br>
+            2. Toque em <strong>Adicionar à Tela de Início</strong>.
           </div>
         </div>
 
         <!-- Permissões de Microfone -->
         <div class="modal-section">
-          <h3>🎙️ Acesso ao Microfone</h3>
-          <p>Necessário para comandos de voz e ativação por "Hey Friday". Status atual: <span id="micPermissionStatus" class="status-badge status-denied">Desconhecido</span></p>
-          <button id="requestMicBtn" class="modal-btn">Solicitar Permissão de Microfone</button>
+          <h3>🎙️ Microfone</h3>
+          <div class="switch-row">
+            <span>Status do Microfone</span>
+            <span id="micPermissionStatus" class="status-badge status-denied">BLOQUEADO</span>
+          </div>
+          <button id="requestMicBtn" class="modal-btn">Solicitar Permissão</button>
         </div>
 
-        <!-- Configuração de Voz (Ultron) -->
+        <!-- Voz do Ultron -->
         <div class="modal-section">
-          <h3>🤖 Voz do Sistema (Ultron)</h3>
-          <p>Se o Voicebox estiver offline, a FRIDAY usará a voz nativa do seu celular. Selecione a voz mais grave disponível.</p>
+          <h3>🤖 Voz do Sistema (Fallback)</h3>
+          <p>Se o Voicebox estiver offline, use a voz nativa do dispositivo.</p>
           
           <label style="font-size: 11px; margin-bottom: 5px; display: block;">Voz:</label>
           <select id="voiceSelect" style="margin-bottom: 10px; font-size: 12px; padding: 10px;"></select>
@@ -515,11 +545,48 @@
       let currentAttachmentName = null;
       let statusPollingInterval = null;
 
-      let deferredPrompt = null; // Para PWA Install
+      let deferredPrompt = null;
       let availableVoices = [];
-      let selectedVoiceName = "";
 
       window.fridayState = 'idle';
+
+      // === PREFERÊNCIAS VISUAIS (V6.1) ===
+      function loadVisualPreferences() {
+          if (localStorage.getItem('friday_hide_sidebar') === 'true') {
+              document.body.classList.add('hide-sidebar');
+              $('toggleSidebar').checked = false;
+          }
+          if (localStorage.getItem('friday_hide_chart') === 'true') {
+              document.body.classList.add('hide-chart');
+              $('toggleChart').checked = false;
+          }
+          if (localStorage.getItem('friday_hide_particles') === 'true') {
+              document.body.classList.add('hide-particles');
+              $('toggleParticles').checked = false;
+          }
+      }
+
+      $('toggleSidebar').addEventListener('change', (e) => {
+          if (e.target.checked) document.body.classList.remove('hide-sidebar');
+          else document.body.classList.add('hide-sidebar');
+          localStorage.setItem('friday_hide_sidebar', !e.target.checked);
+      });
+
+      $('toggleChart').addEventListener('change', (e) => {
+          if (e.target.checked) document.body.classList.remove('hide-chart');
+          else document.body.classList.add('hide-chart');
+          localStorage.setItem('friday_hide_chart', !e.target.checked);
+      });
+
+      $('toggleParticles').addEventListener('change', (e) => {
+          if (e.target.checked) document.body.classList.remove('hide-particles');
+          else document.body.classList.add('hide-particles');
+          localStorage.setItem('friday_hide_particles', !e.target.checked);
+      });
+
+      // === MODAL SETTINGS ===
+      $('openSettingsBtn').addEventListener('click', () => $('settingsModal').classList.remove('hidden'));
+      $('closeSettingsBtn').addEventListener('click', () => $('settingsModal').classList.add('hidden'));
 
       // === PWA INSTALLATION ===
       window.addEventListener('beforeinstallprompt', (e) => {
@@ -540,7 +607,6 @@
           deferredPrompt = null;
       });
 
-      // Detecta iOS para instruções manuais
       const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
       if (isIOS) {
           $('iosInstallInstructions').classList.remove('hidden');
@@ -553,7 +619,7 @@
               const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
               $('micPermissionStatus').textContent = "AUTORIZADO";
               $('micPermissionStatus').className = "status-badge status-granted";
-              stream.getTracks().forEach(track => track.stop()); // Libera a câmera/mic após teste
+              stream.getTracks().forEach(track => track.stop());
           } catch (err) {
               $('micPermissionStatus').textContent = "BLOQUEADO";
               $('micPermissionStatus').className = "status-badge status-denied";
@@ -567,10 +633,9 @@
           const select = $('voiceSelect');
           select.innerHTML = '';
           
-          // Filtra vozes em português (ou inglesas se não houver PT)
           let filtered = availableVoices.filter(v => v.lang.includes('pt'));
           if (filtered.length === 0) filtered = availableVoices.filter(v => v.lang.includes('en'));
-          if (filtered.length === 0) filtered = availableVoices; // Fallback para todas
+          if (filtered.length === 0) filtered = availableVoices;
 
           filtered.forEach(voice => {
               const opt = document.createElement('option');
@@ -579,13 +644,12 @@
               select.appendChild(opt);
           });
 
-          // Tenta selecionar a voz mais grave (geralmente masculina)
           const ultronVoice = filtered.find(v => v.name.includes('Male') || v.name.includes('Masculino') || v.name.includes('Google UK English Male'));
           if (ultronVoice) select.value = ultronVoice.name;
       }
 
       window.speechSynthesis.onvoiceschanged = loadVoices;
-      setTimeout(loadVoices, 500); // Safari precisa de um tempo
+      setTimeout(loadVoices, 500);
 
       $('pitchSlider').addEventListener('input', (e) => {
           $('pitchValue').textContent = e.target.value;
@@ -596,20 +660,17 @@
           browserSpeak(text, 0, true);
       });
 
-      // Função principal de fallback
+      // Fallback Voice
       function browserSpeak(text, runId, forceTest = false) {
         if (!('speechSynthesis' in window)) return;
         const synth = window.speechSynthesis;
-        synth.cancel(); // Para qualquer fala anterior
+        synth.cancel(); 
 
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.lang = 'pt-BR';
-        utterance.rate = 0.85; // Fala mais devagar, estilo vilão
-        
-        // Aplica o tom escolhido no slider
+        utterance.rate = 0.85; 
         utterance.pitch = parseFloat($('pitchSlider').value) || 0.1;
         
-        // Tenta aplicar a voz selecionada
         const selectedName = $('voiceSelect').value;
         if (selectedName) {
             const voice = availableVoices.find(v => v.name === selectedName);
@@ -637,6 +698,7 @@
       // === THREE.JS ===
       let bgScene, bgCamera, bgRenderer, particles;
       function initBgParticles() {
+          if (document.body.classList.contains('hide-particles')) return;
           const canvas = $('bg-canvas');
           bgRenderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
           bgRenderer.setSize(window.innerWidth, window.innerHeight);
@@ -666,6 +728,7 @@
       let reactorGroup, coreMesh, innerWireMesh, outerCageMesh, ring1, ring2, ring3, coreLight;
       function initReactor() {
           const container = $('three-reactor');
+          if (!container) return;
           scene = new THREE.Scene();
           camera = new THREE.PerspectiveCamera(75, container.clientWidth / container.clientHeight, 0.1, 1000);
           renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
@@ -790,7 +853,7 @@
       }
 
       function startSysMetrics() {
-          if (!sysChart) initChart();
+          if (!sysChart && !document.body.classList.contains('hide-chart')) initChart();
           if (sysPollTimer) clearInterval(sysPollTimer);
           pollMetrics();
           sysPollTimer = setInterval(pollMetrics, 2000); 
@@ -819,11 +882,6 @@
 
       function stopStatusPolling() { if (statusPollingInterval) { clearInterval(statusPollingInterval); statusPollingInterval = null; } }
 
-      const SETTINGS_KEY = "friday_voice_settings_v1";
-      const defaultSettings = { autoSpeak: true, rate: 0.95, style: "natural" };
-      let voiceSettings = { ...defaultSettings };
-
-      let audioCtx = null;
       function playTone(freq, type, duration, vol=0.1) {
           try {
               if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -888,14 +946,6 @@
         } catch (e) { container.innerHTML = '<p class="awareness-note" style="color: #ff8a8a;">Erro de conexão.</p>'; }
       }
 
-      function loadSettings() {
-        try { const saved = localStorage.getItem(SETTINGS_KEY); if (saved) voiceSettings = { ...defaultSettings, ...JSON.parse(saved) }; } catch (e) { voiceSettings = { ...defaultSettings }; }
-      }
-
-      function saveSettings() {
-        try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(voiceSettings)); } catch (e) {}
-      }
-
       function stopVoice() {
         speechRunId++;
         clearTimeout(silenceTimer);
@@ -928,9 +978,8 @@
           }, 30);
       }
 
-      // === V6: FALLBACK BLINDADO PARA O ULTRON ===
       async function speakText(text, force = false) {
-        if (!force && !voiceSettings.autoSpeak) return;
+        if (!force && !$("autoSpeak")?.checked) return; // Se não houver autoSpeak, checa o default
         const cleanText = cleanSpeechText(text);
         if (!cleanText) return;
 
@@ -944,7 +993,6 @@
           if (!response.ok) throw new Error('TTS falhou');
           
           const audioBlob = await response.blob();
-          // SE O VOICEBOX ESTIVER OFFLINE, O BLOB VEM VAZIO. FORÇA O ULTRON.
           if (audioBlob.size === 0) throw new Error('Áudio vazio'); 
           
           const audioUrl = URL.createObjectURL(audioBlob);
@@ -957,7 +1005,7 @@
               if (runId === speechRunId) {
                   speaking = false; status('Sistema online.'); setWaveformState('idle');
                   URL.revokeObjectURL(audioUrl);
-                  if ($("autoSpeak").checked) { setTimeout(() => { if (!$("assistant").classList.contains("hidden") && !listening && !isProcessing) startVoice(true); }, 800); }
+                  setTimeout(() => { if (!$("assistant").classList.contains("hidden") && !listening && !isProcessing) startVoice(true); }, 800); 
               }
           };
           audio.onerror = () => { browserSpeak(cleanText, runId); };
@@ -965,7 +1013,6 @@
           await audio.play();
           return;
         } catch (e) {
-          // Se falhar (Voicebox off), chama a Voz do Ultron nativa
           browserSpeak(cleanText, runId);
         }
       }
@@ -1128,7 +1175,6 @@
           status("Autenticada. FRIDAY online."); soundBoot(); $('messages').replaceChildren();
           startSysMetrics(); sendCommandToFriday('Gere o meu briefing matinal para a cidade de Criciúma usando a ferramenta get_morning_briefing', true);
           $("command").focus(); checkCalendarConnection(); startWakeWordListener();
-          // Desbloqueia áudio no iOS no primeiro clique
           if (!audioCtx) { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
           if (audioCtx.state === 'suspended') audioCtx.resume();
         } catch (error) {
@@ -1194,10 +1240,6 @@
       $("refreshCalendarTodayBtn").addEventListener("click", () => loadCalendarEvents("today"));
       $("refreshCalendarBtn").addEventListener("click", () => loadCalendarEvents("upcoming"));
 
-      $("settingsToggle").addEventListener("click", () => { $("settingsModal").classList.remove("hidden"); });
-      $("closeSettingsBtn").addEventListener("click", () => { $("settingsModal").classList.add("hidden"); });
-
-      $("stopSpeakBtn").addEventListener("click", () => { stopVoice(); status("Fala interrompida."); });
       $("stopSpeakTop").addEventListener("click", () => { stopVoice(); status("Fala interrompida."); });
 
       function startWakeWordListener() {
@@ -1249,7 +1291,8 @@
         } catch (e) { status("Não foi possível verificar a sessão."); }
       }
 
-      loadSettings(); checkSession();
+      loadVisualPreferences();
+      checkSession();
 
       setInterval(async () => {
         if ($("assistant").classList.contains("hidden")) return;
@@ -1288,7 +1331,8 @@
       }, 30000);
 
       window.addEventListener('load', () => {
-          initBgParticles(); initReactor();
+          if (!document.body.classList.contains('hide-particles')) initBgParticles(); 
+          if (!document.body.classList.contains('hide-sidebar')) initReactor();
       });
     </script>
     <script src="https://www.youtube.com/iframe_api"></script>
