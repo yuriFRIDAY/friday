@@ -1863,7 +1863,6 @@ $('removeAttachment').addEventListener('click', () => {
 $('cancelBtn').addEventListener('click', () => {
   if (currentAbortController) { currentAbortController.abort(); status('Geração cancelada.'); }
 });
-
 async function sendCommandToFriday(command, isInitial = false) {
   if (isProcessing) return;
   isProcessing = true; window.fridayState = 'thinking';
@@ -1923,6 +1922,17 @@ async function sendCommandToFriday(command, isInitial = false) {
               currentToolCard = addToolCard(dataObj.tool); 
             }
             
+            if (dataObj.music) {
+              $('musicPlayer').src = dataObj.music;
+              $('musicPlayerContainer').classList.remove('hidden');
+              if (currentToolCard) { currentToolCard.classList.remove('loading'); currentToolCard = null; }
+            }
+            if (dataObj.music_action) {
+              if (dataObj.music_action === 'pause' && ytPlayer && ytPlayer.pauseVideo) ytPlayer.pauseVideo();
+              if (dataObj.music_action === 'play' && ytPlayer && ytPlayer.playVideo) ytPlayer.playVideo();
+              if (currentToolCard) { currentToolCard.classList.remove('loading'); currentToolCard = null; }
+            }
+
             if (dataObj.text) {
               if (botMsgEl.classList.contains('typing')) botMsgEl.classList.remove('typing');
               if (currentToolCard) { currentToolCard.classList.remove('loading'); currentToolCard = null; }
@@ -1944,6 +1954,7 @@ async function sendCommandToFriday(command, isInitial = false) {
     if (currentToolCard) { currentToolCard.classList.remove('loading'); currentToolCard = null; }
     if (window.hljs) botSpan.querySelectorAll('pre code').forEach(el => hljs.highlightElement(el));
     stopStatusPolling();
+    
     if (!fullReplyText.trim()) { 
       botSpan.innerHTML = "Entendido, chefe."; 
       status("Sistema online.");
@@ -1970,6 +1981,7 @@ async function sendCommandToFriday(command, isInitial = false) {
     clearInterval(thinkingTimer);
     $('thinkingIndicator').classList.add('hidden');
     $('cancelBtn').classList.add('hidden');
+    if (currentToolCard) { currentToolCard.classList.remove('loading'); currentToolCard = null; } // Limpa card no final
     currentAbortController = null;
     isProcessing = false;
     if (window.fridayState !== 'error') window.fridayState = 'idle';
@@ -1977,7 +1989,6 @@ async function sendCommandToFriday(command, isInitial = false) {
     if (!$("assistant").classList.contains("hidden")) $("command").focus();
   }
 }
-
 $("loginForm").addEventListener("submit", async (event) => {
   event.preventDefault();
   const password = $("password").value;
