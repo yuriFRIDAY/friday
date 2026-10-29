@@ -14,6 +14,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.9/dist/purify.min.js"></script> <!-- DOMPurify -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
@@ -47,6 +48,7 @@ body::after{content:'';position:fixed;inset:0;background:repeating-linear-gradie
 .hide-particles #bg-canvas{display:none !important}
 .hide-chart #sysChartContainer{display:none !important}
 
+/* TOAST */
 .toast-container{position:fixed;top:64px;left:50%;transform:translateX(-50%);z-index:900;display:flex;flex-direction:column;gap:8px;pointer-events:none;max-width:520px;width:calc(100% - 40px);align-items:center}
 .toast{background:linear-gradient(180deg,rgba(2,15,28,0.98),rgba(0,8,16,0.98));border:1px solid var(--cyan);padding:12px 20px 12px 40px;font-family:var(--font-mono);font-size:11px;letter-spacing:0.08em;color:var(--text-bright);box-shadow:0 0 40px var(--cyan-glow),inset 0 0 20px rgba(0,229,255,0.05);transform:translateY(-30px);opacity:0;transition:all 0.4s cubic-bezier(0.34,1.56,0.64,1);pointer-events:auto;position:relative;max-width:100%;cursor:pointer;user-select:none}
 .toast::before{content:'>';position:absolute;left:16px;top:50%;transform:translateY(-50%);color:var(--cyan);animation:blink 1s step-end infinite}
@@ -57,10 +59,12 @@ body::after{content:'';position:fixed;inset:0;background:repeating-linear-gradie
 .toast.hide{transform:translateY(-30px);opacity:0}
 @keyframes blink{50%{opacity:0}}
 
+/* THINKING INDICATOR + CANCEL */
 .thinking-indicator{position:absolute;top:20px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:8px;padding:6px 14px;background:rgba(255,159,0,0.15);border:1px solid var(--orange);font-family:var(--font-mono);font-size:10px;letter-spacing:0.15em;color:var(--orange);text-transform:uppercase;z-index:5;animation:pulse-dot 1.5s ease-in-out infinite}
 .thinking-dot{width:6px;height:6px;border-radius:50%;background:var(--orange);box-shadow:0 0 8px var(--orange)}
 .cancel-btn{position:absolute;top:20px;right:20px;z-index:5}
 
+/* COMMAND PALETTE */
 .palette-overlay{position:fixed;inset:0;background:rgba(0,3,8,0.75);backdrop-filter:blur(6px);z-index:2000;display:flex;align-items:flex-start;justify-content:center;padding-top:15vh}
 .palette-box{width:100%;max-width:560px;background:rgba(2,12,24,0.98);border:1px solid var(--cyan);box-shadow:0 0 60px rgba(0,229,255,0.25)}
 #paletteInput{width:100%;padding:16px 20px;background:transparent;border:none;border-bottom:1px solid var(--line);color:var(--text-bright);font-family:var(--font-mono);font-size:14px;outline:none}
@@ -221,209 +225,34 @@ body::after{content:'';position:fixed;inset:0;background:repeating-linear-gradie
 .bottom-info .ctx-item .dot{width:4px;height:4px;border-radius:50%;background:var(--cyan);box-shadow:0 0 5px var(--cyan)}
 .bottom-info .ctx-value{color:var(--cyan-2)}
 
-    /* ============ LOGIN OVERLAY ============ */
-    .login-overlay {
-      position: fixed;
-      inset: 0;
-      z-index: 200;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      background: var(--bg);
-      overflow: hidden;
-      padding: 20px;
-    }
-
-    /* Luz suave de fundo (respiração) */
-    .login-glow {
-      position: absolute;
-      width: 80vmin;
-      height: 80vmin;
-      background: radial-gradient(circle, rgba(0, 229, 255, 0.08) 0%, transparent 60%);
-      border-radius: 50%;
-      animation: breathe 6s ease-in-out infinite alternate;
-    }
-    @keyframes breathe {
-      0% { transform: scale(1); opacity: 0.7; }
-      100% { transform: scale(1.1); opacity: 1; }
-    }
-
-    /* Anéis sutis no fundo */
-    .login-rings {
-      position: absolute;
-      inset: 0;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      pointer-events: none;
-    }
-    .ring {
-      position: absolute;
-      border-radius: 50%;
-      border: 1px solid rgba(0, 229, 255, 0.1);
-    }
-    .ring-1 { width: 60vmin; height: 60vmin; animation: spin-slow 60s linear infinite; border-style: dashed; }
-    .ring-2 { width: 80vmin; height: 80vmin; animation: spin-slow 90s linear infinite reverse; border-width: 1px; border-color: rgba(255, 255, 255, 0.05); }
-    .ring-3 { width: 100vmin; height: 100vmin; animation: spin-slow 120s linear infinite; border-style: dotted; border-color: rgba(0, 229, 255, 0.05); }
-
-    /* Painel de Vidro */
-    .login-panel {
-      position: relative;
-      z-index: 10;
-      width: 100%;
-      max-width: 380px;
-      padding: 50px 40px;
-      background: rgba(2, 10, 20, 0.4);
-      backdrop-filter: blur(24px);
-      -webkit-backdrop-filter: blur(24px);
-      border: 1px solid rgba(0, 229, 255, 0.15);
-      border-radius: 20px;
-      box-shadow: 
-        0 30px 60px rgba(0, 0, 0, 0.6),
-        0 0 0 1px rgba(255, 255, 255, 0.03) inset,
-        0 0 40px rgba(0, 229, 255, 0.05) inset;
-      text-align: center;
-      transform: translateY(0);
-      animation: floatPanel 8s ease-in-out infinite;
-    }
-    @keyframes floatPanel {
-      0%, 100% { transform: translateY(0); }
-      50% { transform: translateY(-8px); }
-    }
-
-    /* Título FRIDAY */
-    .login-brand {
-      font-family: var(--font-title);
-      font-size: 32px;
-      font-weight: 900;
-      letter-spacing: 0.4em;
-      color: #fff;
-      text-shadow: 0 0 30px rgba(0, 229, 255, 0.4);
-      margin-bottom: 8px;
-      display: flex;
-      justify-content: center;
-      gap: 2px;
-    }
-    .brand-letter {
-      display: inline-block;
-      animation: letterGlow 3s ease-in-out infinite alternate;
-    }
-    .brand-letter:nth-child(1) { animation-delay: 0.0s; }
-    .brand-letter:nth-child(2) { animation-delay: 0.1s; }
-    .brand-letter:nth-child(3) { animation-delay: 0.2s; }
-    .brand-letter:nth-child(4) { animation-delay: 0.3s; }
-    .brand-letter:nth-child(5) { animation-delay: 0.4s; }
-    .brand-letter:nth-child(6) { animation-delay: 0.5s; }
-    @keyframes letterGlow {
-      0% { text-shadow: 0 0 10px rgba(0, 229, 255, 0.2); }
-      100% { text-shadow: 0 0 20px rgba(0, 229, 255, 0.8), 0 0 40px rgba(0, 229, 255, 0.4); }
-    }
-
-    .login-sub {
-      font-family: var(--font-mono);
-      font-size: 9px;
-      letter-spacing: 0.35em;
-      color: var(--text-mid);
-      text-transform: uppercase;
-      margin-bottom: 30px;
-    }
-
-    .login-divider {
-      width: 40px;
-      height: 1px;
-      background: linear-gradient(90deg, transparent, var(--cyan), transparent);
-      margin: 0 auto 30px;
-      box-shadow: 0 0 10px var(--cyan);
-    }
-
-    /* Input minimalista */
-    #loginForm {
-      display: flex;
-      flex-direction: column;
-      gap: 20px;
-    }
-    .input-wrapper {
-      position: relative;
-    }
-    #password {
-      width: 100%;
-      background: transparent;
-      border: none;
-      border-bottom: 1px solid rgba(0, 229, 255, 0.3);
-      color: #fff;
-      font-family: var(--font-mono);
-      font-size: 14px;
-      padding: 15px 10px;
-      text-align: center;
-      letter-spacing: 0.2em;
-      transition: all 0.3s ease;
-    }
-    #password::placeholder {
-      color: rgba(255, 255, 255, 0.2);
-      letter-spacing: 0.25em;
-    }
-    #password:focus {
-      outline: none;
-      border-bottom-color: var(--cyan);
-    }
-    .input-glow {
-      position: absolute;
-      bottom: 0; left: 50%;
-      transform: translateX(-50%);
-      width: 0%;
-      height: 1px;
-      background: var(--cyan);
-      box-shadow: 0 0 15px var(--cyan);
-      transition: width 0.4s ease;
-    }
-    #password:focus + .input-glow {
-      width: 100%;
-    }
-
-    /* Botão elegante */
-    .login-btn {
-      width: 100%;
-      min-height: 50px;
-      border-radius: 30px; /* Cantos bem arredondados */
-      background: rgba(0, 229, 255, 0.1);
-      border: 1px solid var(--cyan);
-      color: var(--cyan);
-      font-size: 11px;
-      letter-spacing: 0.3em;
-      font-weight: 600;
-      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-      overflow: hidden;
-      position: relative;
-    }
-    .login-btn::before {
-      content: '';
-      position: absolute;
-      inset: 0;
-      background: linear-gradient(90deg, transparent, rgba(0, 229, 255, 0.2), transparent);
-      transform: translateX(-100%);
-      transition: transform 0.5s ease;
-    }
-    .login-btn:hover {
-      background: var(--cyan);
-      color: #000;
-      box-shadow: 0 0 30px rgba(0, 229, 255, 0.4);
-      transform: translateY(-2px);
-    }
-    .login-btn:hover::before {
-      transform: translateX(100%);
-    }
-
-    .lockout-notice {
-      color: var(--red);
-      font-family: var(--font-mono);
-      font-size: 10px;
-      letter-spacing: 0.05em;
-      margin-top: 20px;
-      padding: 10px;
-      background: rgba(255, 43, 74, 0.1);
-      border: 1px solid rgba(255, 43, 74, 0.3);
-      border-radius: 8px;
-    }
+.login-overlay{position:fixed;inset:0;z-index:200;display:flex;align-items:center;justify-content:center;background:var(--bg);overflow:hidden;padding:20px}
+.login-glow{position:absolute;width:80vmin;height:80vmin;background:radial-gradient(circle,rgba(0,229,255,0.08) 0%,transparent 60%);border-radius:50%;animation:breathe 6s ease-in-out infinite alternate}
+@keyframes breathe{0%{transform:scale(1);opacity:0.7}100%{transform:scale(1.1);opacity:1}}
+.login-rings{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}
+.ring{position:absolute;border-radius:50%;border:1px solid rgba(0,229,255,0.1)}
+.ring-1{width:60vmin;height:60vmin;animation:spin-slow 60s linear infinite;border-style:dashed}
+.ring-2{width:80vmin;height:80vmin;animation:spin-slow 90s linear infinite reverse;border-width:1px;border-color:rgba(255,255,255,0.05)}
+.ring-3{width:100vmin;height:100vmin;animation:spin-slow 120s linear infinite;border-style:dotted;border-color:rgba(0,229,255,0.05)}
+.login-panel{position:relative;z-index:10;width:100%;max-width:380px;padding:50px 40px;background:rgba(2,10,20,0.4);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border:1px solid rgba(0,229,255,0.15);border-radius:20px;box-shadow:0 30px 60px rgba(0,0,0,0.6),0 0 0 1px rgba(255,255,255,0.03) inset,0 0 40px rgba(0,229,255,0.05) inset;text-align:center;transform:translateY(0);animation:floatPanel 8s ease-in-out infinite}
+@keyframes floatPanel{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
+.login-brand{font-family:var(--font-title);font-size:32px;font-weight:900;letter-spacing:0.4em;color:#fff;text-shadow:0 0 30px rgba(0,229,255,0.4);margin-bottom:8px;display:flex;justify-content:center;gap:2px}
+.brand-letter{display:inline-block;animation:letterGlow 3s ease-in-out infinite alternate}
+.brand-letter:nth-child(1){animation-delay:0.0s}.brand-letter:nth-child(2){animation-delay:0.1s}.brand-letter:nth-child(3){animation-delay:0.2s}.brand-letter:nth-child(4){animation-delay:0.3s}.brand-letter:nth-child(5){animation-delay:0.4s}.brand-letter:nth-child(6){animation-delay:0.5s}
+@keyframes letterGlow{0%{text-shadow:0 0 10px rgba(0,229,255,0.2)}100%{text-shadow:0 0 20px rgba(0,229,255,0.8),0 0 40px rgba(0,229,255,0.4)}}
+.login-sub{font-family:var(--font-mono);font-size:9px;letter-spacing:0.35em;color:var(--text-mid);text-transform:uppercase;margin-bottom:30px}
+.login-divider{width:40px;height:1px;background:linear-gradient(90deg,transparent,var(--cyan),transparent);margin:0 auto 30px;box-shadow:0 0 10px var(--cyan)}
+#loginForm{display:flex;flex-direction:column;gap:20px}
+.input-wrapper{position:relative}
+#password{width:100%;background:transparent;border:none;border-bottom:1px solid rgba(0,229,255,0.3);color:#fff;font-family:var(--font-mono);font-size:14px;padding:15px 10px;text-align:center;letter-spacing:0.2em;transition:all 0.3s ease}
+#password::placeholder{color:rgba(255,255,255,0.2);letter-spacing:0.25em}
+#password:focus{outline:none;border-bottom-color:var(--cyan)}
+.input-glow{position:absolute;bottom:0;left:50%;transform:translateX(-50%);width:0%;height:1px;background:var(--cyan);box-shadow:0 0 15px var(--cyan);transition:width 0.4s ease}
+#password:focus + .input-glow{width:100%}
+.login-btn{width:100%;min-height:50px;border-radius:30px;background:rgba(0,229,255,0.1);border:1px solid var(--cyan);color:var(--cyan);font-size:11px;letter-spacing:0.3em;font-weight:600;transition:all 0.3s cubic-bezier(0.4,0,0.2,1);overflow:hidden;position:relative}
+.login-btn::before{content:'';position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(0,229,255,0.2),transparent);transform:translateX(-100%);transition:transform 0.5s ease}
+.login-btn:hover{background:var(--cyan);color:#000;box-shadow:0 0 30px rgba(0,229,255,0.4);transform:translateY(-2px)}
+.login-btn:hover::before{transform:translateX(100%)}
+.lockout-notice{color:var(--red);font-family:var(--font-mono);font-size:10px;letter-spacing:0.05em;margin-top:20px;padding:10px;background:rgba(255,43,74,0.1);border:1px solid rgba(255,43,74,0.3);border-radius:8px}
 
 .boot-overlay{position:fixed;inset:0;z-index:300;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;font-family:var(--font-mono)}
 .boot-overlay.fade-out{animation:bootOut 0.5s ease forwards}
@@ -496,41 +325,34 @@ input:checked + .slider:before{transform:translateX(18px);background:var(--cyan)
   </div>
 </div>
 
-  <!-- ============ LOGIN OVERLAY ============ -->
-  <div id="login" class="login-overlay">
-    <div class="login-glow"></div>
-    <div class="login-rings">
-      <div class="ring ring-1"></div>
-      <div class="ring ring-2"></div>
-      <div class="ring ring-3"></div>
-    </div>
-    
-    <div class="login-panel">
-      <div class="login-brand">
-        <span class="brand-letter">F</span>
-        <span class="brand-letter">R</span>
-        <span class="brand-letter">I</span>
-        <span class="brand-letter">D</span>
-        <span class="brand-letter">A</span>
-        <span class="brand-letter">Y</span>
-      </div>
-      <div class="login-sub">STARK INTELLIGENCE SYSTEM</div>
-      
-      <div class="login-divider"></div>
-      
-      <form id="loginForm">
-        <div class="input-wrapper">
-          <input id="password" type="password" placeholder="ACCESS CODE" autocomplete="current-password" required />
-          <div class="input-glow"></div>
-        </div>
-        <button class="hud-btn primary login-btn" type="submit">
-          <span>INITIALIZE</span>
-        </button>
-      </form>
-      
-      <p id="lockoutNotice" class="lockout-notice hidden" role="alert"></p>
-    </div>
+<div id="login" class="login-overlay">
+  <div class="login-glow"></div>
+  <div class="login-rings">
+    <div class="ring ring-1"></div>
+    <div class="ring ring-2"></div>
+    <div class="ring ring-3"></div>
   </div>
+  <div class="login-panel">
+    <div class="login-brand">
+      <span class="brand-letter">F</span>
+      <span class="brand-letter">R</span>
+      <span class="brand-letter">I</span>
+      <span class="brand-letter">D</span>
+      <span class="brand-letter">A</span>
+      <span class="brand-letter">Y</span>
+    </div>
+    <div class="login-sub">STARK INTELLIGENCE SYSTEM</div>
+    <div class="login-divider"></div>
+    <form id="loginForm">
+      <div class="input-wrapper">
+        <input id="password" type="password" placeholder="ACCESS CODE" autocomplete="current-password" required />
+        <div class="input-glow"></div>
+      </div>
+      <button class="hud-btn primary login-btn" type="submit"><span>INITIALIZE</span></button>
+    </form>
+    <p id="lockoutNotice" class="lockout-notice hidden" role="alert"></p>
+  </div>
+</div>
 
 <div id="bootOverlay" class="boot-overlay hidden">
   <div class="boot-title">FRIDAY</div>
@@ -786,6 +608,13 @@ let lastAIResponseTime = 0;
 
 const MONTHS_PT = ['JAN','FEV','MAR','ABR','MAI','JUN','JUL','AGO','SET','OUT','NOV','DEZ'];
 const WEEKDAYS_PT = ['DOM','SEG','TER','QUA','QUI','SEX','SÁB'];
+
+// ═══════════════════════════════════════════════════════════
+// FUNÇÃO DE PARSE SEGURO (DOMPurify)
+// ═══════════════════════════════════════════════════════════
+function safeMarkedParse(text) {
+  return DOMPurify.sanitize(marked.parse(text));
+}
 
 const recentToasts = new Map();
 function showToast(text, duration = 5000) {
@@ -1223,12 +1052,9 @@ function initReactor() {
     }
   } catch (err) { composer = null; bloomPass = null; }
 
-  // ═══════════════════════════════════════════════════════════
-  // CONTROLS — OPÇÃO B aplicada: dampingFactor = 0.4
-  // ═══════════════════════════════════════════════════════════
   controls = new THREE.OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
-  controls.dampingFactor = 0.4;      // ← 0.4 (resposta ~65ms, quase imperceptível)
+  controls.dampingFactor = 0.4;
   controls.rotateSpeed = 1.2;
   controls.zoomSpeed = 1.2;
   controls.enablePan = false;
@@ -1678,12 +1504,9 @@ function spawnBeam(targetPos, color) {
 }
 function dimReactorHint() { if (!reactorHintDimmed && reactorHintEl) { reactorHintDimmed = true; reactorHintEl.classList.add('dimmed'); } }
 
-// ═══════════════════════════════════════════════════════════
-// CURSOR — OPÇÃO B aplicada: lerp = 0.5 (mira colada no mouse)
-// ═══════════════════════════════════════════════════════════
 function animateHudCursor() {
   requestAnimationFrame(animateHudCursor);
-  cursorX += (cursorTargetX - cursorX) * 0.5;   // ← 0.5 (era 0.22)
+  cursorX += (cursorTargetX - cursorX) * 0.5;
   cursorY += (cursorTargetY - cursorY) * 0.5;
   if (hudCursorEl) hudCursorEl.style.transform = `translate(${cursorX}px, ${cursorY}px) translate(-50%, -50%)`;
 }
@@ -1885,9 +1708,9 @@ function scrambleText(element, finalText) {
       if (char === ' ' || char === '\n') return char;
       return chars[Math.floor(Math.random() * chars.length)];
     }).join('');
-    element.innerHTML = marked.parse(scrambled);
+    element.innerHTML = safeMarkedParse(scrambled); // DOMPurify
     it++;
-    if (it >= max) { clearInterval(interval); element.innerHTML = marked.parse(finalText); }
+    if (it >= max) { clearInterval(interval); element.innerHTML = safeMarkedParse(finalText); }
   }, 25);
 }
 async function speakText(text, force = false) {
@@ -1900,18 +1723,14 @@ async function speakText(text, force = false) {
   if ('speechSynthesis' in window) window.speechSynthesis.cancel();
   status('FRIDAY está falando...');
   try {
-    const response = await fetch(`/tts?text=${encodeURIComponent(cleanText)}`);
-    if (!response.ok) throw new Error('TTS falhou');
-    const blob = await response.blob();
-    if (blob.size === 0) throw new Error('Áudio vazio');
-    const url = URL.createObjectURL(blob);
-    const audio = new Audio(url);
+    // STREAMING TTS: Aponta o src diretamente para a rota
+    const ttsUrl = `/tts?text=${encodeURIComponent(cleanText)}`;
+    const audio = new Audio(ttsUrl);
     setupAudioAnalyser(audio);
     audio.onplay = () => { if (runId === speechRunId) { speaking = true; soundListen(); setWaveformState('speaking'); } };
     audio.onended = () => {
       if (runId === speechRunId) {
         speaking = false; status('Sistema online.'); setWaveformState('idle');
-        URL.revokeObjectURL(url);
         setTimeout(() => { if (!$("assistant").classList.contains("hidden") && !listening && !isProcessing) startVoice(true); }, 800);
       }
     };
@@ -2031,6 +1850,11 @@ async function sendCommandToFriday(command, isInitial = false) {
       currentAttachment = null; currentAttachmentType = null; currentAttachmentName = null;
       $('attachmentPreview').classList.add('hidden'); $('attachmentName').textContent = '';
     }
+    if (currentAttachmentType === 'image' && !isInitial) {
+      payload.image = currentAttachment; payload.image_name = currentAttachmentName;
+      currentAttachment = null; currentAttachmentType = null; currentAttachmentName = null;
+      $('attachmentPreview').classList.add('hidden'); $('attachmentName').textContent = '';
+    }
     const response = await fetch("/chat", {
       method: "POST", credentials: "same-origin",
       headers: { "Content-Type": "application/json" },
@@ -2057,7 +1881,7 @@ async function sendCommandToFriday(command, isInitial = false) {
             if (dataObj.text) {
               if (botMsgEl.classList.contains('typing')) botMsgEl.classList.remove('typing');
               fullReplyText += dataObj.text;
-              botSpan.innerHTML = marked.parse(fullReplyText);
+              botSpan.innerHTML = safeMarkedParse(fullReplyText);
               $("messages").scrollTop = $("messages").scrollHeight;
             }
             if (dataObj.error) { botMsgEl.classList.remove('typing'); botSpan.innerHTML = "[ERRO] " + dataObj.error; status("Erro na IA."); }
