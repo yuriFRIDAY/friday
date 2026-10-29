@@ -306,7 +306,8 @@ async def text_to_speech(text: str = "", friday_session: Optional[str] = Cookie(
     if not friday_session: raise HTTPException(status_code=401)
     if not text: raise HTTPException(status_code=400)
     api_key = os.getenv("ELEVENLABS_API_KEY", "").strip()
-    if not api_key: raise HTTPException(status_code=500, detail="Chave ElevenLabs ausente.")
+    if not api_key: return Response(status_code=204) # Fallback silencioso
+    
     voice_id = "21m00Tcm4TlvDq8ikWAM"
     url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}?output_format=mp3_44100_128"
     payload = json.dumps({
@@ -323,8 +324,9 @@ async def text_to_speech(text: str = "", friday_session: Optional[str] = Cookie(
                 yield chunk
         return StreamingResponse(audio_stream(), media_type="audio/mpeg")
     except Exception as e:
-        print(f"TTS erro: {e}")
-        raise HTTPException(status_code=500, detail="Falha ao gerar áudio.")
+        print(f"TTS erro ElevenLabs: {e}")
+        # Retorna 204 para o frontend acionar a voz do navegador sem erro no console
+        return Response(status_code=204) 
 
 @app.get("/", response_class=HTMLResponse)
 async def serve_index():
@@ -502,7 +504,6 @@ async def chat_endpoint(data: ChatData, friday_session: Optional[str] = Cookie(N
                 try: args = json.loads(tc_data["arguments"])
                 except: args = {}
 
-                # ✅ CORREÇÃO DA FERRAMENTA DE CALENDÁRIO
                 if tc_data["name"] == "get_calendar_events" and "range" in args:
                     args["range_value"] = args.pop("range")
 
