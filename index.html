@@ -73,6 +73,13 @@ body::after{content:'';position:fixed;inset:0;background:repeating-linear-gradie
 .palette-item:hover,.palette-item.selected{background:rgba(0,229,255,0.1);color:#fff}
 .palette-item .shortcut{font-size:10px;color:var(--text-dim);padding:2px 8px;border:1px solid var(--line)}
 
+/* MUSIC PLAYER HUD */
+#musicPlayerContainer{position:fixed;bottom:80px;right:20px;width:340px;background:rgba(2,12,24,0.85);border:1px solid var(--cyan);box-shadow:0 0 30px rgba(0,229,255,0.3),inset 0 0 20px rgba(0,229,255,0.05);z-index:100;border-radius:8px;overflow:hidden;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);transition:all 0.3s ease}
+.music-header{display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:rgba(0,229,255,0.1);border-bottom:1px solid var(--line);font-family:var(--font-mono);font-size:10px;color:var(--cyan);letter-spacing:0.1em;text-transform:uppercase}
+#closeMusicPlayer{background:transparent;border:none;color:var(--red);cursor:pointer;font-size:12px;min-height:auto;padding:0;transition:transform 0.2s}
+#closeMusicPlayer:hover{transform:scale(1.2);text-shadow:0 0 8px var(--red)}
+#musicPlayer{width:100%;height:180px;border:none;display:block;background:#000}
+
 .hud{position:relative;z-index:20;width:100%;height:100vh;height:100dvh;display:flex;flex-direction:column}
 .hud-top{display:grid;grid-template-columns:1fr auto auto;align-items:center;gap:20px;padding:8px 22px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,rgba(0,20,34,0.6),transparent);flex-shrink:0;position:relative}
 .hud-top::after{content:'';position:absolute;bottom:-1px;left:22px;right:22px;height:1px;background:linear-gradient(90deg,transparent,var(--cyan),transparent);opacity:0.4}
@@ -300,8 +307,6 @@ input:checked + .slider:before{transform:translateX(18px);background:var(--cyan)
 .status-widget{padding:10px 12px;border:1px solid var(--line);background:rgba(0,10,20,0.4)}
 #status{font-family:var(--font-mono);font-size:10px;letter-spacing:0.04em;color:var(--cyan-2);line-height:1.5;padding-left:10px;position:relative;transition:color 0.3s}
 #status::before{content:'>';position:absolute;left:0;color:var(--cyan);opacity:0.8}
-
-#musicPlayer{position:fixed;bottom:70px;right:20px;width:320px;max-width:calc(100vw - 40px);height:180px;border:1px solid var(--cyan);z-index:50;box-shadow:0 0 30px rgba(0,229,255,0.3)}
 
 @media (max-width:1100px){.hud-main{grid-template-columns:240px 1fr 260px}}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:0.01ms !important;transition-duration:0.01ms !important}}
@@ -546,7 +551,13 @@ input:checked + .slider:before{transform:translateX(18px);background:var(--cyan)
   </footer>
 </div>
 
-<iframe id="musicPlayer" class="hidden" allow="autoplay; encrypted-media" allowfullscreen></iframe>
+<div id="musicPlayerContainer" class="hidden">
+  <div class="music-header">
+    <span>NEURAL AUDIO STREAM</span>
+    <button id="closeMusicPlayer">✖</button>
+  </div>
+  <iframe id="musicPlayer" allow="autoplay; encrypted-media" allowfullscreen></iframe>
+</div>
 
 <div id="settingsModal" class="modal-overlay hidden">
   <div class="modal-content">
@@ -599,6 +610,7 @@ window.fridayState = 'idle';
 let currentAbortController = null;
 let thinkingTimer = null;
 let thinkingStart = 0;
+let currentToolCard = null; // Rastreia o card de sistema
 
 let cursorTargetX = -100, cursorTargetY = -100;
 let cursorX = -100, cursorY = -100;
@@ -609,12 +621,9 @@ let lastAIResponseTime = 0;
 const MONTHS_PT = ['JAN','FEV','MAR','ABR','MAI','JUN','JUL','AGO','SET','OUT','NOV','DEZ'];
 const WEEKDAYS_PT = ['DOM','SEG','TER','QUA','QUI','SEX','SÁB'];
 
-// ✅ Função blindada: se o CDN do DOMPurify cair, ela usa o marked direto para não travar o chat.
 function safeMarkedParse(text) {
   const html = marked.parse(text);
-  if (typeof DOMPurify !== 'undefined') {
-    return DOMPurify.sanitize(html);
-  }
+  if (typeof DOMPurify !== 'undefined') { return DOMPurify.sanitize(html); }
   return html;
 }
 
@@ -1455,13 +1464,13 @@ function activateNode(entry) {
     case 'voice': if (!listening) startVoice(false); else stopVoice(); break;
     case 'calendar': $('calendarPanel').classList.remove('hidden'); loadCalendarEvents('upcoming'); status('Sincronizando agenda...'); break;
     case 'music': {
-      const player = $('musicPlayer');
-      if (player && player.src && !player.classList.contains('hidden')) {
-        player.classList.add('hidden');
+      const container = $('musicPlayerContainer');
+      if (container && !container.classList.contains('hidden')) {
+        container.classList.add('hidden');
         if (ytPlayer && ytPlayer.pauseVideo) ytPlayer.pauseVideo();
         status('Música pausada.');
-      } else if (player && player.src) {
-        player.classList.remove('hidden');
+      } else if (container) {
+        container.classList.remove('hidden');
         if (ytPlayer && ytPlayer.playVideo) ytPlayer.playVideo();
         status('Música retomada.');
       } else { status('Nenhuma música carregada.'); addMessage('FRIDAY', '🎵 Nenhuma faixa carregada. Peça uma música no chat.'); }
@@ -1587,10 +1596,20 @@ function handleMusicAction(text) {
   if (text.includes('[MUSIC_ACTION:play]')) { if (ytPlayer && ytPlayer.playVideo) ytPlayer.playVideo(); return text.replace('[MUSIC_ACTION:play]', '').trim(); }
   if (text.includes('[MUSIC_PLAY:')) {
     const match = text.match(/\[MUSIC_PLAY:(.*?)\]/);
-    if (match && match[1]) { $('musicPlayer').src = match[1]; $('musicPlayer').classList.remove('hidden'); return text.replace(/\[MUSIC_PLAY:.*?\]/, '').trim(); }
+    if (match && match[1]) { 
+      $('musicPlayer').src = match[1]; 
+      $('musicPlayerContainer').classList.remove('hidden'); 
+      return text.replace(/\[MUSIC_PLAY:.*?\]/, '').trim(); 
+    }
   }
   return text;
 }
+$('closeMusicPlayer').addEventListener('click', () => {
+  $('musicPlayerContainer').classList.add('hidden');
+  $('musicPlayer').src = "";
+  if (ytPlayer && ytPlayer.stopVideo) ytPlayer.stopVideo();
+});
+
 function startStatusPolling() {
   stopStatusPolling();
   statusPollingInterval = setInterval(async () => {
@@ -1715,6 +1734,7 @@ function scrambleText(element, finalText) {
     if (it >= max) { clearInterval(interval); element.innerHTML = safeMarkedParse(finalText); }
   }, 25);
 }
+
 async function speakText(text, force = false) {
   const autoEl = $("autoSpeak");
   if (!force && autoEl && !autoEl.checked) return;
@@ -1725,13 +1745,18 @@ async function speakText(text, force = false) {
   if ('speechSynthesis' in window) window.speechSynthesis.cancel();
   status('FRIDAY está falando...');
   try {
-    const ttsUrl = `/tts?text=${encodeURIComponent(cleanText)}`;
-    const audio = new Audio(ttsUrl);
+    const response = await fetch(`/tts?text=${encodeURIComponent(cleanText)}`);
+    if (!response.ok) throw new Error('TTS falhou');
+    const blob = await response.blob();
+    if (blob.size === 0) throw new Error('Áudio vazio');
+    const url = URL.createObjectURL(blob);
+    const audio = new Audio(url);
     setupAudioAnalyser(audio);
     audio.onplay = () => { if (runId === speechRunId) { speaking = true; soundListen(); setWaveformState('speaking'); } };
     audio.onended = () => {
       if (runId === speechRunId) {
         speaking = false; status('Sistema online.'); setWaveformState('idle');
+        URL.revokeObjectURL(url);
         setTimeout(() => { if (!$("assistant").classList.contains("hidden") && !listening && !isProcessing) startVoice(true); }, 800);
       }
     };
@@ -1760,6 +1785,7 @@ function addMessage(who, text) {
   $("messages").scrollTop = $("messages").scrollHeight;
   return content;
 }
+
 function addToolCard(toolName) {
   const item = document.createElement("div"); item.className = "msg bot";
   const label = document.createElement("strong"); label.textContent = "SYSTEM";
@@ -1767,9 +1793,11 @@ function addToolCard(toolName) {
   let icon = "⚙"; let displayName = toolName.replace(/_/g, ' ');
   if (toolName.includes("calendar")) { icon = "📅"; displayName = "Acessando Agenda..."; }
   else if (toolName.includes("weather")) { icon = "🌤"; displayName = "Consultando Clima..."; }
+  else if (toolName.includes("music")) { icon = "🎵"; displayName = "Buscando áudio..."; }
   card.innerHTML = `<span>${icon}</span><span>${displayName}</span>`;
   item.append(label, card); $("messages").appendChild(item);
   $("messages").scrollTop = $("messages").scrollHeight;
+  return card;
 }
 
 const msgsEl = $("messages");
@@ -1878,22 +1906,37 @@ async function sendCommandToFriday(command, isInitial = false) {
             const dataObj = JSON.parse(dataStr);
             if (dataObj.done) { streamDone = true; break; }
             if (!gotFirst) { soundReceive(); gotFirst = true; }
-            if (dataObj.tool) { window.fridayState = 'tooling'; addToolCard(dataObj.tool); }
+            
+            if (dataObj.tool) { 
+              window.fridayState = 'tooling'; 
+              currentToolCard = addToolCard(dataObj.tool); 
+            }
+            
             if (dataObj.text) {
               if (botMsgEl.classList.contains('typing')) botMsgEl.classList.remove('typing');
+              if (currentToolCard) { currentToolCard.classList.remove('loading'); currentToolCard = null; }
               fullReplyText += dataObj.text;
               botSpan.innerHTML = safeMarkedParse(fullReplyText);
               $("messages").scrollTop = $("messages").scrollHeight;
             }
-            if (dataObj.error) { botMsgEl.classList.remove('typing'); botSpan.innerHTML = "[ERRO] " + dataObj.error; status("Erro na IA."); }
+            if (dataObj.error) { 
+              if (currentToolCard) { currentToolCard.classList.remove('loading'); currentToolCard = null; }
+              botMsgEl.classList.remove('typing'); 
+              botSpan.innerHTML = "[ERRO] " + dataObj.error; 
+              status("Erro na IA."); 
+            }
           } catch (e) {}
         }
       }
     }
     botMsgEl.classList.remove('typing');
+    if (currentToolCard) { currentToolCard.classList.remove('loading'); currentToolCard = null; }
     if (window.hljs) botSpan.querySelectorAll('pre code').forEach(el => hljs.highlightElement(el));
     stopStatusPolling();
-    if (!fullReplyText) { status("Falha na resposta."); }
+    if (!fullReplyText.trim()) { 
+      botSpan.innerHTML = "Entendido, chefe."; 
+      status("Sistema online.");
+    }
     else {
       status("Sistema online.");
       const finalReply = handleMusicAction(fullReplyText);
@@ -1904,6 +1947,7 @@ async function sendCommandToFriday(command, isInitial = false) {
   } catch (error) {
     stopStatusPolling();
     botMsgEl.classList.remove('typing');
+    if (currentToolCard) { currentToolCard.classList.remove('loading'); currentToolCard = null; }
     if (error.name === 'AbortError') { botSpan.innerHTML = "_[Cancelado pelo chefe]_"; }
     else {
       botSpan.innerHTML = "[ERRO] " + error.message;
@@ -2041,8 +2085,8 @@ function showLogin() {
   stopVoice(); stopStatusPolling(); stopAmbience();
   $("assistant").classList.add("hidden"); $("login").classList.remove("hidden");
   $("messages").replaceChildren(); $("settingsModal").classList.add("hidden");
-  $("calendarPanel").classList.add("hidden"); $("musicPlayer").classList.add("hidden");
-  $("musicPlayer").src = ""; status("Aguardando autenticação");
+  $("calendarPanel").classList.add("hidden"); $('musicPlayerContainer').classList.add('hidden');
+  $('musicPlayer').src = ""; status("Aguardando autenticação");
   document.body.dataset.state = 'idle';
 }
 $("logout").addEventListener("click", async () => {
