@@ -303,29 +303,32 @@ class ChatData(BaseModel):
 
 @app.get("/tts")
 async def text_to_speech(text: str = "", friday_session: Optional[str] = Cookie(None)):
-    if not friday_session: raise HTTPException(status_code=401)
-    if not text: raise HTTPException(status_code=400)
-    api_key = os.getenv("ELEVENLABS_API_KEY", "").strip()
-    if not api_key: return Response(status_code=204) # Fallback silencioso
-    
-    voice_id = "21m00Tcm4TlvDq8ikWAM"
-    url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}?output_format=mp3_44100_128"
-    payload = json.dumps({
-        "text": text, "model_id": "eleven_flash_v2_5",
-        "voice_settings": {"stability": 0.3, "similarity_boost": 0.85, "style": 0.0, "use_speaker_boost": True}
-    }).encode("utf-8")
-    req = URLRequest(url, data=payload, headers={"Accept": "audio/mpeg", "Content-Type": "application/json", "xi-api-key": api_key}, method="POST")
     try:
-        response = urlopen(req, timeout=30)
-        def audio_stream():
-            while True:
-                chunk = response.read(4096)
-                if not chunk: break
-                yield chunk
-        return StreamingResponse(audio_stream(), media_type="audio/mpeg")
+        if not friday_session: raise HTTPException(status_code=401)
+        if not text: raise HTTPException(status_code=400)
+        api_key = os.getenv("ELEVENLABS_API_KEY", "").strip()
+        if not api_key: return Response(status_code=204) # Fallback silencioso
+        
+        voice_id = "21m00Tcm4TlvDq8ikWAM"
+        url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}?output_format=mp3_44100_128"
+        payload = json.dumps({
+            "text": text, "model_id": "eleven_flash_v2_5",
+            "voice_settings": {"stability": 0.3, "similarity_boost": 0.85, "style": 0.0, "use_speaker_boost": True}
+        }).encode("utf-8")
+        req = URLRequest(url, data=payload, headers={"Accept": "audio/mpeg", "Content-Type": "application/json", "xi-api-key": api_key}, method="POST")
+        
+        try:
+            response = urlopen(req, timeout=30)
+            def audio_stream():
+                while True:
+                    chunk = response.read(4096)
+                    if not chunk: break
+                    yield chunk
+            return StreamingResponse(audio_stream(), media_type="audio/mpeg")
+        except Exception as e:
+            print(f"TTS erro ElevenLabs: {e}")
+            return Response(status_code=204) 
     except Exception as e:
-        print(f"TTS erro ElevenLabs: {e}")
-        # Retorna 204 para o frontend acionar a voz do navegador sem erro no console
         return Response(status_code=204) 
 
 @app.get("/", response_class=HTMLResponse)
@@ -422,7 +425,8 @@ async def calendar_status(friday_session: Optional[str] = Cookie(None)):
 async def calendar_events(range: str = "upcoming", friday_session: Optional[str] = Cookie(None)):
     if not friday_session: raise HTTPException(401)
     at = _usable_calendar_access_token()
-    if not at: raise HTTPException(409, "Calendar desconectado.")
+    if not at: 
+        return {"events": []} # Previne o erro 409 quando não conectado
     events = _calendar_today_events(at) if range == "today" else _calendar_events_query(at)
     return {"events": events or []}
 
@@ -471,12 +475,12 @@ async def chat_endpoint(data: ChatData, friday_session: Optional[str] = Cookie(N
         current_messages = list(history)
         current_messages.append({"role": "user", "content": final_message_content})
         response_generated = False
+        full_text = ""
 
         for _ in range(5):
             stream_gen = provider.chat_with_full_history_stream(current_messages, public_tool_specs())
             tool_call_acc = {}
             has_tool = False
-            full_text = ""
             error_occurred = False
 
             for chunk in stream_gen:
