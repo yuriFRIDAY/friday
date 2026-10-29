@@ -307,7 +307,7 @@ async def text_to_speech(text: str = "", friday_session: Optional[str] = Cookie(
         if not friday_session: raise HTTPException(status_code=401)
         if not text: raise HTTPException(status_code=400)
         api_key = os.getenv("ELEVENLABS_API_KEY", "").strip()
-        if not api_key: return Response(status_code=204) # Fallback silencioso
+        if not api_key: return Response(status_code=204) 
         
         voice_id = "21m00Tcm4TlvDq8ikWAM"
         url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}?output_format=mp3_44100_128"
@@ -425,8 +425,7 @@ async def calendar_status(friday_session: Optional[str] = Cookie(None)):
 async def calendar_events(range: str = "upcoming", friday_session: Optional[str] = Cookie(None)):
     if not friday_session: raise HTTPException(401)
     at = _usable_calendar_access_token()
-    if not at: 
-        return {"events": []} # Previne o erro 409 quando não conectado
+    if not at: return {"events": []}
     events = _calendar_today_events(at) if range == "today" else _calendar_events_query(at)
     return {"events": events or []}
 
@@ -520,6 +519,18 @@ async def chat_endpoint(data: ChatData, friday_session: Optional[str] = Cookie(N
                     break
 
                 result = exec_res.get("result")
+                
+                # --- NOVO: INTERCEPTAR AÇÃO DE MÚSICA ---
+                if tc_data["name"] == "play_music" and isinstance(result, dict):
+                    action = result.get("action")
+                    if action == "play_new" and result.get("url"):
+                        yield f"data: {json.dumps({'music': result['url']})}\n\n"
+                    elif action == "pause":
+                        yield f"data: {json.dumps({'music_action': 'pause'})}\n\n"
+                    elif action == "play":
+                        yield f"data: {json.dumps({'music_action': 'play'})}\n\n"
+                # ----------------------------------------
+
                 _notify_tool(tc_data["name"], args, result)
 
                 current_messages.append({"role": "assistant", "content": None, "tool_calls": [{"id": tc_data["id"], "type": "function", "function": {"name": tc_data["name"], "arguments": tc_data["arguments"]}}]})
