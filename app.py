@@ -323,6 +323,7 @@ async def text_to_speech(text: str = "", friday_session: Optional[str] = Cookie(
                 yield chunk
         return StreamingResponse(audio_stream(), media_type="audio/mpeg")
     except Exception as e:
+        print(f"TTS erro: {e}")
         raise HTTPException(status_code=500, detail="Falha ao gerar áudio.")
 
 @app.get("/", response_class=HTMLResponse)
@@ -501,6 +502,10 @@ async def chat_endpoint(data: ChatData, friday_session: Optional[str] = Cookie(N
                 try: args = json.loads(tc_data["arguments"])
                 except: args = {}
 
+                # ✅ CORREÇÃO DA FERRAMENTA DE CALENDÁRIO
+                if tc_data["name"] == "get_calendar_events" and "range" in args:
+                    args["range_value"] = args.pop("range")
+
                 yield f"data: {json.dumps({'tool': tc_data['name']})}\n\n"
                 exec_res = execute_tool(tc_data["name"], args, session=session, confirmed=True)
 
@@ -522,7 +527,6 @@ async def chat_endpoint(data: ChatData, friday_session: Optional[str] = Cookie(N
                     response_generated = True
                 break
 
-        # Se a IA gerou uma resposta vazia (apenas a tag de música), adiciona um texto de fallback
         if response_generated and not full_text.strip():
             yield f"data: {json.dumps({'text': 'Entendido, chefe.'})}\n\n"
         
