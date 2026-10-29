@@ -576,68 +576,39 @@ let cursorTargetX = -100, cursorTargetY = -100;
 let cursorX = -100, cursorY = -100;
 
 let ambienceNodes = null;
-
 let lastAIResponseTime = 0;
 
 const MONTHS_PT = ['JAN','FEV','MAR','ABR','MAI','JUN','JUL','AGO','SET','OUT','NOV','DEZ'];
 const WEEKDAYS_PT = ['DOM','SEG','TER','QUA','QUI','SEX','SÁB'];
 
-// ═══════════════════════════════════════════════════════════
-// TOAST — v2: click to dismiss, dedup, adaptive icon, sound
-// ═══════════════════════════════════════════════════════════
-const recentToasts = new Map();  // text -> timestamp
+const recentToasts = new Map();
 function showToast(text, duration = 5000) {
   const container = $('toastContainer');
   if (!container) return;
-
   const now = Date.now();
   const lastSeen = recentToasts.get(text) || 0;
-  if (now - lastSeen < 10000) {
-    console.log('[TOAST] Skipped duplicate:', text);
-    return;
-  }
+  if (now - lastSeen < 10000) return;
   recentToasts.set(text, now);
-  for (const [k, t] of recentToasts) {
-    if (now - t > 60000) recentToasts.delete(k);
-  }
-
-  if (container.children.length >= 3) {
-    const oldest = container.firstChild;
-    if (oldest) oldest.remove();
-  }
-
+  for (const [k, t] of recentToasts) { if (now - t > 60000) recentToasts.delete(k); }
+  if (container.children.length >= 3) { const oldest = container.firstChild; if (oldest) oldest.remove(); }
   const toast = document.createElement('div');
   toast.className = 'toast';
   toast.textContent = text;
-
   const firstChar = String(text).trim().charAt(0);
-  if (/[\u{1F300}-\u{1F9FF}\u{1F600}-\u{1F64F}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}]/u.test(firstChar)) {
-    toast.classList.add('has-icon');
-  }
-
-  let dismissed = false;
-  let timer;
+  if (/[\u{1F300}-\u{1F9FF}\u{1F600}-\u{1F64F}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}]/u.test(firstChar)) toast.classList.add('has-icon');
+  let dismissed = false; let timer;
   const dismiss = () => {
-    if (dismissed) return;
-    dismissed = true;
-    clearTimeout(timer);
-    toast.classList.remove('show');
-    toast.classList.add('hide');
+    if (dismissed) return; dismissed = true;
+    clearTimeout(timer); toast.classList.remove('show'); toast.classList.add('hide');
     setTimeout(() => toast.remove(), 500);
   };
   toast.addEventListener('click', dismiss);
-
   container.appendChild(toast);
   requestAnimationFrame(() => toast.classList.add('show'));
-
   try { playTone(880, 'sine', 0.08, 0.025); } catch(e) {}
-
   timer = setTimeout(dismiss, duration);
 }
 
-// ═══════════════════════════════════════════════════════════
-// CLOCK
-// ═══════════════════════════════════════════════════════════
 function buildDayStrip() {
   const now = new Date();
   const days = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
@@ -667,9 +638,6 @@ function updateClocks() {
 }
 buildDayStrip(); updateClocks(); setInterval(updateClocks, 1000);
 
-// ═══════════════════════════════════════════════════════════
-// SPARKLINES
-// ═══════════════════════════════════════════════════════════
 const sparkHistory = { cpu: [], ram: [] };
 const SPARK_MAX = 30;
 function pushSpark(key, v) { const arr = sparkHistory[key]; arr.push(v); if (arr.length > SPARK_MAX) arr.shift(); }
@@ -687,8 +655,7 @@ function drawSparkline(canvasId, values, color) {
     const y = h - (values[i] / 100) * h * 0.85 - 2;
     ctx.lineTo(x, y);
   }
-  ctx.lineTo(w, h); ctx.closePath();
-  ctx.fillStyle = grad; ctx.fill();
+  ctx.lineTo(w, h); ctx.closePath(); ctx.fillStyle = grad; ctx.fill();
   ctx.beginPath();
   for (let i = 0; i < values.length; i++) {
     const x = (i / (SPARK_MAX - 1)) * w;
@@ -705,17 +672,10 @@ function redrawSparklines() {
   drawSparkline('sparkCpu', sparkHistory.cpu, color);
   drawSparkline('sparkRam', sparkHistory.ram, color);
 }
-
-// ═══════════════════════════════════════════════════════════
-// GAUGES
-// ═══════════════════════════════════════════════════════════
 function updateGauge(id, value) {
   const el = document.getElementById('gauge' + id);
   const valEl = document.getElementById('gauge' + id + 'Val');
-  if (el) {
-    const circ = 2 * Math.PI * 42;
-    el.style.strokeDashoffset = circ * (1 - Math.min(100, Math.max(0, value)) / 100);
-  }
+  if (el) { const circ = 2 * Math.PI * 42; el.style.strokeDashoffset = circ * (1 - Math.min(100, Math.max(0, value)) / 100); }
   if (valEl) valEl.textContent = Math.round(value);
 }
 function initChart() {
@@ -766,9 +726,6 @@ setInterval(() => {
   }
 }, 5000);
 
-// ═══════════════════════════════════════════════════════════
-// PREFS
-// ═══════════════════════════════════════════════════════════
 function loadVisualPreferences() {
   if (localStorage.getItem('friday_hide_sidebar') === 'true') { document.body.classList.add('hide-sidebar'); $('toggleSidebar').checked = false; }
   if (localStorage.getItem('friday_hide_chart') === 'true') { document.body.classList.add('hide-chart'); $('toggleChart').checked = false; }
@@ -789,9 +746,6 @@ $('toggleParticles').addEventListener('change', e => {
 $('openSettingsBtn').addEventListener('click', () => $('settingsModal').classList.remove('hidden'));
 $('closeSettingsBtn').addEventListener('click', () => $('settingsModal').classList.add('hidden'));
 
-// ═══════════════════════════════════════════════════════════
-// KEYBOARD SHORTCUTS
-// ═══════════════════════════════════════════════════════════
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
     if (!$('palette').classList.contains('hidden')) { closePalette(); return; }
@@ -803,15 +757,9 @@ document.addEventListener('keydown', e => {
     const c = $('command'); if (c && !$('assistant').classList.contains('hidden')) c.focus();
   }
   if ((e.ctrlKey || e.metaKey) && e.key === '/') { e.preventDefault(); $('settingsModal').classList.toggle('hidden'); }
-  if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'p') {
-    e.preventDefault();
-    openPalette();
-  }
+  if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'p') { e.preventDefault(); openPalette(); }
 });
 
-// ═══════════════════════════════════════════════════════════
-// BOOT SEQUENCE
-// ═══════════════════════════════════════════════════════════
 async function runBootSequence() {
   if (bootRunning) return;
   bootRunning = true;
@@ -831,9 +779,6 @@ async function runBootSequence() {
   bootRunning = false;
 }
 
-// ═══════════════════════════════════════════════════════════
-// PWA + MIC
-// ═══════════════════════════════════════════════════════════
 window.addEventListener('beforeinstallprompt', e => {
   e.preventDefault();
   deferredPrompt = e;
@@ -864,9 +809,6 @@ $('requestMicBtn').addEventListener('click', async () => {
   }
 });
 
-// ═══════════════════════════════════════════════════════════
-// VOICES
-// ═══════════════════════════════════════════════════════════
 function loadVoices() {
   availableVoices = window.speechSynthesis.getVoices();
   const select = $('voiceSelect');
@@ -885,9 +827,7 @@ function loadVoices() {
 window.speechSynthesis.onvoiceschanged = loadVoices;
 setTimeout(loadVoices, 500);
 $('pitchSlider').addEventListener('input', e => { $('pitchValue').textContent = e.target.value; });
-$('testUltronVoiceBtn').addEventListener('click', () => {
-  browserSpeak("Eu sou a FRIDAY. O sistema está sob meu controle. Como posso ajudar?", 0, true);
-});
+$('testUltronVoiceBtn').addEventListener('click', () => { browserSpeak("Eu sou a FRIDAY. O sistema está sob meu controle. Como posso ajudar?", 0, true); });
 function browserSpeak(text, runId, forceTest = false) {
   if (!('speechSynthesis' in window)) return;
   const synth = window.speechSynthesis;
@@ -896,18 +836,12 @@ function browserSpeak(text, runId, forceTest = false) {
   utterance.lang = 'pt-BR'; utterance.rate = 0.85;
   utterance.pitch = parseFloat($('pitchSlider').value) || 0.1;
   const selectedName = $('voiceSelect').value;
-  if (selectedName) {
-    const voice = availableVoices.find(v => v.name === selectedName);
-    if (voice) utterance.voice = voice;
-  }
+  if (selectedName) { const voice = availableVoices.find(v => v.name === selectedName); if (voice) utterance.voice = voice; }
   utterance.onstart = () => { if (runId === speechRunId || forceTest) { speaking = true; soundListen(); setWaveformState('speaking'); } };
   utterance.onend = () => { if (runId === speechRunId || forceTest) { speaking = false; status('Sistema online.'); setWaveformState('idle'); } };
   synth.speak(utterance);
 }
 
-// ═══════════════════════════════════════════════════════════
-// AMBIENCE
-// ═══════════════════════════════════════════════════════════
 function startAmbience() {
   if (ambienceNodes) return;
   try {
@@ -918,22 +852,15 @@ function startAmbience() {
     const osc2 = ctx.createOscillator(); osc2.type = 'sine'; osc2.frequency.value = 75;
     const gain = ctx.createGain(); gain.gain.value = 0.008;
     const filter = ctx.createBiquadFilter(); filter.type = 'lowpass'; filter.frequency.value = 200;
-    osc1.connect(gain); osc2.connect(gain);
-    gain.connect(filter); filter.connect(ctx.destination);
+    osc1.connect(gain); osc2.connect(gain); gain.connect(filter); filter.connect(ctx.destination);
     osc1.start(); osc2.start();
     ambienceNodes = { osc1, osc2, gain };
-  } catch(e) { console.warn('[AMBIENCE] Falha:', e); }
+  } catch(e) {}
 }
 function stopAmbience() {
-  if (ambienceNodes) {
-    try { ambienceNodes.osc1.stop(); ambienceNodes.osc2.stop(); } catch(e) {}
-    ambienceNodes = null;
-  }
+  if (ambienceNodes) { try { ambienceNodes.osc1.stop(); ambienceNodes.osc2.stop(); } catch(e) {} ambienceNodes = null; }
 }
 
-// ═══════════════════════════════════════════════════════════
-// BG PARTICLES
-// ═══════════════════════════════════════════════════════════
 let bgScene, bgCamera, bgRenderer, particlesMesh, linesMesh;
 function initBgParticles() {
   if (document.body.classList.contains('hide-particles')) return;
@@ -993,9 +920,6 @@ function initBgParticles() {
   animateBg();
 }
 
-// ═══════════════════════════════════════════════════════════
-// STATE PALETTE
-// ═══════════════════════════════════════════════════════════
 const STATE_PALETTE = {
   idle:      { primary: 0x00e5ff, secondary: 0x5ee7f2, accent: 0x8b5cf6, bloomStrength: 0.85, bloomThreshold: 0.85 },
   thinking:  { primary: 0xff9f00, secondary: 0xffce5c, accent: 0xff7b00, bloomStrength: 1.35, bloomThreshold: 0.7 },
@@ -1010,6 +934,8 @@ const STATE_PALETTE = {
 // ═══════════════════════════════════════════════════════════
 let scene, camera, renderer, composer, bloomPass, controls, audioAnalyser, audioContext;
 let reactorGroup, coreMesh, coreMat, haloMesh, orbitalParticles, reactorStars, polarGrid, sweepMesh, sweepMat;
+let innerRingsGroup, innerCoreMesh, wireframeShell, ambientParticles;
+let lensFlares = [];
 let subsystemNodes = [];
 let reactorHoveredEntry = null;
 let reactorRaycaster, reactorMouseVec;
@@ -1053,11 +979,10 @@ float fresnel=pow(1.0-abs(dot(vNormal,viewDir)),1.5);col+=uColorB*fresnel*0.8;co
 function initReactor() {
   const canvasEl = $('three-reactor');
   const container = $('reactorStage');
-  if (!canvasEl || !container) { console.warn('[REACTOR] Elementos não encontrados.'); return; }
+  if (!canvasEl || !container) return;
   if (container.clientWidth < 20 || container.clientHeight < 20) {
     reactorInitAttempts++;
     if (reactorInitAttempts < 50) setTimeout(initReactor, 100);
-    else console.error('[REACTOR] Desisti após 50 tentativas.');
     return;
   }
   reactorStageEl = container; reactorContainerEl = canvasEl;
@@ -1079,7 +1004,7 @@ function initReactor() {
   camera.position.set(0, 1.8, 7);
 
   try { renderer = new THREE.WebGLRenderer({ canvas: canvasEl, alpha: true, antialias: true }); }
-  catch (err) { console.error('[REACTOR] WebGL não disponível:', err); return; }
+  catch (err) { console.error('[REACTOR] WebGL indisponível:', err); return; }
   renderer.setSize(container.clientWidth, container.clientHeight);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   renderer.setClearColor(0x000610, 1);
@@ -1092,17 +1017,29 @@ function initReactor() {
       bloomPass = new THREE.UnrealBloomPass(new THREE.Vector2(container.clientWidth, container.clientHeight), 0.85, 0.6, 0.85);
       composer.addPass(bloomPass);
       composer.setSize(container.clientWidth, container.clientHeight);
-      console.log('[REACTOR] ✅ Bloom ativo');
     }
-  } catch (err) { console.warn('[REACTOR] Bloom falhou:', err); composer = null; bloomPass = null; }
+  } catch (err) { composer = null; bloomPass = null; }
 
+  // ═══════════════════════════════════════════════════════════
+  // CONTROLS — FIX: damping mais alto p/ resposta imediata
+  // ═══════════════════════════════════════════════════════════
   controls = new THREE.OrbitControls(camera, renderer.domElement);
-  controls.enableDamping = true; controls.dampingFactor = 0.06;
-  controls.enablePan = false; controls.minDistance = 3.5; controls.maxDistance = 11;
-  controls.maxPolarAngle = Math.PI / 1.7; controls.autoRotate = true; controls.autoRotateSpeed = 0.7;
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.15;     // ← era 0.06 (muito lento)
+  controls.rotateSpeed = 1.2;         // ← NOVO (mais responsivo)
+  controls.zoomSpeed = 1.2;           // ← NOVO (zoom mais rápido)
+  controls.enablePan = false;
+  controls.minDistance = 3.5;
+  controls.maxDistance = 11;
+  controls.maxPolarAngle = Math.PI / 1.7;
+  controls.autoRotate = true;
+  controls.autoRotateSpeed = 0.5;     // ← era 0.7 (mais suave)
+
   let autoRotateResume;
   controls.addEventListener('start', () => { controls.autoRotate = false; clearTimeout(autoRotateResume); });
-  controls.addEventListener('end', () => { autoRotateResume = setTimeout(() => { controls.autoRotate = true; }, 3500); });
+  controls.addEventListener('end', () => {
+    autoRotateResume = setTimeout(() => { controls.autoRotate = true; }, 1500); // ← era 3500
+  });
 
   polarGrid = new THREE.PolarGridHelper(5, 16, 8, 64, 0x00e5ff, 0x003344);
   polarGrid.position.y = -1.6; polarGrid.material.transparent = true; polarGrid.material.opacity = 0.18;
@@ -1125,6 +1062,15 @@ function initReactor() {
     return new THREE.Mesh(geo, mat);
   }
 
+  // ═══════════════════════════════════════════════════════════
+  // NÚCLEO — plasma + inner bright + wireframe shell
+  // ═══════════════════════════════════════════════════════════
+  innerCoreMesh = new THREE.Mesh(
+    new THREE.SphereGeometry(0.28, 24, 24),
+    new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9 })
+  );
+  reactorGroup.add(innerCoreMesh);
+
   coreMat = new THREE.ShaderMaterial({
     uniforms: { uTime: { value: 0 }, uColorA: { value: new THREE.Color(0x001a22) }, uColorB: { value: new THREE.Color(0x00e5ff) } },
     vertexShader: PLASMA_VERT, fragmentShader: PLASMA_FRAG, transparent: true
@@ -1132,11 +1078,35 @@ function initReactor() {
   coreMesh = new THREE.Mesh(new THREE.SphereGeometry(0.55, 64, 64), coreMat);
   reactorGroup.add(coreMesh);
 
+  wireframeShell = new THREE.Mesh(
+    new THREE.IcosahedronGeometry(0.68, 1),
+    new THREE.MeshBasicMaterial({ color: 0x00e5ff, wireframe: true, transparent: true, opacity: 0.12, blending: THREE.AdditiveBlending })
+  );
+  reactorGroup.add(wireframeShell);
+
   haloMesh = new THREE.Mesh(new THREE.SphereGeometry(0.78, 32, 32), new THREE.MeshBasicMaterial({ color: 0x00e5ff, transparent: true, opacity: 0.1, blending: THREE.AdditiveBlending }));
   reactorGroup.add(haloMesh);
 
+  // ═══════════════════════════════════════════════════════════
+  // ANÉIS INTERNOS (grupo contra-rotativo)
+  // ═══════════════════════════════════════════════════════════
+  innerRingsGroup = new THREE.Group();
+  reactorGroup.add(innerRingsGroup);
+
+  for (let i = 0; i < 24; i++) {
+    const seg = (Math.PI*2)/24;
+    innerRingsGroup.add(arcSegment(0.70, 0.72, i*seg + seg*0.15, seg*0.55, 0x5ee7f2, 0.4));
+  }
+  for (let i = 0; i < 32; i++) {
+    const seg = (Math.PI*2)/32;
+    innerRingsGroup.add(arcSegment(0.83, 0.85, i*seg, seg*0.25, 0x00e5ff, 0.45));
+  }
+  innerRingsGroup.add(arcSegment(0.955, 0.965, 0, Math.PI * 2, 0xffffff, 0.25, 128));
+
+  // ═══════════════════════════════════════════════════════════
+  // ANÉIS EXTERNOS (existentes)
+  // ═══════════════════════════════════════════════════════════
   reactorGroup.add(arcSegment(0.63, 0.65, 0, Math.PI * 2, 0x00e5ff, 0.4, 128));
-  for (let i = 0; i < 24; i++) { const seg = (Math.PI*2)/24; reactorGroup.add(arcSegment(0.78, 0.80, i*seg + seg*0.15, seg*0.7, 0x5ee7f2, 0.5)); }
   for (let i = 0; i < 8; i++) { const seg = (Math.PI*2)/8; reactorGroup.add(arcSegment(0.92, 1.05, i*seg, seg*0.9, 0x00e5ff, 0.55)); }
   reactorGroup.add(arcSegment(1.13, 1.16, 0, Math.PI * 2, 0x00e5ff, 0.25, 128));
   for (let i = 0; i < 4; i++) { const seg = (Math.PI*2)/4; reactorGroup.add(arcSegment(1.22, 1.32, i*seg + seg*0.15, seg*0.45, 0xff2b4a, 0.65)); }
@@ -1147,11 +1117,45 @@ function initReactor() {
   reactorGroup.add(arcSegment(1.58, 1.60, 0, Math.PI * 2, 0x5ee7f2, 0.15, 128));
   for (let i = 0; i < 48; i++) { const seg = (Math.PI*2)/48; reactorGroup.add(arcSegment(1.73, 1.76, i*seg, seg*0.55, 0x00e5ff, 0.35)); }
 
+  // ═══════════════════════════════════════════════════════════
+  // SPOKES RADIAIS (8 linhas curtas)
+  // ═══════════════════════════════════════════════════════════
+  for (let i = 0; i < 8; i++) {
+    const angle = (Math.PI * 2 * i) / 8;
+    const spokeGeo = new THREE.PlaneGeometry(0.5, 0.006);
+    const spokeMat = new THREE.MeshBasicMaterial({ color: 0x5ee7f2, transparent: true, opacity: 0.28, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
+    const spoke = new THREE.Mesh(spokeGeo, spokeMat);
+    spoke.position.set(Math.cos(angle) * 1.0, Math.sin(angle) * 1.0, 0);
+    spoke.rotation.z = angle;
+    reactorGroup.add(spoke);
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // LENS FLARES (4 pontos brilhantes)
+  // ═══════════════════════════════════════════════════════════
+  for (let i = 0; i < 4; i++) {
+    const angle = (Math.PI * 2 * i) / 4;
+    const flare = new THREE.Mesh(
+      new THREE.SphereGeometry(0.03, 8, 8),
+      new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9 })
+    );
+    flare.position.set(Math.cos(angle) * 1.9, Math.sin(angle) * 1.9, 0);
+    flare.userData.baseAngle = angle;
+    reactorGroup.add(flare);
+    lensFlares.push(flare);
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // AI GAZE (sweep)
+  // ═══════════════════════════════════════════════════════════
   sweepMat = new THREE.MeshBasicMaterial({ color: 0x00e5ff, transparent: true, opacity: 0.09, side: THREE.DoubleSide, blending: THREE.AdditiveBlending });
   sweepMesh = new THREE.Mesh(new THREE.RingGeometry(1.85, 2.05, 64, 1, 0, Math.PI / 3), sweepMat);
   sweepMesh.rotation.x = -Math.PI / 2; sweepMesh.position.y = 0.02;
   reactorGroup.add(sweepMesh);
 
+  // ═══════════════════════════════════════════════════════════
+  // PARTÍCULAS ORBITAIS
+  // ═══════════════════════════════════════════════════════════
   const particleCount = 100;
   const pGeo = new THREE.BufferGeometry();
   const pPos = new Float32Array(particleCount * 3);
@@ -1165,6 +1169,27 @@ function initReactor() {
   orbitalParticles = new THREE.Points(pGeo, new THREE.PointsMaterial({ color: 0x5ee7f2, size: 0.04, transparent: true, opacity: 0.75, blending: THREE.AdditiveBlending }));
   reactorGroup.add(orbitalParticles);
 
+  // ═══════════════════════════════════════════════════════════
+  // PARTÍCULAS AMBIENTES (flutuando no espaço)
+  // ═══════════════════════════════════════════════════════════
+  const ambGeo = new THREE.BufferGeometry();
+  const ambCount = 80;
+  const ambPositions = new Float32Array(ambCount * 3);
+  for (let i = 0; i < ambCount; i++) {
+    const r = 2.5 + Math.random() * 3;
+    const theta = Math.random() * Math.PI * 2;
+    const phi = (Math.random() - 0.5) * Math.PI * 0.8;
+    ambPositions[i*3] = r * Math.cos(theta) * Math.cos(phi);
+    ambPositions[i*3+1] = r * Math.sin(phi);
+    ambPositions[i*3+2] = r * Math.sin(theta) * Math.cos(phi);
+  }
+  ambGeo.setAttribute('position', new THREE.BufferAttribute(ambPositions, 3));
+  ambientParticles = new THREE.Points(ambGeo, new THREE.PointsMaterial({ color: 0x5ee7f2, size: 0.04, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending }));
+  scene.add(ambientParticles);
+
+  // ═══════════════════════════════════════════════════════════
+  // SUBSYSTEM NODES
+  // ═══════════════════════════════════════════════════════════
   SUBSYSTEMS.forEach((cfg) => {
     const group = new THREE.Group(); reactorGroup.add(group);
     const sphere = new THREE.Mesh(new THREE.SphereGeometry(0.085, 16, 16), new THREE.MeshBasicMaterial({ color: cfg.color }));
@@ -1258,6 +1283,7 @@ function initReactor() {
     sweepMat.color.lerp(_tmpColor, 0.05);
     orbitalParticles.material.color.lerp(_tmpColor, 0.05);
     reactorStars.material.color.lerp(_tmpColor, 0.05);
+    wireframeShell.material.color.lerp(_tmpColor, 0.05);
     if (bloomPass) {
       bloomPass.strength += (palette.bloomStrength - bloomPass.strength) * 0.05;
       bloomPass.threshold += (palette.bloomThreshold - bloomPass.threshold) * 0.05;
@@ -1303,6 +1329,27 @@ function initReactor() {
 
     sweepMesh.rotation.z += 0.008;
 
+    // Anéis internos contra-rotativos
+    innerRingsGroup.rotation.z -= 0.004;
+
+    // Wireframe shell gira em eixos diferentes
+    wireframeShell.rotation.x += 0.003;
+    wireframeShell.rotation.y += 0.005;
+
+    // Lens flares pulsam e oscilam
+    lensFlares.forEach((flare, i) => {
+      const p = 0.6 + Math.sin(t * 2 + i * 1.5) * 0.4;
+      flare.material.opacity = p;
+      flare.scale.setScalar(0.8 + p * 0.5);
+      const driftAngle = flare.userData.baseAngle + Math.sin(t * 0.3 + i) * 0.05;
+      flare.position.x = Math.cos(driftAngle) * 1.9;
+      flare.position.y = Math.sin(driftAngle) * 1.9;
+    });
+
+    // Partículas ambientes giram suavemente
+    ambientParticles.rotation.y += 0.0008;
+    ambientParticles.rotation.x += 0.0003;
+
     subsystemNodes.forEach((entry, i) => {
       entry.angle += entry.data.speed;
       const a = entry.angle, r = entry.data.radius, tilt = entry.data.tilt;
@@ -1345,9 +1392,7 @@ function initReactor() {
           reactorHoveredEntry.labelEl?.classList.add('visible');
           try { playTone(1200, 'sine', 0.035, 0.03); } catch(e) {}
           if (hudCursorEl) hudCursorEl.classList.add('hover');
-        } else {
-          if (hudCursorEl) hudCursorEl.classList.remove('hover');
-        }
+        } else { if (hudCursorEl) hudCursorEl.classList.remove('hover'); }
       }
       if (!reactorHoveredEntry && hudCursorEl) {
         const coreHits = reactorRaycaster.intersectObject(coreMesh, false);
@@ -1377,7 +1422,7 @@ function initReactor() {
     else renderer.render(scene, camera);
   }
   animateReactor();
-  console.log('[REACTOR] ✅ Loop iniciado');
+  console.log('[REACTOR] ✅ Loop iniciado (com design aprimorado)');
 }
 
 function handleReactorClick() {
@@ -1467,8 +1512,8 @@ function dimReactorHint() { if (!reactorHintDimmed && reactorHintEl) { reactorHi
 
 function animateHudCursor() {
   requestAnimationFrame(animateHudCursor);
-  cursorX += (cursorTargetX - cursorX) * 0.18;
-  cursorY += (cursorTargetY - cursorY) * 0.18;
+  cursorX += (cursorTargetX - cursorX) * 0.22;
+  cursorY += (cursorTargetY - cursorY) * 0.22;
   if (hudCursorEl) hudCursorEl.style.transform = `translate(${cursorX}px, ${cursorY}px) translate(-50%, -50%)`;
 }
 animateHudCursor();
@@ -1538,9 +1583,7 @@ function animateTTSVisualizer() {
   }
 }
 
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => { navigator.serviceWorker.register('/sw.js').catch(() => {}); });
-}
+if ('serviceWorker' in navigator) { window.addEventListener('load', () => { navigator.serviceWorker.register('/sw.js').catch(() => {}); }); }
 
 window.onYouTubeIframeAPIReady = function() { ytPlayer = new YT.Player('musicPlayer', { events: { 'onReady': () => {} } }); };
 function handleMusicAction(text) {
@@ -1788,10 +1831,7 @@ $('removeAttachment').addEventListener('click', () => {
 });
 
 $('cancelBtn').addEventListener('click', () => {
-  if (currentAbortController) {
-    currentAbortController.abort();
-    status('Geração cancelada.');
-  }
+  if (currentAbortController) { currentAbortController.abort(); status('Geração cancelada.'); }
 });
 
 async function sendCommandToFriday(command, isInitial = false) {
@@ -1868,9 +1908,8 @@ async function sendCommandToFriday(command, isInitial = false) {
   } catch (error) {
     stopStatusPolling();
     botMsgEl.classList.remove('typing');
-    if (error.name === 'AbortError') {
-      botSpan.innerHTML = "_[Cancelado pelo chefe]_";
-    } else {
+    if (error.name === 'AbortError') { botSpan.innerHTML = "_[Cancelado pelo chefe]_"; }
+    else {
       botSpan.innerHTML = "[ERRO] " + error.message;
       status("Erro de conexão.");
       window.fridayState = 'error';
@@ -1899,8 +1938,7 @@ $("loginForm").addEventListener("submit", async (event) => {
     await runBootSequence();
     $("assistant").classList.remove("hidden");
     status("Autenticada. FRIDAY online.");
-    soundBoot();
-    startAmbience();
+    soundBoot(); startAmbience();
     $('messages').replaceChildren();
     await loadHistoryFromBackend();
     startSysMetrics();
@@ -2065,8 +2103,7 @@ setInterval(async () => {
         if (!localStorage.getItem(key)) {
           localStorage.setItem(key, "true");
           const msg = `Chefe, seu compromisso "${evt.summary}" começa em ${Math.round(diff)} minutos.`;
-          showToast(msg, 8000);
-          speakText(msg, true);
+          showToast(msg, 8000); speakText(msg, true);
         }
       }
     });
@@ -2080,15 +2117,10 @@ setInterval(async () => {
     if (!res.ok) return;
     const data = await res.json();
     if (!data.notifications || data.notifications.length === 0) return;
-
     const now = Date.now();
     const timeSinceAI = now - lastAIResponseTime;
-
     data.notifications.forEach(msg => {
-      if (timeSinceAI < 30000 && !msg.includes('[CRITICAL]')) {
-        console.log('[TOAST] Skip (chat já cobre):', msg);
-        return;
-      }
+      if (timeSinceAI < 30000 && !msg.includes('[CRITICAL]')) return;
       showToast(msg, 5000);
     });
   } catch (e) {}
@@ -2117,10 +2149,7 @@ function renderPaletteItems(query) {
   const filtered = PALETTE_COMMANDS.filter(c => c.name.toLowerCase().includes(q));
   const container = $('paletteResults');
   container.innerHTML = '';
-  if (!filtered.length) {
-    container.innerHTML = '<div class="palette-item" style="color:var(--text-dim);">Nenhum comando</div>';
-    return;
-  }
+  if (!filtered.length) { container.innerHTML = '<div class="palette-item" style="color:var(--text-dim);">Nenhum comando</div>'; return; }
   filtered.forEach((cmd, i) => {
     const el = document.createElement('div');
     el.className = 'palette-item' + (i === 0 ? ' selected' : '');
