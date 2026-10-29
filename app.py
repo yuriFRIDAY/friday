@@ -22,7 +22,6 @@ from fastapi import FastAPI, Request, Response, HTTPException, Cookie
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from pydantic import BaseModel
 
-# ✅ PDF support (opcional — se PyPDF2 não estiver instalado, loga aviso)
 try:
     import PyPDF2
     HAS_PYPDF2 = True
@@ -57,62 +56,39 @@ def _push_status(text):
     global STATUS_QUEUE
     with QUEUE_LOCK:
         STATUS_QUEUE.append(text)
-        if len(STATUS_QUEUE) > 20:
-            STATUS_QUEUE.pop(0)
+        if len(STATUS_QUEUE) > 20: STATUS_QUEUE.pop(0)
 
 def _push_notification(text):
-    """Enfileira toast notification. Frontend polla /notifications a cada 15s."""
-    if not text:
-        return
+    if not text: return
     global NOTIFICATION_QUEUE
     with QUEUE_LOCK:
         NOTIFICATION_QUEUE.append(text)
-        if len(NOTIFICATION_QUEUE) > 20:
-            NOTIFICATION_QUEUE.pop(0)
+        if len(NOTIFICATION_QUEUE) > 20: NOTIFICATION_QUEUE.pop(0)
 
 def _notify_tool(tool_name, args, result):
-    """Gera notificação toast para tools relevantes."""
-    if not result:
-        return
+    if not result: return
     try:
         if tool_name == "create_calendar_event" and isinstance(result, dict) and result.get("ok"):
             summary = result.get("summary") or args.get("summary", "evento")
-            start = result.get("start", "")
-            _push_notification(f"📅 Evento criado: {summary}" + (f" ({start})" if start else ""))
-
+            _push_notification(f"📅 Evento criado: {summary}")
         elif tool_name == "delete_calendar_event" and isinstance(result, dict) and result.get("ok"):
             _push_notification("🗑 Evento removido da agenda")
-
         elif tool_name == "update_calendar_event" and isinstance(result, dict) and result.get("ok"):
             _push_notification("✏ Evento atualizado")
-
         elif tool_name == "send_email" and isinstance(result, str) and "enviado" in result.lower():
             _push_notification(f"✉ E-mail enviado para {args.get('to_email', '?')}")
-
         elif tool_name == "reply_to_email" and isinstance(result, str) and "enviada" in result.lower():
             _push_notification(f"✉ Resposta enviada para {args.get('to_email', '?')}")
-
         elif tool_name == "create_task" and isinstance(result, str) and "criada" in result.lower():
             desc = str(args.get("description", ""))[:60]
             _push_notification(f"📋 Tarefa criada: {desc}")
-
         elif tool_name == "complete_task" and isinstance(result, str) and "concluída" in result.lower():
             _push_notification(f"✓ Tarefa {args.get('task_id', '?')} concluída")
-
-        elif tool_name == "play_music" and isinstance(result, dict):
-            action = result.get("action")
-            if action == "play_new":
-                _push_notification(f"🎵 Tocando: {args.get('query', '?')}")
-            elif action == "pause":
-                _push_notification("⏸ Música pausada")
-            elif action == "play":
-                _push_notification("▶ Música retomada")
-
     except Exception as e:
-        print(f"[NOTIFY] Falha ao gerar notificação: {e}")
+        print(f"[NOTIFY] Falha: {e}")
 
 # ========================================
-# BANCO DE DADOS (POSTGRESQL COM FALLBACK SQLITE)
+# BANCO DE DADOS (POSTGRESQL / SQLITE)
 # ========================================
 def get_db():
     if not DATABASE_URL:
@@ -129,15 +105,17 @@ def init_db():
         if DATABASE_URL:
             cursor.execute("CREATE TABLE IF NOT EXISTS ai_memory (key TEXT PRIMARY KEY, value TEXT)")
             cursor.execute("CREATE TABLE IF NOT EXISTS tasks (id SERIAL PRIMARY KEY, description TEXT, status TEXT)")
+            cursor.execute("CREATE TABLE IF NOT EXISTS chat_history (id SERIAL PRIMARY KEY, session_token TEXT, role TEXT, content TEXT, timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
         else:
             cursor.execute("CREATE TABLE IF NOT EXISTS ai_memory (key TEXT PRIMARY KEY, value TEXT)")
             cursor.execute("CREATE TABLE IF NOT EXISTS tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, description TEXT, status TEXT)")
+            cursor.execute("CREATE TABLE IF NOT EXISTS chat_history (id INTEGER PRIMARY KEY AUTOINCREMENT, session_token TEXT, role TEXT, content TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)")
         conn.commit()
         cursor.close()
         conn.close()
         print("Banco de dados inicializado com sucesso.")
     except Exception as e:
-        print(f"AVISO: Erro ao inicializar DB (o servidor continuará rodando): {e}")
+        print(f"AVISO: Erro ao inicializar DB: {e}")
 
 threading.Thread(target=init_db, daemon=True).start()
 
@@ -149,9 +127,7 @@ def _db_save_memory(key, value):
         else:
             cursor.execute("INSERT OR REPLACE INTO ai_memory (key, value) VALUES (?, ?)", (key, value))
         conn.commit()
-    finally:
-        cursor.close()
-        conn.close()
+    finally: cursor.close(); conn.close()
 
 def _db_recall_memory(key):
     conn = get_db(); cursor = conn.cursor()
@@ -162,9 +138,7 @@ def _db_recall_memory(key):
             cursor.execute("SELECT key, value FROM ai_memory WHERE key LIKE ? OR value LIKE ? LIMIT 1", (f"%{key}%", f"%{key}%"))
         row = cursor.fetchone()
         return f"{row[0]}: {row[1]}" if row else None
-    finally:
-        cursor.close()
-        conn.close()
+    finally: cursor.close(); conn.close()
 
 def _db_delete_memory(key):
     conn = get_db(); cursor = conn.cursor()
@@ -175,22 +149,53 @@ def _db_delete_memory(key):
             cursor.execute("DELETE FROM ai_memory WHERE key LIKE ?", (f"%{key}%",))
         conn.commit()
         return cursor.rowcount > 0
-    finally:
-        cursor.close()
-        conn.close()
+    finally: cursor.close(); conn.close()
+
+def _db_get_recent_memories():
+    """Retorna as 5 memórias mais recentes para o RAG."""
+    conn = get_db(); cursor = conn.cursor()
+    try:
+        if DATABASE_URL:
+            cursor.execute("SELECT key, value FROM ai_memory ORDER BY ctid DESC LIMIT 5")
+        else:
+            cursor.execute("SELECT key, value FROM ai_memory ORDER BY rowid DESC LIMIT 5")
+        return [f"{r[0]}: {r[1]}" for r in cursor.fetchall()]
+    except: return []
+    finally: cursor.close(); conn.close()
+
+def _db_save_message(session_token, role, content):
+    conn = get_db(); cursor = conn.cursor()
+    try:
+        if DATABASE_URL:
+            cursor.execute("INSERT INTO chat_history (session_token, role, content) VALUES (%s, %s, %s)", (session_token, role, content))
+        else:
+            cursor.execute("INSERT INTO chat_history (session_token, role, content) VALUES (?, ?, ?)", (session_token, role, content))
+        conn.commit()
+    except Exception as e: print(f"Erro ao salvar msg: {e}")
+    finally: cursor.close(); conn.close()
+
+def _db_get_history(session_token):
+    conn = get_db(); cursor = conn.cursor()
+    try:
+        if DATABASE_URL:
+            cursor.execute("SELECT role, content FROM chat_history WHERE session_token = %s ORDER BY id ASC", (session_token,))
+        else:
+            cursor.execute("SELECT role, content FROM chat_history WHERE session_token = ? ORDER BY id ASC", (session_token,))
+        return [{"role": r["role"] if not DATABASE_URL else r[0], "content": r["content"] if not DATABASE_URL else r[1]} for r in cursor.fetchall()]
+    except: return []
+    finally: cursor.close(); conn.close()
 
 set_memory_context(save_func=_db_save_memory, recall_func=_db_recall_memory, delete_func=_db_delete_memory)
 
 # ========================================
-# GOOGLE CALENDAR / GMAIL — OAUTH
+# GOOGLE OAUTH
 # ========================================
 GOOGLE_OAUTH_AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_OAUTH_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GOOGLE_SCOPES = "https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/gmail.readonly"
 GOOGLE_OWNER_KEY = "owner"
 DATA_DIR = os.getenv("DATA_DIR", ".")
-if os.path.exists("/data") and os.access("/data", os.W_OK):
-    DATA_DIR = "/data"
+if os.path.exists("/data") and os.access("/data", os.W_OK): DATA_DIR = "/data"
 GOOGLE_TOKEN_FILE = os.getenv("FRIDAY_GOOGLE_TOKEN_FILE", "").strip() or os.path.join(DATA_DIR, ".friday_google_tokens.json")
 
 GOOGLE_OAUTH_CLIENT_ID = os.getenv("GOOGLE_OAUTH_CLIENT_ID", "").strip()
@@ -202,66 +207,47 @@ GOOGLE_TOKEN_STORE = {}
 def _load_google_token_store():
     global GOOGLE_TOKEN_STORE
     try:
-        with open(GOOGLE_TOKEN_FILE, "r", encoding="utf-8") as h:
-            GOOGLE_TOKEN_STORE = json.load(h)
-    except Exception:
-        GOOGLE_TOKEN_STORE = {}
+        with open(GOOGLE_TOKEN_FILE, "r", encoding="utf-8") as h: GOOGLE_TOKEN_STORE = json.load(h)
+    except: GOOGLE_TOKEN_STORE = {}
 
 _load_google_token_store()
 
 def _save_owner_calendar_tokens(access_token, refresh_token, expires_in, scope):
     global GOOGLE_TOKEN_STORE
     GOOGLE_TOKEN_STORE[GOOGLE_OWNER_KEY] = {
-        "access_token": access_token,
-        "refresh_token": refresh_token,
-        "expires_at": time.time() + max(60, int(expires_in)),
-        "scope": scope or "",
+        "access_token": access_token, "refresh_token": refresh_token,
+        "expires_at": time.time() + max(60, int(expires_in)), "scope": scope or "",
     }
     try:
         os.makedirs(os.path.dirname(GOOGLE_TOKEN_FILE) or ".", exist_ok=True)
-        with open(GOOGLE_TOKEN_FILE, "w", encoding="utf-8") as h:
-            json.dump(GOOGLE_TOKEN_STORE, h)
-    except Exception:
-        pass
+        with open(GOOGLE_TOKEN_FILE, "w", encoding="utf-8") as h: json.dump(GOOGLE_TOKEN_STORE, h)
+    except: pass
 
 def _usable_calendar_access_token():
     record = GOOGLE_TOKEN_STORE.get(GOOGLE_OWNER_KEY)
-    if not record:
-        return None
-    if time.time() < float(record.get("expires_at", 0)) - 60:
-        return record["access_token"]
+    if not record: return None
+    if time.time() < float(record.get("expires_at", 0)) - 60: return record["access_token"]
     refresh_token = record.get("refresh_token")
-    if not refresh_token:
-        return None
-
+    if not refresh_token: return None
     try:
         req = URLRequest(GOOGLE_OAUTH_TOKEN_URL, data=urlencode({
-            "client_id": GOOGLE_OAUTH_CLIENT_ID,
-            "client_secret": GOOGLE_OAUTH_CLIENT_SECRET,
-            "refresh_token": refresh_token,
-            "grant_type": "refresh_token",
+            "client_id": GOOGLE_OAUTH_CLIENT_ID, "client_secret": GOOGLE_OAUTH_CLIENT_SECRET,
+            "refresh_token": refresh_token, "grant_type": "refresh_token",
         }).encode(), headers={"Content-Type": "application/x-www-form-urlencoded"}, method="POST")
-
         with urlopen(req, timeout=15) as resp:
             res = json.loads(resp.read().decode())
             _save_owner_calendar_tokens(res["access_token"], refresh_token, res.get("expires_in", 3600), res.get("scope", ""))
             return res["access_token"]
-    except Exception:
-        return None
+    except: return None
 
 def _calendar_events_query(access_token, time_min=None, time_max=None, max_results=10):
     params = {"maxResults": str(max_results), "singleEvents": "true", "orderBy": "startTime"}
     params["timeMin"] = time_min or time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-    if time_max:
-        params["timeMax"] = time_max
-
+    if time_max: params["timeMax"] = time_max
     req = URLRequest("https://www.googleapis.com/calendar/v3/calendars/primary/events?" + urlencode(params), headers={"Authorization": "Bearer " + access_token})
     try:
-        with urlopen(req, timeout=15) as resp:
-            result = json.loads(resp.read().decode())
-    except Exception:
-        return None
-
+        with urlopen(req, timeout=15) as resp: result = json.loads(resp.read().decode())
+    except: return None
     return [{"id": item.get("id", ""), "summary": item.get("summary", "(sem título)"), "start": (item.get("start") or {}).get("dateTime", ""), "hangoutLink": item.get("hangoutLink", "")} for item in (result.get("items") or [])[:max_results]]
 
 def _calendar_today_events(access_token):
@@ -271,121 +257,96 @@ def _calendar_today_events(access_token):
 def _calendar_create_event(access_token, payload):
     req = URLRequest("https://www.googleapis.com/calendar/v3/calendars/primary/events", data=json.dumps(payload).encode(), headers={"Content-Type": "application/json", "Authorization": "Bearer " + access_token}, method="POST")
     try:
-        with urlopen(req, timeout=15) as resp:
-            return json.loads(resp.read().decode())
-    except Exception as e:
-        print(f"ERRO NO GOOGLE CALENDAR CREATE: {e}")
-        return None
+        with urlopen(req, timeout=15) as resp: return json.loads(resp.read().decode())
+    except: return None
 
 def _calendar_delete_event(access_token, event_id):
     req = URLRequest(f"https://www.googleapis.com/calendar/v3/calendars/primary/events/{event_id}", headers={"Authorization": "Bearer " + access_token}, method="DELETE")
     try:
-        with urlopen(req, timeout=15):
-            return {"ok": True}
-    except Exception:
-        return None
+        with urlopen(req, timeout=15): return {"ok": True}
+    except: return None
 
 def _calendar_update_event(access_token, event_id, payload):
     req = URLRequest(f"https://www.googleapis.com/calendar/v3/calendars/primary/events/{event_id}", data=json.dumps(payload).encode(), headers={"Content-Type": "application/json", "Authorization": "Bearer " + access_token}, method="PATCH")
     try:
-        with urlopen(req, timeout=15) as resp:
-            return json.loads(resp.read().decode())
-    except Exception:
-        return None
+        with urlopen(req, timeout=15) as resp: return json.loads(resp.read().decode())
+    except: return None
 
 set_calendar_context(
-    access_token_provider=_usable_calendar_access_token,
-    events_query=_calendar_events_query,
-    today_events=_calendar_today_events,
-    create_event=_calendar_create_event,
-    delete_event=_calendar_delete_event,
-    update_event=_calendar_update_event,
+    access_token_provider=_usable_calendar_access_token, events_query=_calendar_events_query,
+    today_events=_calendar_today_events, create_event=_calendar_create_event,
+    delete_event=_calendar_delete_event, update_event=_calendar_update_event,
 )
 
 # ========================================
-# ROTAS DA API (FASTAPI)
+# ROTAS DA API
 # ========================================
-class LoginData(BaseModel):
-    password: str
-
+class LoginData(BaseModel): password: str
 class ChatData(BaseModel):
     command: str
     pdf: Optional[str] = None
     pdf_name: Optional[str] = "documento.pdf"
+    image: Optional[str] = None
+    image_name: Optional[str] = "image.jpg"
 
+# TTS EM STREAMING (Redução de Latência)
 @app.get("/tts")
 async def text_to_speech(text: str = "", friday_session: Optional[str] = Cookie(None)):
-    if not friday_session:
-        raise HTTPException(status_code=401, detail="Não autorizado")
-    if not text:
-        raise HTTPException(status_code=400, detail="Texto vazio.")
+    if not friday_session: raise HTTPException(status_code=401)
+    if not text: raise HTTPException(status_code=400)
 
     api_key = os.getenv("ELEVENLABS_API_KEY", "").strip()
-    if not api_key:
-        raise HTTPException(status_code=500, detail="Chave ElevenLabs ausente.")
+    if not api_key: raise HTTPException(status_code=500, detail="Chave ElevenLabs ausente.")
 
     voice_id = "21m00Tcm4TlvDq8ikWAM"
     url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}?output_format=mp3_44100_128"
-
     payload = json.dumps({
-        "text": text,
-        "model_id": "eleven_flash_v2_5",
+        "text": text, "model_id": "eleven_flash_v2_5",
         "voice_settings": {"stability": 0.3, "similarity_boost": 0.85, "style": 0.0, "use_speaker_boost": True}
     }).encode("utf-8")
-
-    req = URLRequest(url, data=payload, headers={
-        "Accept": "audio/mpeg",
-        "Content-Type": "application/json",
-        "xi-api-key": api_key
-    }, method="POST")
+    req = URLRequest(url, data=payload, headers={"Accept": "audio/mpeg", "Content-Type": "application/json", "xi-api-key": api_key}, method="POST")
 
     try:
-        with urlopen(req, timeout=30) as response:
-            audio_data = response.read()
-            return Response(content=audio_data, media_type="audio/mpeg")
+        response = urlopen(req, timeout=30)
+        def audio_stream():
+            while True:
+                chunk = response.read(4096)
+                if not chunk: break
+                yield chunk
+        return StreamingResponse(audio_stream(), media_type="audio/mpeg")
     except Exception as e:
-        print(f"TTS erro: {e}")
         raise HTTPException(status_code=500, detail="Falha ao gerar áudio.")
 
 @app.get("/", response_class=HTMLResponse)
 async def serve_index():
     try:
-        with open("index.html", "r", encoding="utf-8") as f:
-            return f.read()
-    except FileNotFoundError:
-        return "<h1>Erro: index.html não encontrado.</h1>"
+        with open("index.html", "r", encoding="utf-8") as f: return f.read()
+    except: return "<h1>Erro: index.html não encontrado.</h1>"
 
 @app.get("/manifest.json")
-async def serve_manifest():
-    return JSONResponse(content=json.load(open("manifest.json", "r")))
+async def serve_manifest(): return JSONResponse(content=json.load(open("manifest.json", "r")))
 
 @app.get("/sw.js")
-async def serve_sw():
-    return Response(content=open("sw.js", "r").read(), media_type="application/javascript")
+async def serve_sw(): return Response(content=open("sw.js", "r").read(), media_type="application/javascript")
 
 @app.get("/health")
-async def health_check():
-    return {"status": "ok"}
+async def health_check(): return {"status": "ok"}
 
 @app.get("/status")
 async def get_status(friday_session: Optional[str] = Cookie(None)):
-    if not friday_session:
-        raise HTTPException(status_code=401, detail="Não autorizado")
+    if not friday_session: raise HTTPException(401)
     global STATUS_QUEUE
     with QUEUE_LOCK:
-        msgs = list(STATUS_QUEUE)
-        STATUS_QUEUE.clear()
+        msgs = list(STATUS_QUEUE); STATUS_QUEUE.clear()
     return {"status": msgs}
 
 @app.get("/notifications")
 async def get_notifications(friday_session: Optional[str] = Cookie(None)):
-    if not friday_session:
-        raise HTTPException(status_code=401, detail="Não autorizado")
+    if not friday_session: raise HTTPException(401)
     global NOTIFICATION_QUEUE
     with QUEUE_LOCK:
         if NOTIFICATION_QUEUE:
-            msgs = list(NOTIFICATION_QUEUE)
-            NOTIFICATION_QUEUE.clear()
+            msgs = list(NOTIFICATION_QUEUE); NOTIFICATION_QUEUE.clear()
             return {"notifications": msgs}
     return {"notifications": []}
 
@@ -393,164 +354,117 @@ async def get_notifications(friday_session: Optional[str] = Cookie(None)):
 async def login(data: LoginData, response: Response, request: Request):
     try:
         client_ip = request.client.host if request.client else "0.0.0.0"
-        if not auth.authenticate(data.password, client_key=client_ip):
-            raise HTTPException(status_code=401, detail="Senha incorreta.")
-
+        if not auth.authenticate(data.password, client_key=client_ip): raise HTTPException(401, "Senha incorreta.")
         token = SESSION_STORE.create()
         response.set_cookie(key="friday_session", value=token, httponly=True, samesite="lax", max_age=1800)
         return {"ok": True}
-    except HTTPException as he:
-        raise he
-    except Exception as e:
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Erro interno no login: {str(e)}")
+    except HTTPException as he: raise he
+    except Exception as e: raise HTTPException(500, str(e))
 
 @app.get("/session")
 async def check_session(friday_session: Optional[str] = Cookie(None)):
-    if friday_session and SESSION_STORE.get(friday_session):
-        return {"authenticated": True}
+    if friday_session and SESSION_STORE.get(friday_session): return {"authenticated": True}
     return {"authenticated": False}
 
 @app.get("/history")
 async def get_history(friday_session: Optional[str] = Cookie(None)):
-    if not friday_session:
-        raise HTTPException(status_code=401, detail="Não autorizado")
-    history = SESSION_STORE.get_history(friday_session)
-    if history is None:
-        return {"history": []}
-    return {"history": history}
+    if not friday_session: raise HTTPException(401)
+    return {"history": _db_get_history(friday_session)}
 
 @app.get("/system_metrics")
 async def get_metrics(friday_session: Optional[str] = Cookie(None)):
-    if not friday_session:
-        raise HTTPException(status_code=401)
+    if not friday_session: raise HTTPException(401)
     try:
         load1, _, _ = os.getloadavg()
-        with open('/proc/meminfo', 'r') as f:
-            lines = f.readlines()
-        mem_total = int(lines[0].split()[1])
-        mem_free = int(lines[1].split()[1])
+        with open('/proc/meminfo', 'r') as f: lines = f.readlines()
+        mem_total = int(lines[0].split()[1]); mem_free = int(lines[1].split()[1])
         ram_percent = round((mem_total - mem_free) / mem_total * 100, 1)
         return {"cpu": min(100, round(load1 * 10, 1)), "ram": ram_percent}
-    except Exception:
-        return {"cpu": 0, "ram": 0}
+    except: return {"cpu": 0, "ram": 0}
 
 @app.get("/calendar/connect")
 async def calendar_connect(friday_session: Optional[str] = Cookie(None)):
-    if not friday_session:
-        return RedirectResponse(url="/?calendar=nosession")
-    if GOOGLE_TOKEN_STORE.get(GOOGLE_OWNER_KEY):
-        return RedirectResponse(url="/?calendar=connected")
-
-    params = {
-        "client_id": GOOGLE_OAUTH_CLIENT_ID,
-        "redirect_uri": GOOGLE_OAUTH_REDIRECT_URI,
-        "response_type": "code",
-        "scope": GOOGLE_SCOPES,
-        "access_type": "offline",
-        "prompt": "consent",
-    }
+    if not friday_session: return RedirectResponse(url="/?calendar=nosession")
+    if GOOGLE_TOKEN_STORE.get(GOOGLE_OWNER_KEY): return RedirectResponse(url="/?calendar=connected")
+    params = {"client_id": GOOGLE_OAUTH_CLIENT_ID, "redirect_uri": GOOGLE_OAUTH_REDIRECT_URI, "response_type": "code", "scope": GOOGLE_SCOPES, "access_type": "offline", "prompt": "consent"}
     return RedirectResponse(url=f"{GOOGLE_OAUTH_AUTHORIZE_URL}?{urlencode(params)}")
 
 @app.get("/oauth/google/callback")
 async def google_callback(request: Request):
-    query = request.query_params
-    code = query.get("code")
-    if not code:
-        return RedirectResponse(url="/?calendar=denied")
-
+    code = request.query_params.get("code")
+    if not code: return RedirectResponse(url="/?calendar=denied")
     try:
         req = URLRequest(GOOGLE_OAUTH_TOKEN_URL, data=urlencode({
-            "code": code,
-            "client_id": GOOGLE_OAUTH_CLIENT_ID,
-            "client_secret": GOOGLE_OAUTH_CLIENT_SECRET,
-            "redirect_uri": GOOGLE_OAUTH_REDIRECT_URI,
-            "grant_type": "authorization_code",
+            "code": code, "client_id": GOOGLE_OAUTH_CLIENT_ID, "client_secret": GOOGLE_OAUTH_CLIENT_SECRET,
+            "redirect_uri": GOOGLE_OAUTH_REDIRECT_URI, "grant_type": "authorization_code",
         }).encode(), headers={"Content-Type": "application/x-www-form-urlencoded"}, method="POST")
-        with urlopen(req, timeout=15) as resp:
-            res = json.loads(resp.read().decode())
+        with urlopen(req, timeout=15) as resp: res = json.loads(resp.read().decode())
         _save_owner_calendar_tokens(res["access_token"], res.get("refresh_token"), res.get("expires_in", 3600), res.get("scope", ""))
         _push_notification("🔗 Google Calendar conectado com sucesso")
         return RedirectResponse(url="/?calendar=connected")
-    except Exception:
-        return RedirectResponse(url="/?calendar=token")
+    except: return RedirectResponse(url="/?calendar=token")
 
 @app.get("/calendar/status")
 async def calendar_status(friday_session: Optional[str] = Cookie(None)):
-    if not friday_session:
-        return JSONResponse(status_code=401, content={"connected": False})
+    if not friday_session: return JSONResponse(status_code=401, content={"connected": False})
     return {"connected": bool(GOOGLE_TOKEN_STORE.get(GOOGLE_OWNER_KEY))}
 
 @app.get("/calendar/events")
 async def calendar_events(range: str = "upcoming", friday_session: Optional[str] = Cookie(None)):
-    if not friday_session:
-        raise HTTPException(status_code=401)
+    if not friday_session: raise HTTPException(401)
     at = _usable_calendar_access_token()
-    if not at:
-        raise HTTPException(status_code=409, detail="Calendar desconectado.")
-
+    if not at: raise HTTPException(409, "Calendar desconectado.")
     events = _calendar_today_events(at) if range == "today" else _calendar_events_query(at)
     return {"events": events or []}
 
+# CHAT ENDPOINT (Histórico DB + RAG + Visão)
 @app.post("/chat")
 async def chat_endpoint(data: ChatData, friday_session: Optional[str] = Cookie(None)):
-    if not friday_session:
-        raise HTTPException(status_code=401)
+    if not friday_session: raise HTTPException(401)
 
-    history = SESSION_STORE.get_history(friday_session)
-    if history is None:
-        history = []
-    session = SESSION_STORE.get(friday_session)
-    if session is None:
-        session = {}
+    history = _db_get_history(friday_session)
+    session = SESSION_STORE.get(friday_session) or {}
 
     def event_generator():
         from core.ai_provider import FridayAIProvider
         provider = FridayAIProvider()
 
         if not provider.available():
-            yield f"data: {json.dumps({'error': 'IA não configurada (Groq API Key).'})}\n\n"
+            yield f"data: {json.dumps({'error': 'IA não configurada.'})}\n\n"
             yield f"data: {json.dumps({'done': True})}\n\n"
             return
 
+        # 1. Processamento de PDF
         user_content = (data.command or "").strip()
+        if data.pdf and HAS_PYPDF2:
+            try:
+                yield f"data: {json.dumps({'text': '📄 Lendo PDF... '})}\n\n"
+                pdf_b64 = data.pdf.split(",", 1)[1] if "," in data.pdf else data.pdf
+                reader = PyPDF2.PdfReader(io.BytesIO(base64.b64decode(pdf_b64)))
+                extracted = "\n".join((page.extract_text() or "") for page in reader.pages[:20])
+                if extracted.strip():
+                    user_content += f"\n\n--- CONTEÚDO DO PDF ---\n{extracted[:8000]}\n--- FIM DO PDF ---"
+            except Exception as e:
+                yield f"data: {json.dumps({'text': f'⚠ Erro no PDF: {str(e)[:50]} '})}\n\n"
 
-        if data.pdf:
-            if not HAS_PYPDF2:
-                yield f"data: {json.dumps({'text': '⚠ PyPDF2 não instalado — não consigo ler o PDF. '})}\n\n"
-                _push_notification("⚠ Tentativa de ler PDF, mas PyPDF2 não instalado")
-            else:
-                try:
-                    yield f"data: {json.dumps({'text': '📄 Lendo documento PDF... '})}\n\n"
-                    pdf_b64 = data.pdf.split(",", 1)[1] if "," in data.pdf else data.pdf
-                    pdf_bytes = base64.b64decode(pdf_b64)
-                    reader = PyPDF2.PdfReader(io.BytesIO(pdf_bytes))
-                    n_pages = len(reader.pages)
-                    extracted = "\n".join((page.extract_text() or "") for page in reader.pages[:20])
+        if not user_content: user_content = "Olá"
 
-                    if extracted.strip():
-                        yield f"data: {json.dumps({'text': f'PDF lido ({n_pages} págs, {len(extracted)} chars). '})}\n\n"
-                        pdf_block = (
-                            f"\n\n--- CONTEÚDO DO PDF '{data.pdf_name or 'documento.pdf'}' ---\n"
-                            f"{extracted[:8000]}\n"
-                            f"--- FIM DO PDF ---"
-                        )
-                        if not user_content:
-                            user_content = "Analise o conteúdo do documento em anexo."
-                        user_content += pdf_block
-                    else:
-                        yield f"data: {json.dumps({'text': '⚠ PDF sem texto extraível (pode ser escaneado). '})}\n\n"
-                        _push_notification(f"⚠ PDF '{data.pdf_name}' sem texto extraível (OCR necessário)")
-                except Exception as e:
-                    err_msg = f"⚠ Falha ao ler PDF: {str(e)[:100]}"
-                    yield f"data: {json.dumps({'text': err_msg + '. '})}\n\n"
-                    _push_notification(err_msg)
+        # 2. RAG (Memórias)
+        memories = _db_get_recent_memories()
+        rag_context = ""
+        if memories:
+            rag_context = "Memórias sobre o Chefe:\n" + "\n".join([f"- {m}" for m in memories]) + "\n\n"
 
-        if not user_content:
-            user_content = "Olá"
+        # 3. Formatação do Payload (Texto + Imagem)
+        final_message_content = []
+        if data.image:
+            final_message_content.append({"type": "text", "text": rag_context + user_content})
+            final_message_content.append({"type": "image_url", "image_url": {"url": data.image}})
+        else:
+            final_message_content = rag_context + user_content
 
         current_messages = list(history)
-        current_messages.append({"role": "user", "content": user_content})
+        current_messages.append({"role": "user", "content": final_message_content})
         response_generated = False
 
         for _ in range(5):
@@ -562,10 +476,8 @@ async def chat_endpoint(data: ChatData, friday_session: Optional[str] = Cookie(N
 
             for chunk in stream_gen:
                 if "error" in chunk:
-                    err_str = str(chunk["error"])
-                    print(f"ERRO NA IA: {err_str}")
-                    yield f"data: {json.dumps({'error': err_str})}\n\n"
-                    _push_notification(f"⚠ Erro IA: {err_str[:120]}")
+                    yield f"data: {json.dumps({'error': chunk['error']})}\n\n"
+                    _push_notification(f"⚠ Erro IA: {chunk['error'][:100]}")
                     error_occurred = True
                     break
                 if "text" in chunk:
@@ -575,56 +487,44 @@ async def chat_endpoint(data: ChatData, friday_session: Optional[str] = Cookie(N
                     has_tool = True
                     tc = chunk["tool_call_chunk"]
                     idx = tc.get("index", 0)
-                    if idx not in tool_call_acc:
-                        tool_call_acc[idx] = {"id": tc.get("id", ""), "name": "", "arguments": ""}
+                    if idx not in tool_call_acc: tool_call_acc[idx] = {"id": tc.get("id", ""), "name": "", "arguments": ""}
                     if "function" in tc:
-                        if "name" in tc["function"]:
-                            tool_call_acc[idx]["name"] += tc["function"]["name"]
-                        if "arguments" in tc["function"]:
-                            tool_call_acc[idx]["arguments"] += tc["function"]["arguments"]
+                        if "name" in tc["function"]: tool_call_acc[idx]["name"] += tc["function"]["name"]
+                        if "arguments" in tc["function"]: tool_call_acc[idx]["arguments"] += tc["function"]["arguments"]
 
-            if error_occurred:
-                break
+            if error_occurred: break
 
             if has_tool:
                 tc_data = tool_call_acc[0]
-                try:
-                    args = json.loads(tc_data["arguments"])
-                except:
-                    args = {}
+                try: args = json.loads(tc_data["arguments"])
+                except: args = {}
 
                 yield f"data: {json.dumps({'tool': tc_data['name']})}\n\n"
-
                 exec_res = execute_tool(tc_data["name"], args, session=session, confirmed=True)
 
                 if not exec_res.get("ok"):
-                    err_msg = exec_res.get("error", "Erro na ferramenta.")
-                    yield f"data: {json.dumps({'text': f'Erro ao executar a ferramenta: {err_msg}'})}\n\n"
-                    _push_notification(f"⚠ Erro em {tc_data['name']}: {err_msg[:80]}")
+                    yield f"data: {json.dumps({'text': f'Erro: {exec_res.get('error', '')}'})}\n\n"
                     break
 
                 result = exec_res.get("result")
-
-                if exec_res.get("ok"):
-                    _notify_tool(tc_data["name"], args, result)
+                _notify_tool(tc_data["name"], args, result)
 
                 current_messages.append({"role": "assistant", "content": None, "tool_calls": [{"id": tc_data["id"], "type": "function", "function": {"name": tc_data["name"], "arguments": tc_data["arguments"]}}]})
                 current_messages.append({"role": "tool", "tool_call_id": tc_data["id"], "content": json.dumps(result)})
                 continue
             else:
                 if full_text.strip():
-                    history.append({"role": "user", "content": user_content})
-                    history.append({"role": "assistant", "content": full_text})
+                    _db_save_message(friday_session, "user", user_content)
+                    _db_save_message(friday_session, "assistant", full_text)
                     response_generated = True
                 break
 
         if not response_generated and not error_occurred:
-            yield f"data: {json.dumps({'text': 'Desculpe, chefe. Tentei executar a ação mas não consegui obter uma resposta.'})}\n\n"
+            yield f"data: {json.dumps({'text': 'Não consegui obter uma resposta.'})}\n\n"
 
         yield f"data: {json.dumps({'done': True})}\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
-
 
 if __name__ == "__main__":
     import uvicorn
