@@ -610,7 +610,7 @@ window.fridayState = 'idle';
 let currentAbortController = null;
 let thinkingTimer = null;
 let thinkingStart = 0;
-let currentToolCard = null; // Rastreia o card de sistema
+let currentToolCard = null;
 
 let cursorTargetX = -100, cursorTargetY = -100;
 let cursorX = -100, cursorY = -100;
@@ -1591,6 +1591,7 @@ function animateTTSVisualizer() {
 if ('serviceWorker' in navigator) { window.addEventListener('load', () => { navigator.serviceWorker.register('/sw.js').catch(() => {}); }); }
 
 window.onYouTubeIframeAPIReady = function() { ytPlayer = new YT.Player('musicPlayer', { events: { 'onReady': () => {} } }); };
+
 function handleMusicAction(text) {
   if (text.includes('[MUSIC_ACTION:pause]')) { if (ytPlayer && ytPlayer.pauseVideo) ytPlayer.pauseVideo(); return text.replace('[MUSIC_ACTION:pause]', '').trim(); }
   if (text.includes('[MUSIC_ACTION:play]')) { if (ytPlayer && ytPlayer.playVideo) ytPlayer.playVideo(); return text.replace('[MUSIC_ACTION:play]', '').trim(); }
@@ -1764,7 +1765,10 @@ async function speakText(text, force = false) {
     currentUtterance = audio;
     await audio.play();
     return;
-  } catch (e) { browserSpeak(cleanText, runId); }
+  } catch (e) { 
+    console.warn("[TTS] Falha na API ElevenLabs. Usando voz do navegador.");
+    browserSpeak(cleanText, runId); 
+  }
 }
 function speakResponse(text) { lastReply = String(text || ""); speakText(lastReply, false); }
 
