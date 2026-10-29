@@ -22,6 +22,13 @@ from fastapi import FastAPI, Request, Response, HTTPException, Cookie
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from pydantic import BaseModel
 
+# ✅ PDF support (opcional — se PyPDF2 não estiver instalado, loga aviso)
+try:
+    import PyPDF2
+    HAS_PYPDF2 = True
+except ImportError:
+    HAS_PYPDF2 = False
+
 from core.assistant import FridayAssistant
 from core.auth import FridayAuth
 from core.sessions import SessionStore
@@ -54,12 +61,55 @@ def _push_status(text):
             STATUS_QUEUE.pop(0)
 
 def _push_notification(text):
-    """Adiciona uma notificação assíncrona à fila (opcional, para uso futuro)."""
+    """Enfileira toast notification. Frontend polla /notifications a cada 30s."""
+    if not text:
+        return
     global NOTIFICATION_QUEUE
     with QUEUE_LOCK:
         NOTIFICATION_QUEUE.append(text)
         if len(NOTIFICATION_QUEUE) > 20:
             NOTIFICATION_QUEUE.pop(0)
+
+def _notify_tool(tool_name, args, result):
+    """Gera notificação toast para tools relevantes."""
+    if not result:
+        return
+    try:
+        if tool_name == "create_calendar_event" and isinstance(result, dict) and result.get("ok"):
+            summary = result.get("summary") or args.get("summary", "evento")
+            start = result.get("start", "")
+            _push_notification(f"📅 Evento criado: {summary}" + (f" ({start})" if start else ""))
+
+        elif tool_name == "delete_calendar_event" and isinstance(result, dict) and result.get("ok"):
+            _push_notification("🗑 Evento removido da agenda")
+
+        elif tool_name == "update_calendar_event" and isinstance(result, dict) and result.get("ok"):
+            _push_notification("✏ Evento atualizado")
+
+        elif tool_name == "send_email" and isinstance(result, str) and "enviado" in result.lower():
+            _push_notification(f"✉ E-mail enviado para {args.get('to_email', '?')}")
+
+        elif tool_name == "reply_to_email" and isinstance(result, str) and "enviada" in result.lower():
+            _push_notification(f"✉ Resposta enviada para {args.get('to_email', '?')}")
+
+        elif tool_name == "create_task" and isinstance(result, str) and "criada" in result.lower():
+            desc = str(args.get("description", ""))[:60]
+            _push_notification(f"📋 Tarefa criada: {desc}")
+
+        elif tool_name == "complete_task" and isinstance(result, str) and "concluída" in result.lower():
+            _push_notification(f"✓ Tarefa {args.get('task_id', '?')} concluída")
+
+        elif tool_name == "play_music" and isinstance(result, dict):
+            action = result.get("action")
+            if action == "play_new":
+                _push_notification(f"🎵 Tocando: {args.get('query', '?')}")
+            elif action == "pause":
+                _push_notification("⏸ Música pausada")
+            elif action == "play":
+                _push_notification("▶ Música retomada")
+
+    except Exception as e:
+        print(f"[NOTIFY] Falha ao gerar notificação: {e}")
 
 # ========================================
 # BANCO DE DADOS (POSTGRESQL COM FALLBACK SQLITE)
@@ -88,6 +138,7 @@ def init_db():
         print("Banco de dados inicializado com sucesso.")
     except Exception as e:
         print(f"AVISO: Erro ao inicializar DB (o servidor continuará rodando): {e}")
+        _push_notification(f"⚠ Banco de dados indisponível: {str(e)[:80]}")
 
 threading.Thread(target=init_db, daemon=True).start()
 
@@ -263,7 +314,6 @@ class ChatData(BaseModel):
     pdf: Optional[str] = None
     pdf_name: Optional[str] = "documento.pdf"
 
-# ---------- ROTA /tts (única, ElevenLabs) ----------
 @app.get("/tts")
 async def text_to_speech(text: str = "", friday_session: Optional[str] = Cookie(None)):
     if not friday_session:
@@ -298,7 +348,6 @@ async def text_to_speech(text: str = "", friday_session: Optional[str] = Cookie(
         print(f"TTS erro: {e}")
         raise HTTPException(status_code=500, detail="Falha ao gerar áudio.")
 
-# ---------- ESTÁTICOS ----------
 @app.get("/", response_class=HTMLResponse)
 async def serve_index():
     try:
@@ -315,12 +364,10 @@ async def serve_manifest():
 async def serve_sw():
     return Response(content=open("sw.js", "r").read(), media_type="application/javascript")
 
-# ---------- HEALTH ----------
 @app.get("/health")
 async def health_check():
     return {"status": "ok"}
 
-# ---------- STATUS / NOTIFICAÇÕES ----------
 @app.get("/status")
 async def get_status(friday_session: Optional[str] = Cookie(None)):
     if not friday_session:
@@ -343,7 +390,6 @@ async def get_notifications(friday_session: Optional[str] = Cookie(None)):
             return {"notifications": msgs}
     return {"notifications": []}
 
-# ---------- AUTH ----------
 @app.post("/login")
 async def login(data: LoginData, response: Response, request: Request):
     try:
@@ -351,10 +397,7 @@ async def login(data: LoginData, response: Response, request: Request):
         if not auth.authenticate(data.password, client_key=client_ip):
             raise HTTPException(status_code=401, detail="Senha incorreta.")
 
-        # ✅ CORRIGIDO: usa create() em vez de manipular _sessions manualmente.
-        #    O código anterior tinha fallback para dict que quebraria get_history().
         token = SESSION_STORE.create()
-
         response.set_cookie(key="friday_session", value=token, httponly=True, samesite="lax", max_age=1800)
         return {"ok": True}
     except HTTPException as he:
@@ -369,7 +412,6 @@ async def check_session(friday_session: Optional[str] = Cookie(None)):
         return {"authenticated": True}
     return {"authenticated": False}
 
-# ✅ NOVO: /history — restaura mensagens após F5 (necessário para memória frontend)
 @app.get("/history")
 async def get_history(friday_session: Optional[str] = Cookie(None)):
     if not friday_session:
@@ -379,7 +421,6 @@ async def get_history(friday_session: Optional[str] = Cookie(None)):
         return {"history": []}
     return {"history": history}
 
-# ---------- MÉTRICAS ----------
 @app.get("/system_metrics")
 async def get_metrics(friday_session: Optional[str] = Cookie(None)):
     if not friday_session:
@@ -395,7 +436,6 @@ async def get_metrics(friday_session: Optional[str] = Cookie(None)):
     except Exception:
         return {"cpu": 0, "ram": 0}
 
-# ---------- GOOGLE OAUTH ----------
 @app.get("/calendar/connect")
 async def calendar_connect(friday_session: Optional[str] = Cookie(None)):
     if not friday_session:
@@ -431,6 +471,7 @@ async def google_callback(request: Request):
         with urlopen(req, timeout=15) as resp:
             res = json.loads(resp.read().decode())
         _save_owner_calendar_tokens(res["access_token"], res.get("refresh_token"), res.get("expires_in", 3600), res.get("scope", ""))
+        _push_notification("🔗 Google Calendar conectado com sucesso")
         return RedirectResponse(url="/?calendar=connected")
     except Exception:
         return RedirectResponse(url="/?calendar=token")
@@ -452,7 +493,9 @@ async def calendar_events(range: str = "upcoming", friday_session: Optional[str]
     events = _calendar_today_events(at) if range == "today" else _calendar_events_query(at)
     return {"events": events or []}
 
-# ---------- CHAT (streaming SSE) ----------
+# ========================================
+# CHAT ENDPOINT (COM PDF + NOTIFICAÇÕES)
+# ========================================
 @app.post("/chat")
 async def chat_endpoint(data: ChatData, friday_session: Optional[str] = Cookie(None)):
     if not friday_session:
@@ -474,11 +517,47 @@ async def chat_endpoint(data: ChatData, friday_session: Optional[str] = Cookie(N
             yield f"data: {json.dumps({'done': True})}\n\n"
             return
 
+        # ═══════════════════════════════════════════
+        # ✅ PDF: extrai texto e enriquece a mensagem
+        # ═══════════════════════════════════════════
+        user_content = (data.command or "").strip()
+
         if data.pdf:
-            yield f"data: {json.dumps({'text': 'Lendo documento PDF... '})}\n\n"
+            if not HAS_PYPDF2:
+                yield f"data: {json.dumps({'text': '⚠ PyPDF2 não instalado — não consigo ler o PDF. '})}\n\n"
+                _push_notification("⚠ Tentativa de ler PDF, mas PyPDF2 não instalado")
+            else:
+                try:
+                    yield f"data: {json.dumps({'text': '📄 Lendo documento PDF... '})}\n\n"
+                    pdf_b64 = data.pdf.split(",", 1)[1] if "," in data.pdf else data.pdf
+                    pdf_bytes = base64.b64decode(pdf_b64)
+                    reader = PyPDF2.PdfReader(io.BytesIO(pdf_bytes))
+                    n_pages = len(reader.pages)
+                    extracted = "\n".join((page.extract_text() or "") for page in reader.pages[:20])
+
+                    if extracted.strip():
+                        yield f"data: {json.dumps({'text': f'PDF lido ({n_pages} págs, {len(extracted)} chars). '})}\n\n"
+                        pdf_block = (
+                            f"\n\n--- CONTEÚDO DO PDF '{data.pdf_name or 'documento.pdf'}' ---\n"
+                            f"{extracted[:8000]}\n"
+                            f"--- FIM DO PDF ---"
+                        )
+                        if not user_content:
+                            user_content = "Analise o conteúdo do documento em anexo."
+                        user_content += pdf_block
+                    else:
+                        yield f"data: {json.dumps({'text': '⚠ PDF sem texto extraível (pode ser escaneado). '})}\n\n"
+                        _push_notification(f"⚠ PDF '{data.pdf_name}' sem texto extraível (OCR necessário)")
+                except Exception as e:
+                    err_msg = f"⚠ Falha ao ler PDF: {str(e)[:100]}"
+                    yield f"data: {json.dumps({'text': err_msg + '. '})}\n\n"
+                    _push_notification(err_msg)
+
+        if not user_content:
+            user_content = "Olá"
 
         current_messages = list(history)
-        current_messages.append({"role": "user", "content": data.command})
+        current_messages.append({"role": "user", "content": user_content})
         response_generated = False
 
         for _ in range(5):
@@ -490,8 +569,10 @@ async def chat_endpoint(data: ChatData, friday_session: Optional[str] = Cookie(N
 
             for chunk in stream_gen:
                 if "error" in chunk:
-                    print(f"ERRO NA IA: {chunk['error']}")
-                    yield f"data: {json.dumps({'error': chunk['error']})}\n\n"
+                    err_str = str(chunk["error"])
+                    print(f"ERRO NA IA: {err_str}")
+                    yield f"data: {json.dumps({'error': err_str})}\n\n"
+                    _push_notification(f"⚠ Erro IA: {err_str[:120]}")
                     error_occurred = True
                     break
                 if "text" in chunk:
@@ -526,16 +607,21 @@ async def chat_endpoint(data: ChatData, friday_session: Optional[str] = Cookie(N
                 if not exec_res.get("ok"):
                     err_msg = exec_res.get("error", "Erro na ferramenta.")
                     yield f"data: {json.dumps({'text': f'Erro ao executar a ferramenta: {err_msg}'})}\n\n"
+                    _push_notification(f"⚠ Erro em {tc_data['name']}: {err_msg[:80]}")
                     break
 
                 result = exec_res.get("result")
+
+                # ✅ Notificação para tools relevantes
+                if exec_res.get("ok"):
+                    _notify_tool(tc_data["name"], args, result)
 
                 current_messages.append({"role": "assistant", "content": None, "tool_calls": [{"id": tc_data["id"], "type": "function", "function": {"name": tc_data["name"], "arguments": tc_data["arguments"]}}]})
                 current_messages.append({"role": "tool", "tool_call_id": tc_data["id"], "content": json.dumps(result)})
                 continue
             else:
                 if full_text.strip():
-                    history.append({"role": "user", "content": data.command})
+                    history.append({"role": "user", "content": user_content})
                     history.append({"role": "assistant", "content": full_text})
                     response_generated = True
                 break
