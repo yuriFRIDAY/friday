@@ -132,7 +132,6 @@
       padding: 0;
     }
 
-    /* ---------- TOP BAR ---------- */
     .hud-top {
       display: grid;
       grid-template-columns: 1fr auto auto;
@@ -243,7 +242,6 @@
       50% { opacity: 0.3; }
     }
 
-    /* ---------- MAIN GRID ---------- */
     .hud-main {
       display: grid;
       grid-template-columns: 280px 1fr 300px;
@@ -472,19 +470,22 @@
       max-height: 500px;
       min-height: 260px;
       position: relative;
-      display: flex;
-      align-items: center;
-      justify-content: center;
+      display: block;
       overflow: hidden;
       flex-shrink: 0;
       cursor: none;
+      background: radial-gradient(ellipse at center, rgba(0,229,255,0.03), transparent 70%);
     }
+
+    /* ✅ FIX: canvas como display:block (evita inline), sem filhos */
     #three-reactor {
       position: absolute;
       inset: 0;
       width: 100%;
       height: 100%;
       z-index: 1;
+      display: block;
+      pointer-events: auto;
     }
 
     .reactor-text-ring {
@@ -497,7 +498,46 @@
     }
     .reactor-text-ring text { text-transform: uppercase; }
 
-    /* ---------- NODE LABELS (projetadas do 3D) ---------- */
+    /* Label antigos de canto (SYS.CORE, NEURAL_LINK, etc) */
+    .reactor-label {
+      position: absolute;
+      font-family: var(--font-mono);
+      font-size: 9px;
+      letter-spacing: 0.12em;
+      color: var(--cyan-2);
+      text-transform: uppercase;
+      pointer-events: none;
+      z-index: 3;
+      opacity: 0.85;
+    }
+    .reactor-label::before {
+      content: '';
+      display: inline-block;
+      width: 4px; height: 4px;
+      background: var(--cyan);
+      box-shadow: 0 0 6px var(--cyan);
+      margin-right: 6px;
+      vertical-align: middle;
+    }
+    .reactor-label::after {
+      content: '';
+      position: absolute;
+      height: 1px;
+      width: 26px;
+      background: linear-gradient(90deg, var(--cyan), transparent);
+      top: 50%;
+    }
+    .rl-1 { top: 12%; left: 8%; }
+    .rl-1::after { left: 100%; }
+    .rl-2 { top: 20%; right: 8%; }
+    .rl-2::after { right: 100%; transform: scaleX(-1); }
+    .rl-3 { bottom: 20%; left: 6%; }
+    .rl-3::after { left: 100%; }
+    .rl-4 { bottom: 14%; right: 10%; }
+    .rl-4::after { right: 100%; transform: scaleX(-1); }
+    .rl-5 { top: 48%; left: 2%; }
+    .rl-5::after { left: 100%; }
+
     .node-labels {
       position: absolute;
       inset: 0;
@@ -523,6 +563,7 @@
       transform-origin: center bottom;
       will-change: transform;
       font-weight: 500;
+      pointer-events: none;
     }
     .node-label::before {
       content: '';
@@ -549,7 +590,6 @@
     }
     .node-label.visible { opacity: 1; }
 
-    /* ---------- HINT ---------- */
     .reactor-hint {
       position: absolute;
       bottom: 14px;
@@ -572,7 +612,6 @@
       font-weight: 500;
     }
 
-    /* ---------- CUSTOM CURSOR ---------- */
     .hud-cursor {
       position: fixed;
       top: 0;
@@ -612,7 +651,7 @@
     .hud-cursor.hover .corner { border-color: #fff; }
     .hud-cursor.hover .center-dot { background: #fff; box-shadow: 0 0 10px #fff; }
 
-    /* ---------- CHAT ---------- */
+    /* ============ CHAT ============ */
     .chat-stage {
       flex: 1;
       min-height: 0;
@@ -1021,7 +1060,6 @@
     }
     .bottom-info .ctx-value { color: var(--cyan-2); }
 
-    /* ============ LOGIN ============ */
     .login-overlay {
       position: fixed;
       inset: 0;
@@ -1151,7 +1189,6 @@
       margin-top: 14px;
     }
 
-    /* ============ BOOT OVERLAY ============ */
     .boot-overlay {
       position: fixed;
       inset: 0;
@@ -1216,7 +1253,6 @@
       vertical-align: middle;
     }
 
-    /* ============ MODAL ============ */
     .modal-overlay {
       position: fixed;
       inset: 0;
@@ -1361,7 +1397,6 @@
       box-shadow: 0 0 0 1px rgba(0, 229, 255, 0.3);
     }
 
-    /* ============ CALENDAR ============ */
     .calendar-widget {
       background: rgba(0, 10, 20, 0.5);
       border: 1px solid var(--line);
@@ -1494,7 +1529,6 @@
 <body>
   <canvas id="bg-canvas"></canvas>
 
-  <!-- Cursor customizado HUD -->
   <div id="hud-cursor" class="hud-cursor" aria-hidden="true">
     <span class="corner tl"></span>
     <span class="corner tr"></span>
@@ -1503,7 +1537,6 @@
     <span class="center-dot"></span>
   </div>
 
-  <!-- ============ LOGIN OVERLAY ============ -->
   <div id="login" class="login-overlay">
     <div class="login-backdrop"></div>
     <div class="login-panel">
@@ -1518,14 +1551,12 @@
     </div>
   </div>
 
-  <!-- ============ BOOT OVERLAY ============ -->
   <div id="bootOverlay" class="boot-overlay hidden">
     <div class="boot-title">FRIDAY</div>
     <div class="boot-bar"></div>
     <div class="boot-log" id="bootLog"><span class="cursor"></span></div>
   </div>
 
-  <!-- ============ HUD PRINCIPAL ============ -->
   <div id="assistant" class="hud hidden">
 
     <header class="hud-top">
@@ -1551,7 +1582,6 @@
     </header>
 
     <div class="hud-main">
-      <!-- LEFT -->
       <aside class="hud-left" id="sysChartContainer">
         <div class="hud-widget clock-widget">
           <svg class="clock-ring" viewBox="0 0 200 200">
@@ -1644,12 +1674,10 @@
         </div>
       </aside>
 
-      <!-- CENTER -->
       <section class="hud-center">
         <div class="reactor-stage" id="reactorStage">
           <canvas id="three-reactor"></canvas>
 
-          <!-- Anel de texto rotativo -->
           <svg class="reactor-text-ring" viewBox="0 0 400 400" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
             <defs>
               <path id="ringPath" d="M 200,200 m -160,0 a 160,160 0 1,1 320,0 a 160,160 0 1,1 -320,0" fill="none"/>
@@ -1659,10 +1687,14 @@
             </text>
           </svg>
 
-          <!-- Labels dos nodes (preenchidas via JS, projetadas do 3D) -->
+          <span class="reactor-label rl-1">SYS.CORE</span>
+          <span class="reactor-label rl-2">NEURAL_LINK</span>
+          <span class="reactor-label rl-3">PWR_CELL</span>
+          <span class="reactor-label rl-4">IA.ACTIVE</span>
+          <span class="reactor-label rl-5">MK-I</span>
+
           <div class="node-labels" id="nodeLabels"></div>
 
-          <!-- Hint -->
           <div class="reactor-hint" id="reactorHint">
             <b>CLIQUE</b> NOS NÓS · <b>ARRASTE</b> PARA EXPLORAR · <b>SCROLL</b> PARA ZOOM
           </div>
@@ -1701,7 +1733,6 @@
         </div>
       </section>
 
-      <!-- RIGHT -->
       <aside class="hud-right">
         <div class="hud-widget">
           <div class="widget-section-label">DATE</div>
@@ -1749,7 +1780,6 @@
 
   <iframe id="musicPlayer" class="hidden" allow="autoplay; encrypted-media" allowfullscreen></iframe>
 
-  <!-- ============ SETTINGS MODAL ============ -->
   <div id="settingsModal" class="modal-overlay hidden">
     <div class="modal-content">
       <h2>CONFIGURAÇÕES DO SISTEMA</h2>
@@ -1828,9 +1858,6 @@
 
     window.fridayState = 'idle';
 
-    // ============================================
-    // CLOCK + DATE + UPTIME
-    // ============================================
     const MONTHS_PT = ['JAN','FEV','MAR','ABR','MAI','JUN','JUL','AGO','SET','OUT','NOV','DEZ'];
     const WEEKDAYS_PT = ['DOM','SEG','TER','QUA','QUI','SEX','SÁB'];
 
@@ -1873,9 +1900,6 @@
     updateClocks();
     setInterval(updateClocks, 1000);
 
-    // ============================================
-    // HUD GAUGES
-    // ============================================
     function updateGauge(id, value) {
       const el = document.getElementById('gauge' + id);
       const valEl = document.getElementById('gauge' + id + 'Val');
@@ -1921,7 +1945,6 @@
       sysPollTimer = setInterval(pollMetrics, 2000);
     }
 
-    // Live bars
     setInterval(() => {
       document.querySelectorAll('.bar-fill[data-min]').forEach(el => {
         const min = +el.dataset.min, max = +el.dataset.max;
@@ -1945,9 +1968,6 @@
       }
     }, 5000);
 
-    // ============================================
-    // PREFS
-    // ============================================
     function loadVisualPreferences() {
       if (localStorage.getItem('friday_hide_sidebar') === 'true') {
         document.body.classList.add('hide-sidebar');
@@ -1981,9 +2001,6 @@
     $('openSettingsBtn').addEventListener('click', () => $('settingsModal').classList.remove('hidden'));
     $('closeSettingsBtn').addEventListener('click', () => $('settingsModal').classList.add('hidden'));
 
-    // ============================================
-    // KEYBOARD SHORTCUTS
-    // ============================================
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
         if (!$('settingsModal').classList.contains('hidden')) $('settingsModal').classList.add('hidden');
@@ -2000,9 +2017,6 @@
       }
     });
 
-    // ============================================
-    // BOOT
-    // ============================================
     async function runBootSequence() {
       if (bootRunning) return;
       bootRunning = true;
@@ -2031,9 +2045,6 @@
       bootRunning = false;
     }
 
-    // ============================================
-    // PWA + MIC
-    // ============================================
     window.addEventListener('beforeinstallprompt', (e) => {
       e.preventDefault();
       deferredPrompt = e;
@@ -2069,9 +2080,6 @@
       }
     });
 
-    // ============================================
-    // VOICE FALLBACK
-    // ============================================
     function loadVoices() {
       availableVoices = window.speechSynthesis.getVoices();
       const select = $('voiceSelect');
@@ -2121,9 +2129,6 @@
       synth.speak(utterance);
     }
 
-    // ============================================
-    // BACKGROUND PARTICLES
-    // ============================================
     let bgScene, bgCamera, bgRenderer, particlesMesh, linesMesh;
     function initBgParticles() {
       if (document.body.classList.contains('hide-particles')) return;
@@ -2198,25 +2203,24 @@
     }
 
     // ============================================
-    // REACTOR — ESPAÇO 3D INTERATIVO COMPLETO
+    // REACTOR
     // ============================================
     let scene, camera, renderer, controls, audioAnalyser, audioContext;
     let reactorGroup, coreMesh, coreMat, orbitalParticles, reactorStars, polarGrid;
 
-    // Subsistema de nodes interativos
-    let subsystemNodes = [];          // [{ group, sphere, halo, ring, data, labelEl, angle }]
+    let subsystemNodes = [];
     let reactorHoveredEntry = null;
     let reactorRaycaster, reactorMouseVec;
-    let reactorRipples = [];          // { mesh, life, maxLife }
-    let reactorBeams = [];            // { line, life, maxLife }
-    let reactorEqBars = [];           // BoxGeometry das barras do equalizer
+    let reactorRipples = [];
+    let reactorBeams = [];
+    let reactorEqBars = [];
     let reactorStageEl, reactorContainerEl;
     let hudCursorEl;
     let reactorMouseDownPos = null;
     let reactorHintEl, reactorHintDimmed = false;
     let reactorContainerEls = { labels: null };
+    let reactorInitAttempts = 0;
 
-    // Configuração dos subsistemas
     const SUBSYSTEMS = [
       { id: 'voice',    color: 0x00ff88, name: 'VOICE',    radius: 2.35, speed: 0.0075, tilt: 0.15, phase: 0.0 },
       { id: 'calendar', color: 0x00e5ff, name: 'CALENDAR', radius: 2.60, speed: -0.0055, tilt: 0.35, phase: 1.1 },
@@ -2229,35 +2233,64 @@
     ];
 
     function initReactor() {
-      const canvas = $('three-reactor');
+      const canvasEl = $('three-reactor');
       const container = $('reactorStage');
-      if (!canvas || !container) return;
+      if (!canvasEl || !container) {
+        console.warn('[REACTOR] Elementos não encontrados.');
+        return;
+      }
+
+      // ✅ Aguarda layout ter dimensões válidas (evita init com width 0)
+      if (container.clientWidth < 20 || container.clientHeight < 20) {
+        reactorInitAttempts++;
+        if (reactorInitAttempts < 50) {
+          console.log(`[REACTOR] Aguardando layout (${reactorInitAttempts})... ${container.clientWidth}x${container.clientHeight}`);
+          setTimeout(initReactor, 100);
+        } else {
+          console.error('[REACTOR] Desisti após 50 tentativas.');
+        }
+        return;
+      }
+
       reactorStageEl = container;
-      reactorContainerEl = canvas;
+      reactorContainerEl = canvasEl;
       hudCursorEl = $('hud-cursor');
       reactorHintEl = $('reactorHint');
       reactorContainerEls.labels = $('nodeLabels');
 
-      // Se já inicializado, só atualizar tamanho
+      // Se já inicializado, só atualiza tamanho
       if (renderer) {
-        renderer.setSize(canvas.clientWidth, canvas.clientHeight);
-        camera.aspect = canvas.clientWidth / canvas.clientHeight;
+        renderer.setSize(container.clientWidth, container.clientHeight);
+        camera.aspect = container.clientWidth / container.clientHeight;
         camera.updateProjectionMatrix();
         return;
       }
 
+      console.log(`[REACTOR] ✅ Inicializando em ${container.clientWidth}x${container.clientHeight}`);
+
       scene = new THREE.Scene();
       scene.fog = new THREE.FogExp2(0x000610, 0.045);
 
-      camera = new THREE.PerspectiveCamera(45, canvas.clientWidth / canvas.clientHeight, 0.1, 1000);
+      camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 1000);
       camera.position.set(0, 1.8, 7);
 
-      renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
-      renderer.setSize(canvas.clientWidth, canvas.clientHeight);
+      // ═══════════════════════════════════════════════════════════
+      // ✅ CORREÇÃO PRINCIPAL: passa o <canvas> EXISTENTE.
+      //    NÃO usar renderer.domElement dentro de outro canvas!
+      // ═══════════════════════════════════════════════════════════
+      try {
+        renderer = new THREE.WebGLRenderer({
+          canvas: canvasEl,
+          alpha: true,
+          antialias: true
+        });
+      } catch (err) {
+        console.error('[REACTOR] ❌ WebGL não disponível:', err);
+        return;
+      }
+      renderer.setSize(container.clientWidth, container.clientHeight);
       renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-      canvas.appendChild(renderer.domElement);
 
-      // OrbitControls
       controls = new THREE.OrbitControls(camera, renderer.domElement);
       controls.enableDamping = true;
       controls.dampingFactor = 0.06;
@@ -2277,14 +2310,12 @@
         autoRotateResume = setTimeout(() => { controls.autoRotate = true; }, 3500);
       });
 
-      // Grid polar no "chão"
       polarGrid = new THREE.PolarGridHelper(5, 16, 8, 64, 0x00e5ff, 0x003344);
       polarGrid.position.y = -1.6;
       polarGrid.material.transparent = true;
       polarGrid.material.opacity = 0.18;
       scene.add(polarGrid);
 
-      // Estrelas de fundo
       const starsGeo = new THREE.BufferGeometry();
       const starsCount = 800;
       const starPositions = new Float32Array(starsCount * 3);
@@ -2299,7 +2330,6 @@
       }));
       scene.add(reactorStars);
 
-      // ===== NÚCLEO + ANÉIS =====
       reactorGroup = new THREE.Group();
       scene.add(reactorGroup);
 
@@ -2348,7 +2378,6 @@
         reactorGroup.add(arcSegment(1.73, 1.76, i * seg, seg * 0.55, 0x00e5ff, 0.4));
       }
 
-      // Partículas orbitando perto do núcleo
       const particleCount = 100;
       const pGeo = new THREE.BufferGeometry();
       const pPos = new Float32Array(particleCount * 3);
@@ -2367,19 +2396,16 @@
       }));
       reactorGroup.add(orbitalParticles);
 
-      // ===== SUBSYSTEM NODES INTERATIVOS =====
       SUBSYSTEMS.forEach((cfg, idx) => {
         const group = new THREE.Group();
         reactorGroup.add(group);
 
-        // Sphere principal (raycast target)
         const sphere = new THREE.Mesh(
           new THREE.SphereGeometry(0.085, 16, 16),
           new THREE.MeshBasicMaterial({ color: cfg.color })
         );
         group.add(sphere);
 
-        // Halo externo
         const halo2 = new THREE.Mesh(
           new THREE.SphereGeometry(0.18, 16, 16),
           new THREE.MeshBasicMaterial({
@@ -2388,7 +2414,6 @@
         );
         group.add(halo2);
 
-        // Anel orbital pequeno
         const ring = new THREE.Mesh(
           new THREE.TorusGeometry(0.19, 0.004, 6, 32),
           new THREE.MeshBasicMaterial({
@@ -2398,7 +2423,6 @@
         ring.rotation.x = Math.PI / 2;
         group.add(ring);
 
-        // Label HTML
         const labelEl = document.createElement('div');
         labelEl.className = 'node-label';
         labelEl.textContent = '// ' + cfg.name;
@@ -2417,7 +2441,6 @@
         subsystemNodes.push(entry);
       });
 
-      // ===== EQUALIZER 3D (32 barras) =====
       const eqCount = 32;
       const eqRadius = 2.05;
       for (let i = 0; i < eqCount; i++) {
@@ -2435,11 +2458,9 @@
         reactorEqBars.push(bar);
       }
 
-      // ===== RAYCASTER =====
       reactorRaycaster = new THREE.Raycaster();
       reactorMouseVec = new THREE.Vector2();
 
-      // ===== POINTER EVENTS =====
       const stage = reactorStageEl;
 
       stage.addEventListener('pointerenter', () => {
@@ -2470,6 +2491,9 @@
 
       stage.addEventListener('pointerdown', (e) => {
         reactorMouseDownPos = { x: e.clientX, y: e.clientY };
+        const rect = stage.getBoundingClientRect();
+        reactorMouseVec.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+        reactorMouseVec.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
       });
 
       stage.addEventListener('pointerup', (e) => {
@@ -2482,7 +2506,6 @@
         }
       });
 
-      // ===== ANIMATION =====
       const tempVec = new THREE.Vector3();
       let t = 0;
 
@@ -2492,12 +2515,10 @@
 
         if (controls) controls.update();
 
-        // Pulse do núcleo
         const pulse = 1 + Math.sin(t * 2.5) * 0.08;
         coreMesh.scale.setScalar(pulse);
         halo.scale.setScalar(pulse);
 
-        // Partículas próximas
         const pAttr = orbitalParticles.geometry.attributes.position;
         const pArr = pAttr.array;
         for (let i = 0; i < particleCount; i++) {
@@ -2508,7 +2529,6 @@
         }
         pAttr.needsUpdate = true;
 
-        // Núcleo reage ao áudio
         if (audioAnalyser && speaking) {
           const dataArr = new Uint8Array(audioAnalyser.frequencyBinCount);
           audioAnalyser.getByteFrequencyData(dataArr);
@@ -2522,7 +2542,6 @@
           coreMat.color.setHex(0x00e5ff);
         }
 
-        // Equalizer 3D
         if (audioAnalyser && speaking) {
           const eqData = new Uint8Array(audioAnalyser.frequencyBinCount);
           audioAnalyser.getByteFrequencyData(eqData);
@@ -2542,7 +2561,6 @@
           });
         }
 
-        // ===== NODES: orbitar =====
         subsystemNodes.forEach((entry, i) => {
           entry.angle += entry.data.speed;
           const a = entry.angle;
@@ -2554,15 +2572,12 @@
           entry.group.position.z = Math.sin(a) * r * Math.cos(tilt);
           entry.group.position.y = Math.sin(a) * r * Math.sin(tilt) + wobble;
 
-          // Rotacionar anel interno
           entry.ring.rotation.z += 0.02;
           entry.ring.rotation.y += 0.015;
 
-          // Halo pulsa suavemente
           const hScale = 1 + Math.sin(t * 3 + i) * 0.15;
           entry.halo.scale.setScalar(hScale);
 
-          // Se está hovered, dá um boost extra
           if (reactorHoveredEntry === entry) {
             const hs = 1.35 + Math.sin(t * 8) * 0.1;
             entry.sphere.scale.setScalar(hs);
@@ -2571,7 +2586,6 @@
             entry.sphere.scale.setScalar(1);
           }
 
-          // Projetar label
           if (entry.labelEl) {
             entry.group.getWorldPosition(tempVec);
             tempVec.project(camera);
@@ -2579,15 +2593,14 @@
               entry.labelEl.style.display = 'none';
             } else {
               entry.labelEl.style.display = '';
-              const lx = (tempVec.x * 0.5 + 0.5) * canvas.clientWidth;
-              const ly = (-tempVec.y * 0.5 + 0.5) * canvas.clientHeight;
+              const lx = (tempVec.x * 0.5 + 0.5) * canvasEl.clientWidth;
+              const ly = (-tempVec.y * 0.5 + 0.5) * canvasEl.clientHeight;
               entry.labelEl.style.transform =
                 `translate(${lx}px, ${ly}px) translate(-50%, calc(-100% - 16px))`;
             }
           }
         });
 
-        // ===== RAYCAST HOVER =====
         if (reactorRaycaster) {
           reactorRaycaster.setFromCamera(reactorMouseVec, camera);
           const nodeSpheres = subsystemNodes.map(n => n.sphere);
@@ -2610,7 +2623,6 @@
             }
           }
 
-          // Cursor custom também quando em cima do núcleo
           if (!reactorHoveredEntry && hudCursorEl) {
             const coreHits = reactorRaycaster.intersectObject(coreMesh, false);
             if (coreHits.length > 0) hudCursorEl.classList.add('hover');
@@ -2618,7 +2630,6 @@
           }
         }
 
-        // ===== RIPPLES =====
         reactorRipples = reactorRipples.filter(r => {
           r.life += 0.016;
           const p = r.life / r.maxLife;
@@ -2634,7 +2645,6 @@
           return true;
         });
 
-        // ===== BEAMS =====
         reactorBeams = reactorBeams.filter(b => {
           b.life += 0.016;
           if (b.life >= b.maxLife) {
@@ -2653,16 +2663,14 @@
         renderer.render(scene, camera);
       }
       animateReactor();
+
+      console.log('[REACTOR] ✅ Loop de animação iniciado');
     }
 
-    // ============================================
-    // INTERAÇÃO: click no reactor
-    // ============================================
     function handleReactorClick() {
       if (!reactorRaycaster || !reactorMouseVec) return;
       reactorRaycaster.setFromCamera(reactorMouseVec, camera);
 
-      // 1) Nó?
       const nodeSpheres = subsystemNodes.map(n => n.sphere);
       const nodeHits = reactorRaycaster.intersectObjects(nodeSpheres, false);
       if (nodeHits.length > 0) {
@@ -2671,7 +2679,6 @@
         return;
       }
 
-      // 2) Núcleo (push-to-talk)
       const coreHits = reactorRaycaster.intersectObject(coreMesh, false);
       if (coreHits.length > 0) {
         if (!listening && !speaking) {
@@ -2685,7 +2692,6 @@
         return;
       }
 
-      // 3) Vazio → ripple no grid
       const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 1.6);
       const hit = new THREE.Vector3();
       reactorRaycaster.ray.intersectPlane(plane, hit);
@@ -2769,9 +2775,6 @@
       }
     }
 
-    // ============================================
-    // FX: ripple + beam + hint
-    // ============================================
     function spawnRipple(pos, color) {
       const geo = new THREE.RingGeometry(0.06, 0.14, 48);
       const mat = new THREE.MeshBasicMaterial({
@@ -2816,8 +2819,10 @@
         bgCamera.updateProjectionMatrix();
       }
       if (renderer && reactorContainerEl) {
-        renderer.setSize(reactorContainerEl.clientWidth, reactorContainerEl.clientHeight);
-        camera.aspect = reactorContainerEl.clientWidth / reactorContainerEl.clientHeight;
+        const c = reactorStageEl;
+        if (!c) return;
+        renderer.setSize(c.clientWidth, c.clientHeight);
+        camera.aspect = c.clientWidth / c.clientHeight;
         camera.updateProjectionMatrix();
       }
     });
@@ -2834,9 +2839,6 @@
       } catch(e) {}
     }
 
-    // ============================================
-    // MIC VISUALIZER
-    // ============================================
     let micContext, micAnalyser, micSource, micDataArray;
     async function setupMicVisualizer() {
       if (micContext) return;
@@ -2866,9 +2868,6 @@
       window.addEventListener('load', () => { navigator.serviceWorker.register('/sw.js').catch(() => {}); });
     }
 
-    // ============================================
-    // MUSIC
-    // ============================================
     window.onYouTubeIframeAPIReady = function() {
       ytPlayer = new YT.Player('musicPlayer', { events: { 'onReady': () => {} } });
     };
@@ -2941,9 +2940,6 @@
     }
     function status(text) { $("status").textContent = text; }
 
-    // ============================================
-    // CALENDAR
-    // ============================================
     function formatEventDate(dateStr) {
       if (!dateStr) return "Sem data";
       const d = new Date(dateStr);
@@ -2980,9 +2976,6 @@
       }
     }
 
-    // ============================================
-    // VOICE
-    // ============================================
     function stopVoice() {
       speechRunId++;
       clearTimeout(silenceTimer);
@@ -3059,9 +3052,6 @@
     }
     function speakResponse(text) { lastReply = String(text || ""); speakText(lastReply, false); }
 
-    // ============================================
-    // MESSAGES
-    // ============================================
     function addMessage(who, text) {
       const item = document.createElement("div");
       item.className = "msg " + (who === "Você" ? "user" : "bot");
@@ -3092,7 +3082,6 @@
       $("messages").scrollTop = $("messages").scrollHeight;
     }
 
-    // Scroll pill
     const msgsEl = $("messages");
     const pill = $("scrollPill");
     msgsEl.addEventListener('scroll', () => {
@@ -3103,9 +3092,6 @@
       msgsEl.scrollTo({ top: msgsEl.scrollHeight, behavior: 'smooth' });
     });
 
-    // ============================================
-    // REQUEST
-    // ============================================
     async function request(url, data) {
       const response = await fetch(url, {
         method: "POST", credentials: "same-origin",
@@ -3133,9 +3119,6 @@
       upd(); lockoutInterval = setInterval(upd, 1000);
     }
 
-    // ============================================
-    // ATTACHMENTS
-    // ============================================
     function handleFileSelect(e, type) {
       const file = e.target.files[0]; if (!file) return;
       currentAttachmentName = file.name;
@@ -3156,9 +3139,6 @@
       $('attachmentPreview').classList.add('hidden'); $('attachmentName').textContent = '';
     });
 
-    // ============================================
-    // SEND
-    // ============================================
     async function sendCommandToFriday(command, isInitial = false) {
       if (isProcessing) return;
       isProcessing = true; window.fridayState = 'thinking';
@@ -3236,9 +3216,6 @@
       }
     }
 
-    // ============================================
-    // LOGIN
-    // ============================================
     $("loginForm").addEventListener("submit", async (event) => {
       event.preventDefault();
       const password = $("password").value;
@@ -3253,8 +3230,9 @@
         soundBoot();
         $('messages').replaceChildren();
         startSysMetrics();
-        // Garante reactor inicializado depois de visível
-        setTimeout(() => initReactor(), 50);
+        // ✅ Tenta init imediatamente e via rAF para garantir após layout
+        initReactor();
+        requestAnimationFrame(() => initReactor());
         sendCommandToFriday('Gere o meu briefing matinal para a cidade de Criciúma usando a ferramenta get_morning_briefing', true);
         $("command").focus();
         checkCalendarConnection();
@@ -3282,9 +3260,6 @@
       sendCommandToFriday(command, false);
     });
 
-    // ============================================
-    // VOICE RECOGNITION
-    // ============================================
     function startVoice(isContinuous = false) {
       const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
       if (!SR) { status("Reconhecimento indisponível."); return; }
@@ -3327,9 +3302,6 @@
     }
     $("voiceBtn").addEventListener("click", () => startVoice(false));
 
-    // ============================================
-    // CALENDAR CONNECT
-    // ============================================
     async function checkCalendarConnection() {
       try {
         const res = await fetch("/calendar/status", { credentials: "same-origin", cache: "no-store" });
@@ -3347,9 +3319,6 @@
     $("refreshCalendarBtn").addEventListener("click", () => loadCalendarEvents("upcoming"));
     $("stopSpeakTop").addEventListener("click", () => { stopVoice(); status("Fala interrompida."); });
 
-    // ============================================
-    // WAKE WORD
-    // ============================================
     function startWakeWordListener() {
       const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
       if (!SR || wakeWordActive) return;
@@ -3375,9 +3344,6 @@
       try { wakeWordRecognition.start(); wakeWordActive = true; } catch (e) {}
     }
 
-    // ============================================
-    // SESSION
-    // ============================================
     function showLogin() {
       stopVoice(); stopStatusPolling();
       $("assistant").classList.add("hidden"); $("login").classList.remove("hidden");
@@ -3415,7 +3381,8 @@
           status("Sessão ativa. FRIDAY online.");
           $('messages').replaceChildren();
           startSysMetrics();
-          setTimeout(() => initReactor(), 50);
+          initReactor();
+          requestAnimationFrame(() => initReactor());
           sendCommandToFriday('Gere o meu briefing matinal para a cidade de Criciúma usando a ferramenta get_morning_briefing', true);
           checkCalendarConnection();
           startWakeWordListener();
@@ -3427,9 +3394,6 @@
       } catch (e) { status("Não foi possível verificar a sessão."); }
     }
 
-    // ============================================
-    // POLLING
-    // ============================================
     setInterval(async () => {
       if ($("assistant").classList.contains("hidden")) return;
       try {
@@ -3466,26 +3430,26 @@
       } catch (e) {}
     }, 30000);
 
-    // ============================================
-    // INIT
-    // ============================================
     loadVisualPreferences();
     checkSession();
 
+    // ✅ ResizeObserver na área do reactor: inicializa ASSIM que ficar visível
     window.addEventListener('load', () => {
       if (!document.body.classList.contains('hide-particles')) initBgParticles();
 
-      const reactorCanvas = $('three-reactor');
-      if (reactorCanvas) {
+      const stage = $('reactorStage');
+      if (stage) {
         const ro = new ResizeObserver(() => {
-          if (!renderer) return;
-          const c = $('reactorStage');
-          if (!c) return;
-          renderer.setSize(c.clientWidth, c.clientHeight);
-          camera.aspect = c.clientWidth / c.clientHeight;
-          camera.updateProjectionMatrix();
+          if (stage.clientWidth < 20 || stage.clientHeight < 20) return;
+          if (!renderer) {
+            initReactor();
+          } else {
+            renderer.setSize(stage.clientWidth, stage.clientHeight);
+            camera.aspect = stage.clientWidth / stage.clientHeight;
+            camera.updateProjectionMatrix();
+          }
         });
-        ro.observe(reactorCanvas);
+        ro.observe(stage);
       }
     });
   </script>
