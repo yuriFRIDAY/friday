@@ -74,7 +74,6 @@
       overscroll-behavior: none;
     }
 
-    /* Grade técnica global */
     body::before {
       content: '';
       position: fixed;
@@ -120,9 +119,6 @@
     .hide-particles #bg-canvas { display: none !important; }
     .hide-chart #sysChartContainer { display: none !important; }
 
-    /* ============================================== */
-    /* ============ HUD SHELL ======================= */
-    /* ============================================== */
     .hud {
       position: relative;
       z-index: 20;
@@ -159,7 +155,10 @@
       display: flex;
       align-items: center;
       gap: 0;
-      overflow: hidden;
+      overflow-x: auto;
+      overflow-y: hidden;
+      scrollbar-width: none;
+      -ms-overflow-style: none;
       font-family: var(--font-mono);
       font-size: 11px;
       letter-spacing: 0.1em;
@@ -168,7 +167,9 @@
       border-left: 1px solid var(--line);
       border-right: 1px solid var(--line);
       padding: 0 4px;
+      scroll-behavior: smooth;
     }
+    .top-days::-webkit-scrollbar { display: none; }
     .top-days .day-num {
       flex: 0 0 auto;
       padding: 6px 5px;
@@ -260,7 +261,6 @@
     .hud-left { border-right: 1px solid var(--line); }
     .hud-right { border-left: 1px solid var(--line); }
 
-    /* ---------- WIDGETS ---------- */
     .hud-widget {
       position: relative;
       flex-shrink: 0;
@@ -314,7 +314,7 @@
       text-transform: uppercase;
     }
 
-    /* --- WIDGET: GAUGE CIRCULAR (CPU/RAM) --- */
+    /* --- WIDGET: GAUGE CIRCULAR --- */
     .gauge-widget {
       display: flex;
       flex-direction: column;
@@ -416,13 +416,14 @@
       height: 100%;
       background: linear-gradient(90deg, var(--cyan-dim), var(--cyan));
       box-shadow: 0 0 6px var(--cyan-glow);
+      transition: width 1.2s ease;
     }
     .bar-row .bar-value {
       text-align: right;
       color: var(--cyan-2);
     }
 
-    /* --- WIDGET: ENERGIA CIRCULAR --- */
+    /* --- WIDGET: ENERGIA --- */
     .energy-widget {
       display: flex;
       align-items: center;
@@ -453,6 +454,7 @@
       stroke-dasharray: 157;
       stroke-dashoffset: 0;
       filter: drop-shadow(0 0 4px var(--cyan-glow));
+      transition: stroke-dashoffset 1.5s ease;
     }
     .energy-mini-gauge .e-text {
       position: absolute;
@@ -464,7 +466,6 @@
       font-family: var(--font-title);
       font-size: 13px;
       color: var(--text-bright);
-      transform: rotate(0);
     }
     .energy-mini-gauge .e-text small {
       font-family: var(--font-mono);
@@ -491,7 +492,6 @@
       margin-top: 3px;
     }
 
-    /* --- WIDGET: NETWORK/TIMER --- */
     .info-widget {
       padding: 8px 4px;
       border-top: 1px dashed rgba(0, 229, 255, 0.1);
@@ -505,11 +505,9 @@
       letter-spacing: 0.08em;
       padding: 4px 0;
     }
-    .info-row .val {
-      color: var(--cyan-2);
-    }
+    .info-row .val { color: var(--cyan-2); }
 
-    /* ============ CENTER COLUMN ============ */
+    /* ============ CENTER ============ */
     .hud-center {
       display: flex;
       flex-direction: column;
@@ -518,7 +516,6 @@
       position: relative;
     }
 
-    /* ---------- REACTOR STAGE ---------- */
     .reactor-stage {
       flex: 0 0 42%;
       max-height: 460px;
@@ -535,7 +532,22 @@
       inset: 0;
       width: 100%;
       height: 100%;
+      cursor: crosshair;
     }
+
+    /* RING DE TEXTO ROTATIVO */
+    .reactor-text-ring {
+      position: absolute;
+      inset: 6%;
+      pointer-events: none;
+      z-index: 2;
+      animation: spin-slow 60s linear infinite;
+      filter: drop-shadow(0 0 3px rgba(0, 229, 255, 0.4));
+    }
+    .reactor-text-ring text {
+      text-transform: uppercase;
+    }
+
     .reactor-label {
       position: absolute;
       font-family: var(--font-mono);
@@ -575,7 +587,6 @@
     .rl-5 { top: 48%; left: 2%; }
     .rl-5::after { left: 100%; }
 
-    /* ---------- CHAT STAGE ---------- */
     .chat-stage {
       flex: 1;
       min-height: 0;
@@ -640,6 +651,38 @@
       overscroll-behavior: contain;
     }
 
+    /* SCROLL PILL */
+    .scroll-pill {
+      position: absolute;
+      bottom: 110px;
+      left: 50%;
+      transform: translateX(-50%) translateY(20px);
+      padding: 6px 14px;
+      background: var(--cyan);
+      color: #000;
+      border: none;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      letter-spacing: 0.1em;
+      font-weight: 700;
+      cursor: pointer;
+      opacity: 0;
+      pointer-events: none;
+      transition: all 0.3s;
+      z-index: 10;
+      box-shadow: 0 0 20px var(--cyan-glow);
+      text-transform: uppercase;
+    }
+    .scroll-pill.visible {
+      opacity: 1;
+      pointer-events: auto;
+      transform: translateX(-50%) translateY(0);
+    }
+    .scroll-pill:hover {
+      background: #fff;
+      box-shadow: 0 0 30px var(--cyan);
+    }
+
     .msg {
       display: flex;
       flex-direction: column;
@@ -691,6 +734,19 @@
       box-shadow: 0 0 5px var(--purple);
     }
 
+    /* Typing indicator */
+    .msg.typing span::after {
+      content: '';
+      display: inline-block;
+      width: 4px;
+      height: 12px;
+      background: var(--cyan);
+      animation: blink 0.8s step-end infinite;
+      vertical-align: middle;
+      margin-left: 2px;
+    }
+    @keyframes blink { 50% { opacity: 0; } }
+
     .msg span p { margin: 0 0 6px 0; }
     .msg span p:last-child { margin-bottom: 0; }
     .msg span ul, .msg span ol { margin: 6px 0; padding-left: 18px; }
@@ -733,7 +789,6 @@
     }
     @keyframes spin { 100% { transform: rotate(360deg); } }
 
-    /* ---------- COMPOSER ---------- */
     .composer {
       padding: 10px 22px 14px;
       border-top: 1px solid rgba(0, 229, 255, 0.08);
@@ -797,7 +852,6 @@
       box-shadow: 0 0 0 1px rgba(0, 229, 255, 0.3), inset 0 0 20px rgba(0, 229, 255, 0.05);
     }
 
-    /* ---------- BOTÕES HUD ---------- */
     .hud-btn {
       min-height: 36px;
       padding: 0 14px;
@@ -884,7 +938,6 @@
       box-shadow: 0 0 12px rgba(0, 229, 255, 0.4);
     }
 
-    /* ============ BOTTOM BAR ============ */
     .hud-bottom {
       display: grid;
       grid-template-columns: auto 1fr auto auto;
@@ -958,7 +1011,7 @@
     }
     .bottom-info .ctx-value { color: var(--cyan-2); }
 
-    /* ============ LOGIN OVERLAY ============ */
+    /* ============ LOGIN ============ */
     .login-overlay {
       position: fixed;
       inset: 0;
@@ -1111,7 +1164,81 @@
       margin-top: 14px;
     }
 
-    /* ============ MODAL SETTINGS ============ */
+    /* ============ BOOT OVERLAY ============ */
+    .boot-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 300;
+      background: var(--bg);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 14px;
+      font-family: var(--font-mono);
+      animation: bootFade 0.3s ease;
+    }
+    @keyframes bootFade { from { opacity: 0; } to { opacity: 1; } }
+    .boot-overlay.fade-out {
+      animation: bootOut 0.5s ease forwards;
+    }
+    @keyframes bootOut { to { opacity: 0; } }
+
+    .boot-title {
+      font-family: var(--font-title);
+      font-size: 28px;
+      font-weight: 900;
+      letter-spacing: 0.4em;
+      color: #fff;
+      text-shadow: 0 0 30px var(--cyan-glow);
+      margin-bottom: 20px;
+      animation: bootPulse 1.5s ease-in-out infinite;
+    }
+    @keyframes bootPulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+
+    .boot-bar {
+      width: 260px;
+      height: 2px;
+      background: rgba(0, 229, 255, 0.15);
+      overflow: hidden;
+      position: relative;
+    }
+    .boot-bar::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(90deg, transparent, var(--cyan), transparent);
+      animation: bootScan 1.2s linear infinite;
+    }
+    @keyframes bootScan {
+      from { transform: translateX(-100%); }
+      to { transform: translateX(100%); }
+    }
+
+    .boot-log {
+      font-size: 10px;
+      color: var(--cyan-2);
+      letter-spacing: 0.15em;
+      height: 16px;
+      text-transform: uppercase;
+      min-width: 260px;
+      text-align: left;
+    }
+    .boot-log .ok { color: var(--green); }
+    .boot-log .cursor {
+      display: inline-block;
+      width: 6px;
+      height: 10px;
+      background: var(--cyan);
+      margin-left: 2px;
+      animation: blink 0.8s step-end infinite;
+      vertical-align: middle;
+    }
+
+    /* ============ MODAL ============ */
     .modal-overlay {
       position: fixed;
       inset: 0;
@@ -1186,7 +1313,6 @@
       margin-bottom: 10px;
       line-height: 1.6;
     }
-
     .switch-row {
       display: flex;
       justify-content: space-between;
@@ -1229,13 +1355,11 @@
       background: var(--cyan);
       box-shadow: 0 0 6px var(--cyan);
     }
-
     .modal-btn {
       width: 100%;
       margin-top: 6px;
       min-height: 38px;
     }
-
     .status-badge {
       display: inline-block;
       padding: 3px 8px;
@@ -1254,7 +1378,6 @@
       color: var(--red);
       border-color: rgba(255, 43, 74, 0.35);
     }
-
     .modal-content input, .modal-content select, .modal-content textarea {
       width: 100%;
       padding: 9px 12px;
@@ -1272,7 +1395,7 @@
       box-shadow: 0 0 0 1px rgba(0, 229, 255, 0.3);
     }
 
-    /* ============ CALENDAR PANEL ============ */
+    /* ============ CALENDAR ============ */
     .calendar-widget {
       background: rgba(0, 10, 20, 0.5);
       border: 1px solid var(--line);
@@ -1318,7 +1441,6 @@
       background: rgba(0, 229, 255, 0.15);
       border-color: var(--cyan);
     }
-
     .awareness-item {
       display: flex;
       align-items: center;
@@ -1352,7 +1474,6 @@
       letter-spacing: 0.03em;
     }
 
-    /* ============ STATUS WIDGET ============ */
     .status-widget {
       padding: 10px 12px;
       border: 1px solid var(--line);
@@ -1384,7 +1505,6 @@
       opacity: 0.8;
     }
 
-    /* ============ MUSIC PLAYER ============ */
     #musicPlayer {
       position: fixed;
       bottom: 70px;
@@ -1397,13 +1517,11 @@
       box-shadow: 0 0 30px rgba(0, 229, 255, 0.3);
     }
 
-    /* ============ MOBILE ============ */
     @media (max-width: 1100px) {
       .hud-main { grid-template-columns: 240px 1fr 260px; }
       .hud-left { padding: 12px 10px; }
       .hud-right { padding: 12px 10px; }
     }
-
     @media (max-width: 900px) {
       .hud-main { grid-template-columns: 1fr; }
       .hud-left, .hud-right { display: none; }
@@ -1415,7 +1533,6 @@
       .hud-bottom { padding: 8px 12px; gap: 8px; }
       .bottom-info { display: none; }
     }
-
     @media (max-width: 600px) {
       .hud-top { padding: 6px 10px; }
       .top-time { font-size: 15px; }
@@ -1427,15 +1544,16 @@
       #messages { padding: 10px 14px; gap: 8px; }
       .msg { font-size: 13px; padding: 6px 10px; max-width: 96%; }
       .composer { padding: 8px 14px 12px; }
-      /* 16px evita zoom do iOS */
       .chat-input-row #command { font-size: 16px !important; }
       .hud-bottom { grid-template-columns: auto 1fr auto; }
       .hud-bottom .hud-btn { padding: 0 8px; min-height: 32px; font-size: 10px; }
       .login-panel { padding: 32px 24px; min-width: auto; width: 100%; }
       .login-brand { font-size: 26px; letter-spacing: 0.28em; }
       .modal-content input, .modal-content select { font-size: 16px !important; }
+      .boot-title { font-size: 22px; letter-spacing: 0.3em; }
+      .boot-bar, .boot-log { width: 220px; min-width: 220px; }
+      .scroll-pill { bottom: 95px; font-size: 9px; padding: 5px 10px; }
     }
-
     @media (prefers-reduced-motion: reduce) {
       *, *::before, *::after {
         animation-duration: 0.01ms !important;
@@ -1462,13 +1580,18 @@
     </div>
   </div>
 
-  <!-- ============ ASSISTANT HUD ============ -->
+  <!-- ============ BOOT OVERLAY ============ -->
+  <div id="bootOverlay" class="boot-overlay hidden">
+    <div class="boot-title">FRIDAY</div>
+    <div class="boot-bar"></div>
+    <div class="boot-log" id="bootLog"><span class="cursor"></span></div>
+  </div>
+
+  <!-- ============ HUD PRINCIPAL ============ -->
   <div id="assistant" class="hud hidden">
 
-    <!-- TOP BAR -->
     <header class="hud-top">
-      <div class="top-days" id="topDays"><!-- JS gera --></div>
-
+      <div class="top-days" id="topDays"></div>
       <div class="top-center">
         <span class="tc-label">LOC:</span>
         <span class="tc-value">STARK HQ</span>
@@ -1479,23 +1602,19 @@
         <span class="tc-label">LINK:</span>
         <span class="tc-value">SECURE</span>
       </div>
-
       <div class="top-right">
         <div class="top-time" id="topTime">00:00:00</div>
         <div class="top-status">
           <span class="dot"></span>
           <span>ONLINE</span>
         </div>
-        <button id="openSettingsBtn" class="hud-icon-btn" title="Configurações">⚙</button>
+        <button id="openSettingsBtn" class="hud-icon-btn" title="Configurações (Ctrl+/)">⚙</button>
       </div>
     </header>
 
-    <!-- MAIN -->
     <div class="hud-main">
-
-      <!-- LEFT COLUMN -->
+      <!-- LEFT -->
       <aside class="hud-left" id="sysChartContainer">
-        <!-- Relógio circular -->
         <div class="hud-widget clock-widget">
           <svg class="clock-ring" viewBox="0 0 200 200">
             <circle cx="100" cy="100" r="92" fill="none" stroke="rgba(0,229,255,0.15)" stroke-width="1"/>
@@ -1519,7 +1638,6 @@
           </div>
         </div>
 
-        <!-- CPU Gauge -->
         <div class="hud-widget gauge-widget">
           <svg class="gauge-svg" viewBox="0 0 100 100">
             <circle class="gauge-track" cx="50" cy="50" r="42"/>
@@ -1534,7 +1652,6 @@
           </div>
         </div>
 
-        <!-- RAM Gauge -->
         <div class="hud-widget gauge-widget">
           <svg class="gauge-svg" viewBox="0 0 100 100">
             <circle class="gauge-track" cx="50" cy="50" r="42"/>
@@ -1549,27 +1666,25 @@
           </div>
         </div>
 
-        <!-- Disk Bars -->
         <div class="hud-widget bars-widget">
           <div class="widget-section-label">DISK</div>
           <div class="bar-row">
             <span>LOCAL</span>
-            <div class="bar-track"><div class="bar-fill" style="width: 72%"></div></div>
+            <div class="bar-track"><div class="bar-fill" data-min="65" data-max="78" style="width: 72%"></div></div>
             <span class="bar-value">72%</span>
           </div>
           <div class="bar-row">
             <span>CACHE</span>
-            <div class="bar-track"><div class="bar-fill" style="width: 28%"></div></div>
+            <div class="bar-track"><div class="bar-fill" data-min="20" data-max="35" style="width: 28%"></div></div>
             <span class="bar-value">28%</span>
           </div>
           <div class="bar-row">
             <span>SWAP</span>
-            <div class="bar-track"><div class="bar-fill" style="width: 12%"></div></div>
+            <div class="bar-track"><div class="bar-fill" data-min="8" data-max="18" style="width: 12%"></div></div>
             <span class="bar-value">12%</span>
           </div>
         </div>
 
-        <!-- Energy -->
         <div class="hud-widget energy-widget">
           <div class="energy-mini-gauge">
             <svg viewBox="0 0 60 60">
@@ -1584,7 +1699,6 @@
           </div>
         </div>
 
-        <!-- Info / Timer -->
         <div class="hud-widget info-widget">
           <div class="info-row"><span>UPTIME</span><span class="val" id="uptime">00:00:00</span></div>
           <div class="info-row"><span>NET</span><span class="val">1.9 GB/s</span></div>
@@ -1594,10 +1708,19 @@
 
       <!-- CENTER -->
       <section class="hud-center">
-
-        <!-- REACTOR STAGE -->
         <div class="reactor-stage">
           <canvas id="three-reactor"></canvas>
+
+          <!-- Anel de texto rotativo -->
+          <svg class="reactor-text-ring" viewBox="0 0 400 400" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+            <defs>
+              <path id="ringPath" d="M 200,200 m -160,0 a 160,160 0 1,1 320,0 a 160,160 0 1,1 -320,0" fill="none"/>
+            </defs>
+            <text fill="rgba(0,229,255,0.55)" font-family="JetBrains Mono, monospace" font-size="10" letter-spacing="5">
+              <textPath href="#ringPath" startOffset="0%">· STARK INDUSTRIES · FRIDAY OS · NEURAL LINK ACTIVE · MK-I ·</textPath>
+            </text>
+          </svg>
+
           <span class="reactor-label rl-1">SYS.CORE</span>
           <span class="reactor-label rl-2">NEURAL_LINK</span>
           <span class="reactor-label rl-3">PWR_CELL</span>
@@ -1605,7 +1728,6 @@
           <span class="reactor-label rl-5">MK-I</span>
         </div>
 
-        <!-- CHAT STAGE -->
         <div class="chat-stage">
           <div class="chat-header">
             <span class="ch-title">// COMMUNICATION LOG</span>
@@ -1613,6 +1735,8 @@
           </div>
 
           <div id="messages" aria-live="polite"></div>
+
+          <button class="scroll-pill" id="scrollPill" type="button">↓ NOVAS MENSAGENS</button>
 
           <div class="composer">
             <div id="attachmentPreview" class="attachment-preview hidden">
@@ -1628,7 +1752,7 @@
               <div class="chat-input-row">
                 <button type="button" id="attachImgBtn" class="hud-btn sm" title="Imagem">🖼</button>
                 <button type="button" id="attachPdfBtn" class="hud-btn sm" title="PDF">📄</button>
-                <input id="command" maxlength="2000" placeholder="ENTER COMMAND..." autocomplete="off" required />
+                <input id="command" maxlength="2000" placeholder="ENTER COMMAND... (Ctrl+K)" autocomplete="off" required />
                 <button id="voiceBtn" type="button" class="hud-btn sm" style="font-size:16px;">🎙</button>
                 <button class="hud-btn primary" id="sendBtn" type="submit">▲</button>
               </div>
@@ -1637,15 +1761,13 @@
         </div>
       </section>
 
-      <!-- RIGHT COLUMN -->
+      <!-- RIGHT -->
       <aside class="hud-right">
-        <!-- Data do topo -->
         <div class="hud-widget">
           <div class="widget-section-label">DATE</div>
           <div style="font-family: var(--font-mono); font-size: 11px; color: var(--text-bright); letter-spacing: 0.06em;" id="rightDate">THU, JUN 21</div>
         </div>
 
-        <!-- Agenda -->
         <div class="hud-widget calendar-widget hidden" id="calendarPanel">
           <div class="widget-label-row">
             <span>AGENDA</span>
@@ -1659,10 +1781,8 @@
           </div>
         </div>
 
-        <!-- Botão Calendar Connect -->
         <button id="calendarConnect" class="hud-btn" type="button" style="width:100%;">📅 CONNECT CALENDAR</button>
 
-        <!-- Status -->
         <div class="hud-widget status-widget">
           <div class="widget-section-label">STATUS</div>
           <div id="status" role="status" aria-live="polite">Aguardando autenticação...</div>
@@ -1670,7 +1790,6 @@
       </aside>
     </div>
 
-    <!-- BOTTOM BAR -->
     <footer class="hud-bottom">
       <button id="stopSpeakTop" class="hud-btn sm" type="button">⏹ STOP</button>
       <div class="bottom-wave">
@@ -1688,7 +1807,6 @@
     </footer>
   </div>
 
-  <!-- MUSIC PLAYER (fora do hud para posicionamento fixo) -->
   <iframe id="musicPlayer" class="hidden" allow="autoplay; encrypted-media" allowfullscreen></iframe>
 
   <!-- ============ SETTINGS MODAL ============ -->
@@ -1710,6 +1828,15 @@
           <span>Efeitos Neurais</span>
           <label class="switch"><input type="checkbox" id="toggleParticles" checked><span class="slider"></span></label>
         </div>
+      </div>
+
+      <div class="modal-section">
+        <h3>Atalhos de Teclado</h3>
+        <p style="font-family: var(--font-mono); font-size: 10px; line-height: 1.8;">
+          <strong style="color: var(--cyan);">Ctrl+K</strong> · Focar comando<br>
+          <strong style="color: var(--cyan);">Ctrl+/</strong> · Abrir configurações<br>
+          <strong style="color: var(--cyan);">Esc</strong> · Fechar / interromper voz
+        </p>
       </div>
 
       <div class="modal-section">
@@ -1757,11 +1884,12 @@
     let currentAttachment = null, currentAttachmentType = null, currentAttachmentName = null;
     let statusPollingInterval = null, deferredPrompt = null, availableVoices = [];
     let bootTime = Date.now();
+    let bootRunning = false;
 
     window.fridayState = 'idle';
 
     // ============================================
-    // CLOCK + DATE STRIP + UPTIME
+    // CLOCK + DATE + UPTIME
     // ============================================
     const MONTHS_PT = ['JAN','FEV','MAR','ABR','MAI','JUN','JUL','AGO','SET','OUT','NOV','DEZ'];
     const WEEKDAYS_PT = ['DOM','SEG','TER','QUA','QUI','SEX','SÁB'];
@@ -1775,6 +1903,17 @@
         html += `<span class="day-num${active}">${String(i).padStart(2, '0')}</span>`;
       }
       $('topDays').innerHTML = html;
+      // Auto-scroll até o dia ativo
+      requestAnimationFrame(() => {
+        const el = document.querySelector('.day-num.active');
+        if (el) {
+          try {
+            el.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' });
+          } catch (e) {
+            el.scrollIntoView();
+          }
+        }
+      });
     }
 
     function updateClocks() {
@@ -1799,7 +1938,7 @@
     setInterval(updateClocks, 1000);
 
     // ============================================
-    // HUD GAUGES (substitui Chart.js)
+    // HUD GAUGES
     // ============================================
     function updateGauge(id, value) {
       const el = document.getElementById('gauge' + id);
@@ -1812,7 +1951,6 @@
     }
 
     function initChart() {
-      // Dummy sysChart que traduz as métricas para os gauges
       sysChart = {
         data: { datasets: [{ data: [0, 0, 0, 0, 0] }] },
         update: function() {
@@ -1848,7 +1986,33 @@
     }
 
     // ============================================
-    // PREFERÊNCIAS VISUAIS
+    // LIVE BARS (disco + energia)
+    // ============================================
+    setInterval(() => {
+      document.querySelectorAll('.bar-fill[data-min]').forEach(el => {
+        const min = +el.dataset.min, max = +el.dataset.max;
+        const val = min + Math.random() * (max - min);
+        el.style.width = val + '%';
+        const row = el.closest('.bar-row');
+        if (row) {
+          const valEl = row.querySelector('.bar-value');
+          if (valEl) valEl.textContent = Math.round(val) + '%';
+        }
+      });
+    }, 3500);
+
+    setInterval(() => {
+      const fill = document.querySelector('.e-fill');
+      const txt = document.querySelector('.e-text');
+      if (fill && txt) {
+        const pct = 92 + Math.random() * 8;
+        fill.style.strokeDashoffset = 157 * (1 - pct / 100);
+        txt.innerHTML = `${Math.round(pct)}<small>%</small>`;
+      }
+    }, 5000);
+
+    // ============================================
+    // PREFERÊNCIAS
     // ============================================
     function loadVisualPreferences() {
       if (localStorage.getItem('friday_hide_sidebar') === 'true') {
@@ -1884,6 +2048,67 @@
     $('closeSettingsBtn').addEventListener('click', () => $('settingsModal').classList.add('hidden'));
 
     // ============================================
+    // ATALHOS DE TECLADO
+    // ============================================
+    document.addEventListener('keydown', (e) => {
+      // Esc: fecha modal / para voz
+      if (e.key === 'Escape') {
+        if (!$('settingsModal').classList.contains('hidden')) {
+          $('settingsModal').classList.add('hidden');
+        } else if (speaking || listening) {
+          stopVoice();
+          status("Interrompido.");
+        }
+      }
+      // Ctrl/Cmd + K: foca no input
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        const cmd = $('command');
+        if (cmd && !$('assistant').classList.contains('hidden')) cmd.focus();
+      }
+      // Ctrl/Cmd + /: toggle settings
+      if ((e.ctrlKey || e.metaKey) && e.key === '/') {
+        e.preventDefault();
+        $('settingsModal').classList.toggle('hidden');
+      }
+    });
+
+    // ============================================
+    // BOOT SEQUENCE
+    // ============================================
+    async function runBootSequence() {
+      if (bootRunning) return;
+      bootRunning = true;
+      const overlay = $("bootOverlay");
+      const log = $("bootLog");
+      overlay.classList.remove("hidden");
+      overlay.classList.remove("fade-out");
+
+      const steps = [
+        "INITIALIZING KERNEL",
+        "LOADING NEURAL NETWORK",
+        "MOUNTING FILESYSTEM",
+        "ESTABLISHING SECURE LINK",
+        "CALIBRATING SENSORS",
+        "SYNCING CALENDAR",
+        "FRIDAY ONLINE"
+      ];
+
+      for (let i = 0; i < steps.length; i++) {
+        log.innerHTML = `<span class="ok">[OK]</span> ${steps[i]}<span class="cursor"></span>`;
+        try { playTone(400 + i * 120, 'sine', 0.06); } catch(e) {}
+        await new Promise(r => setTimeout(r, 220));
+      }
+
+      await new Promise(r => setTimeout(r, 400));
+      overlay.classList.add("fade-out");
+      await new Promise(r => setTimeout(r, 500));
+      overlay.classList.add("hidden");
+      overlay.classList.remove("fade-out");
+      bootRunning = false;
+    }
+
+    // ============================================
     // PWA
     // ============================================
     window.addEventListener('beforeinstallprompt', (e) => {
@@ -1909,7 +2134,7 @@
     }
 
     // ============================================
-    // MICROFONE
+    // MIC PERMISSION
     // ============================================
     $('requestMicBtn').addEventListener('click', async () => {
       try {
@@ -1977,7 +2202,7 @@
     }
 
     // ============================================
-    // BACKGROUND PARTICLES (Three.js)
+    // BG PARTICLES
     // ============================================
     let bgScene, bgCamera, bgRenderer, particlesMesh, linesMesh;
     function initBgParticles() {
@@ -2057,7 +2282,7 @@
     }
 
     // ============================================
-    // REACTOR CENTRAL (HUD style)
+    // REACTOR
     // ============================================
     let scene, camera, renderer, audioAnalyser, audioContext;
     let reactorGroup, coreMesh, coreMat, orbitalParticles;
@@ -2079,7 +2304,6 @@
       reactorGroup = new THREE.Group();
       scene.add(reactorGroup);
 
-      // Helper: arc segment geometry
       function arcSegment(inner, outer, thetaStart, thetaLength, color, opacity, segs = 64) {
         const geo = new THREE.RingGeometry(inner, outer, segs, 1, thetaStart, thetaLength);
         const mat = new THREE.MeshBasicMaterial({
@@ -2090,758 +2314,13 @@
         return new THREE.Mesh(geo, mat);
       }
 
-      // ===== NÚCLEO =====
       coreMat = new THREE.MeshBasicMaterial({
         color: 0x00e5ff, transparent: true, opacity: 0.95
       });
       coreMesh = new THREE.Mesh(new THREE.SphereGeometry(0.5, 48, 48), coreMat);
       reactorGroup.add(coreMesh);
 
-      // Halo (glow additive)
       const halo = new THREE.Mesh(
         new THREE.SphereGeometry(0.7, 32, 32),
         new THREE.MeshBasicMaterial({
-          color: 0x00e5ff, transparent: true, opacity: 0.12, blending: THREE.AdditiveBlending
-        })
-      );
-      reactorGroup.add(halo);
-
-      // ===== ANEL 1 - fino interno =====
-      reactorGroup.add(arcSegment(0.63, 0.65, 0, Math.PI * 2, 0x00e5ff, 0.45, 128));
-
-      // ===== ANEL 2 - segmentado fino (24 seg) =====
-      for (let i = 0; i < 24; i++) {
-        const seg = (Math.PI * 2) / 24;
-        reactorGroup.add(arcSegment(0.78, 0.80, i * seg + seg * 0.15, seg * 0.7, 0x5ee7f2, 0.55));
-      }
-
-      // ===== ANEL 3 - espesso segmentado (8 seg) =====
-      for (let i = 0; i < 8; i++) {
-        const seg = (Math.PI * 2) / 8;
-        reactorGroup.add(arcSegment(0.92, 1.05, i * seg, seg * 0.9, 0x00e5ff, 0.6));
-      }
-
-      // ===== ANEL 4 - fino médio =====
-      reactorGroup.add(arcSegment(1.13, 1.16, 0, Math.PI * 2, 0x00e5ff, 0.28, 128));
-
-      // ===== ANEL 5 - VERMELHO (4 seg) =====
-      for (let i = 0; i < 4; i++) {
-        const seg = (Math.PI * 2) / 4;
-        reactorGroup.add(arcSegment(1.22, 1.32, i * seg + seg * 0.15, seg * 0.45, 0xff2b4a, 0.75));
-      }
-
-      // ===== ANEL 6 - tick marks (60 ticks) =====
-      for (let i = 0; i < 60; i++) {
-        const angle = (Math.PI * 2 * i) / 60;
-        const segLen = (Math.PI * 2) / 60 * 0.4;
-        reactorGroup.add(arcSegment(1.38, 1.42, angle, segLen, 0x00e5ff, i % 5 === 0 ? 0.7 : 0.35));
-      }
-
-      // ===== ANEL 7 - outer thin =====
-      reactorGroup.add(arcSegment(1.58, 1.60, 0, Math.PI * 2, 0x5ee7f2, 0.18, 128));
-
-      // ===== ANEL 8 - dashed outer (48 seg) =====
-      for (let i = 0; i < 48; i++) {
-        const seg = (Math.PI * 2) / 48;
-        reactorGroup.add(arcSegment(1.73, 1.76, i * seg, seg * 0.55, 0x00e5ff, 0.4));
-      }
-
-      // ===== Partículas orbitando =====
-      const particleCount = 100;
-      const pGeo = new THREE.BufferGeometry();
-      const pPos = new Float32Array(particleCount * 3);
-      const pData = [];
-      for (let i = 0; i < particleCount; i++) {
-        const r = 1.85 + Math.random() * 0.35;
-        const a = Math.random() * Math.PI * 2;
-        pData.push({ r, a, speed: 0.0008 + Math.random() * 0.002 });
-        pPos[i*3] = Math.cos(a) * r;
-        pPos[i*3+1] = Math.sin(a) * r;
-        pPos[i*3+2] = (Math.random() - 0.5) * 0.1;
-      }
-      pGeo.setAttribute('position', new THREE.BufferAttribute(pPos, 3));
-      orbitalParticles = new THREE.Points(pGeo, new THREE.PointsMaterial({
-        color: 0x5ee7f2, size: 0.035, transparent: true, opacity: 0.75, blending: THREE.AdditiveBlending
-      }));
-      reactorGroup.add(orbitalParticles);
-
-      let t = 0;
-      function animateReactor() {
-        requestAnimationFrame(animateReactor);
-        t += 0.016;
-
-        reactorGroup.rotation.z += 0.0015;
-
-        // Pulse do núcleo
-        const pulse = 1 + Math.sin(t * 2.5) * 0.08;
-        coreMesh.scale.setScalar(pulse);
-        halo.scale.setScalar(pulse);
-
-        // Partículas orbitando
-        const pAttr = orbitalParticles.geometry.attributes.position;
-        const pArr = pAttr.array;
-        for (let i = 0; i < particleCount; i++) {
-          const d = pData[i];
-          d.a += d.speed;
-          pArr[i*3] = Math.cos(d.a) * d.r;
-          pArr[i*3+1] = Math.sin(d.a) * d.r;
-        }
-        pAttr.needsUpdate = true;
-
-        // Reação ao áudio
-        if (audioAnalyser && speaking) {
-          const dataArr = new Uint8Array(audioAnalyser.frequencyBinCount);
-          audioAnalyser.getByteFrequencyData(dataArr);
-          let sum = 0;
-          for (let i = 0; i < 8; i++) sum += dataArr[i];
-          const avg = sum / 8;
-          const scale = 1 + (avg / 255) * 0.4;
-          coreMesh.scale.setScalar(scale);
-          coreMat.color.setHex(0x8b5cf6);
-        } else {
-          coreMat.color.setHex(0x00e5ff);
-        }
-
-        renderer.render(scene, camera);
-      }
-      animateReactor();
-    }
-
-    window.addEventListener('resize', () => {
-      if (bgRenderer) {
-        bgRenderer.setSize(window.innerWidth, window.innerHeight);
-        bgCamera.aspect = window.innerWidth / window.innerHeight;
-        bgCamera.updateProjectionMatrix();
-      }
-      if (renderer) {
-        const container = $('three-reactor');
-        if (container) {
-          renderer.setSize(container.clientWidth, container.clientHeight);
-          camera.aspect = container.clientWidth / container.clientHeight;
-          camera.updateProjectionMatrix();
-        }
-      }
-    });
-
-    function setupAudioAnalyser(audioElement) {
-      if (!audioContext) audioContext = new (window.AudioContext || window.webkitAudioContext)();
-      if (audioContext.state === 'suspended') audioContext.resume();
-      try {
-        const source = audioContext.createMediaElementSource(audioElement);
-        audioAnalyser = audioContext.createAnalyser();
-        audioAnalyser.fftSize = 256;
-        source.connect(audioAnalyser);
-        audioAnalyser.connect(audioContext.destination);
-      } catch(e) {}
-    }
-
-    // ============================================
-    // MIC VISUALIZER
-    // ============================================
-    let micContext, micAnalyser, micSource, micDataArray;
-    async function setupMicVisualizer() {
-      if (micContext) return;
-      try {
-        micContext = new (window.AudioContext || window.webkitAudioContext)();
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        micSource = micContext.createMediaStreamSource(stream);
-        micAnalyser = micContext.createAnalyser();
-        micAnalyser.fftSize = 64;
-        micSource.connect(micAnalyser);
-        micDataArray = new Uint8Array(micAnalyser.frequencyBinCount);
-      } catch(e) {}
-    }
-    function animateMicVisualizer() {
-      if (!listening) return;
-      requestAnimationFrame(animateMicVisualizer);
-      if (!micAnalyser) return;
-      micAnalyser.getByteFrequencyData(micDataArray);
-      const bars = document.querySelectorAll('#waveform span');
-      for (let i = 0; i < bars.length; i++) {
-        const val = micDataArray[i] || 0;
-        bars[i].style.height = `${Math.max(4, (val / 255) * 28)}px`;
-      }
-    }
-
-    if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => { navigator.serviceWorker.register('/sw.js').catch(() => {}); });
-    }
-
-    // ============================================
-    // STATUS / TTS / SONS
-    // ============================================
-    window.onYouTubeIframeAPIReady = function() {
-      ytPlayer = new YT.Player('musicPlayer', { events: { 'onReady': () => {} } });
-    };
-
-    function handleMusicAction(text) {
-      if (text.includes('[MUSIC_ACTION:pause]')) { if (ytPlayer && ytPlayer.pauseVideo) ytPlayer.pauseVideo(); return text.replace('[MUSIC_ACTION:pause]', '').trim(); }
-      if (text.includes('[MUSIC_ACTION:play]')) { if (ytPlayer && ytPlayer.playVideo) ytPlayer.playVideo(); return text.replace('[MUSIC_ACTION:play]', '').trim(); }
-      if (text.includes('[MUSIC_PLAY:')) {
-        const match = text.match(/\[MUSIC_PLAY:(.*?)\]/);
-        if (match && match[1]) {
-          $('musicPlayer').src = match[1];
-          $('musicPlayer').classList.remove('hidden');
-          return text.replace(/\[MUSIC_PLAY:.*?\]/, '').trim();
-        }
-      }
-      return text;
-    }
-
-    function startStatusPolling() {
-      stopStatusPolling();
-      statusPollingInterval = setInterval(async () => {
-        try {
-          const res = await fetch("/status", { credentials: "same-origin", cache: "no-store" });
-          if (!res.ok) return;
-          const data = await res.json();
-          if (data.status && data.status.length > 0) $("status").textContent = data.status[data.status.length - 1];
-        } catch (e) {}
-      }, 3000);
-    }
-    function stopStatusPolling() {
-      if (statusPollingInterval) { clearInterval(statusPollingInterval); statusPollingInterval = null; }
-    }
-
-    let audioCtx = null;
-    function playTone(freq, type, duration, vol=0.04) {
-      try {
-        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        if (audioCtx.state === 'suspended') audioCtx.resume();
-        const osc = audioCtx.createOscillator(); const gain = audioCtx.createGain();
-        osc.type = type; osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
-        gain.gain.setValueAtTime(vol, audioCtx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.00001, audioCtx.currentTime + duration);
-        osc.connect(gain); gain.connect(audioCtx.destination);
-        osc.start(); osc.stop(audioCtx.currentTime + duration);
-      } catch(e) {}
-    }
-    function soundBoot() { playTone(400, 'sine', 0.08); setTimeout(() => playTone(800, 'sine', 0.15), 90); }
-    function soundListen() { playTone(600, 'sine', 0.08); }
-    function soundSend() { playTone(300, 'sine', 0.08); }
-    function soundReceive() { playTone(800, 'sine', 0.08); }
-
-    function setWaveformState(state) {
-      const wf = $('waveform');
-      if (!wf) return;
-      wf.className = 'waveform-container';
-      if (state === 'listening') {
-        wf.classList.add('active');
-        $('ctx-mic').textContent = "LISTENING";
-        $('ctx-mic').style.color = "var(--green)";
-        document.querySelectorAll('#waveform span').forEach(s => s.style.animation = 'none');
-        animateMicVisualizer();
-      } else if (state === 'speaking') {
-        wf.classList.add('active', 'speaking');
-        $('ctx-mic').textContent = "STANDBY";
-        $('ctx-mic').style.color = "var(--cyan-2)";
-        document.querySelectorAll('#waveform span').forEach(s => s.style.height = '4px');
-      } else {
-        $('ctx-mic').textContent = "STANDBY";
-        $('ctx-mic').style.color = "var(--text-mid)";
-      }
-    }
-    function status(text) { $("status").textContent = text; }
-
-    // ============================================
-    // CALENDÁRIO
-    // ============================================
-    function formatEventDate(dateStr) {
-      if (!dateStr) return "Sem data";
-      const d = new Date(dateStr);
-      if (isNaN(d.getTime())) return dateStr;
-      return new Intl.DateTimeFormat("pt-BR", {
-        day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"
-      }).format(d);
-    }
-    async function loadCalendarEvents(range = "upcoming") {
-      const panel = $("calendarPanel"); const container = $("calendarEventsList");
-      if (!panel || !container) return;
-      panel.classList.remove("hidden");
-      container.innerHTML = '<p class="awareness-note">Sincronizando agenda...</p>';
-      try {
-        const response = await fetch(`/calendar/events?range=${range}`, { credentials: "same-origin", cache: "no-store" });
-        const data = await response.json();
-        if (!response.ok) {
-          container.innerHTML = `<p class="awareness-note" style="color: var(--red);">${data.error || data.detail || "Erro."}</p>`;
-          return;
-        }
-        if (!data.events || data.events.length === 0) {
-          container.innerHTML = `<p class="awareness-note">Nenhum compromisso ${range === "today" ? "hoje" : "nos próximos dias"}.</p>`;
-          return;
-        }
-        container.replaceChildren();
-        data.events.forEach((evt) => {
-          const item = document.createElement("div"); item.className = "awareness-item";
-          const title = document.createElement("strong"); title.textContent = evt.summary;
-          const timeSpan = document.createElement("span"); timeSpan.textContent = formatEventDate(evt.start);
-          item.append(title, timeSpan); container.appendChild(item);
-        });
-      } catch (e) {
-        container.innerHTML = '<p class="awareness-note" style="color: var(--red);">Erro de conexão.</p>';
-      }
-    }
-
-    // ============================================
-    // VOZ / STOP
-    // ============================================
-    function stopVoice() {
-      speechRunId++;
-      clearTimeout(silenceTimer);
-      if (wakeWordRecognition && wakeWordActive) { wakeWordActive = false; try { wakeWordRecognition.stop(); } catch(e) {} }
-      if (currentUtterance instanceof Audio) { currentUtterance.pause(); currentUtterance.currentTime = 0; }
-      currentUtterance = null;
-      if (recognition && listening) { try { recognition.stop(); } catch (e) {} }
-      if ("speechSynthesis" in window) window.speechSynthesis.cancel();
-      speaking = false;
-      setWaveformState('idle');
-    }
-
-    function cleanSpeechText(text) {
-      return String(text)
-        .replace(/\*\*(.*?)\*\*/g, "$1")
-        .replace(/\*(.*?)\*/g, "$1")
-        .replace(/`([^`]*)`/g, "$1")
-        .replace(/https?:\/\/\S+/g, "link omitido")
-        .replace(/^\s*[-*]\s+/gm, "")
-        .trim();
-    }
-
-    function scrambleText(element, finalText) {
-      const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!<>-_/[]{}';
-      let it = 0; const max = 15;
-      const interval = setInterval(() => {
-        const scrambled = finalText.split('').map((char, i) => {
-          if (i < (it / max) * finalText.length) return char;
-          if (char === ' ' || char === '\n') return char;
-          return chars[Math.floor(Math.random() * chars.length)];
-        }).join('');
-        element.innerHTML = marked.parse(scrambled);
-        it++;
-        if (it >= max) { clearInterval(interval); element.innerHTML = marked.parse(finalText); }
-      }, 25);
-    }
-
-    async function speakText(text, force = false) {
-      const autoEl = $("autoSpeak");
-      if (!force && autoEl && !autoEl.checked) return;
-      const cleanText = cleanSpeechText(text);
-      if (!cleanText) return;
-
-      speechRunId++;
-      const runId = speechRunId;
-      if ('speechSynthesis' in window) window.speechSynthesis.cancel();
-      status('FRIDAY está falando...');
-
-      try {
-        const response = await fetch(`/tts?text=${encodeURIComponent(cleanText)}`);
-        if (!response.ok) throw new Error('TTS falhou');
-        const blob = await response.blob();
-        if (blob.size === 0) throw new Error('Áudio vazio');
-        const url = URL.createObjectURL(blob);
-        const audio = new Audio(url);
-        setupAudioAnalyser(audio);
-        audio.onplay = () => { if (runId === speechRunId) { speaking = true; soundListen(); setWaveformState('speaking'); } };
-        audio.onended = () => {
-          if (runId === speechRunId) {
-            speaking = false; status('Sistema online.'); setWaveformState('idle');
-            URL.revokeObjectURL(url);
-            setTimeout(() => {
-              if (!$("assistant").classList.contains("hidden") && !listening && !isProcessing) startVoice(true);
-            }, 800);
-          }
-        };
-        audio.onerror = () => { browserSpeak(cleanText, runId); };
-        currentUtterance = audio;
-        await audio.play();
-        return;
-      } catch (e) {
-        browserSpeak(cleanText, runId);
-      }
-    }
-    function speakResponse(text) { lastReply = String(text || ""); speakText(lastReply, false); }
-
-    // ============================================
-    // MENSAGENS
-    // ============================================
-    function addMessage(who, text) {
-      const item = document.createElement("div");
-      item.className = "msg " + (who === "Você" ? "user" : "bot");
-      const label = document.createElement("strong");
-      label.textContent = who === "Você" ? "CHEFE" : "FRIDAY";
-      const content = document.createElement("span");
-      item.append(label, content);
-      $("messages").appendChild(item);
-      $("messages").scrollTop = $("messages").scrollHeight;
-      return content;
-    }
-
-    function addToolCard(toolName) {
-      const item = document.createElement("div"); item.className = "msg bot";
-      const label = document.createElement("strong"); label.textContent = "SYSTEM";
-      const card = document.createElement("div"); card.className = "tool-card loading";
-      let icon = "⚙"; let displayName = toolName.replace(/_/g, ' ');
-      if (toolName.includes("calendar")) { icon = "📅"; displayName = "Acessando Agenda..."; }
-      else if (toolName.includes("weather")) { icon = "🌤"; displayName = "Consultando Clima..."; }
-      card.innerHTML = `<span>${icon}</span><span>${displayName}</span>`;
-      item.append(label, card); $("messages").appendChild(item);
-      $("messages").scrollTop = $("messages").scrollHeight;
-    }
-
-    // ============================================
-    // REQUEST / LOCKOUT
-    // ============================================
-    async function request(url, data) {
-      const response = await fetch(url, {
-        method: "POST", credentials: "same-origin",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data)
-      });
-      let result;
-      try { result = await response.json(); } catch (e) { throw new Error("Resposta inválida."); }
-      if (!response.ok) throw new Error((result && result.detail) || (result && result.error) || "Falha.");
-      return result;
-    }
-
-    function startLockout(remaining) {
-      const seconds = Math.max(0, Math.ceil(Number(remaining) || 0));
-      const notice = $("lockoutNotice");
-      clearInterval(lockoutInterval);
-      if (seconds === 0) { lockoutEndsAt = 0; notice.classList.add("hidden"); return; }
-      lockoutEndsAt = Date.now() + seconds * 1000;
-      notice.classList.remove("hidden");
-      const upd = () => {
-        const left = Math.max(0, Math.ceil((lockoutEndsAt - Date.now()) / 1000));
-        if (left === 0) { clearInterval(lockoutInterval); lockoutEndsAt = 0; notice.textContent = "Bloqueio encerrado."; return; }
-        notice.textContent = `ACESSO BLOQUEADO · ${left}s`;
-      };
-      upd(); lockoutInterval = setInterval(upd, 1000);
-    }
-
-    // ============================================
-    // ATTACHMENTS
-    // ============================================
-    function handleFileSelect(e, type) {
-      const file = e.target.files[0]; if (!file) return;
-      currentAttachmentName = file.name;
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        currentAttachment = ev.target.result; currentAttachmentType = type;
-        $('attachmentName').textContent = file.name;
-        $('attachmentPreview').classList.remove('hidden');
-      };
-      reader.readAsDataURL(file); e.target.value = '';
-    }
-    $('attachImgBtn').addEventListener('click', () => $('fileInputImage').click());
-    $('attachPdfBtn').addEventListener('click', () => $('fileInputPdf').click());
-    $('fileInputImage').addEventListener('change', (e) => handleFileSelect(e, 'image'));
-    $('fileInputPdf').addEventListener('change', (e) => handleFileSelect(e, 'pdf'));
-    $('removeAttachment').addEventListener('click', () => {
-      currentAttachment = null; currentAttachmentType = null; currentAttachmentName = null;
-      $('attachmentPreview').classList.add('hidden'); $('attachmentName').textContent = '';
-    });
-
-    // ============================================
-    // SEND TO FRIDAY
-    // ============================================
-    async function sendCommandToFriday(command, isInitial = false) {
-      if (isProcessing) return;
-      isProcessing = true; window.fridayState = 'thinking';
-      if (!isInitial) { addMessage("Você", command); soundSend(); }
-      const botSpan = addMessage("FRIDAY", " ");
-      $("sendBtn").disabled = true; $("voiceBtn").disabled = true;
-      status("FRIDAY está processando..."); startStatusPolling();
-
-      try {
-        const payload = { command: command };
-        if (currentAttachmentType === 'pdf' && !isInitial) {
-          payload.pdf = currentAttachment; payload.pdf_name = currentAttachmentName;
-          currentAttachment = null; currentAttachmentType = null; currentAttachmentName = null;
-          $('attachmentPreview').classList.add('hidden'); $('attachmentName').textContent = '';
-        }
-
-        const response = await fetch("/chat", {
-          method: "POST", credentials: "same-origin",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload)
-        });
-        if (!response.ok) throw new Error("Erro na conexão.");
-
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder("utf-8");
-        let fullReplyText = ""; let buffer = ""; let streamDone = false; let gotFirst = false;
-
-        while (!streamDone) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split('\n'); buffer = lines.pop();
-          for (const line of lines) {
-            if (line.startsWith("data: ")) {
-              const dataStr = line.substring(6).trim(); if (!dataStr) continue;
-              try {
-                const dataObj = JSON.parse(dataStr);
-                if (dataObj.done) { streamDone = true; break; }
-                if (!gotFirst) { soundReceive(); gotFirst = true; }
-                if (dataObj.tool) { window.fridayState = 'tooling'; addToolCard(dataObj.tool); }
-                if (dataObj.text) {
-                  fullReplyText += dataObj.text;
-                  botSpan.innerHTML = marked.parse(fullReplyText);
-                  $("messages").scrollTop = $("messages").scrollHeight;
-                }
-                if (dataObj.error) { botSpan.innerHTML = "[ERRO] " + dataObj.error; status("Erro na IA."); }
-              } catch (e) {}
-            }
-          }
-        }
-
-        if (window.hljs) botSpan.querySelectorAll('pre code').forEach(el => hljs.highlightElement(el));
-        stopStatusPolling();
-
-        if (!fullReplyText) { status("Falha na resposta."); }
-        else {
-          status("Sistema online.");
-          let finalReply = handleMusicAction(fullReplyText);
-          scrambleText(botSpan, finalReply);
-          lastReply = finalReply; speakResponse(finalReply);
-        }
-      } catch (error) {
-        stopStatusPolling(); botSpan.innerHTML = "[ERRO] " + error.message; status("Erro de conexão.");
-      } finally {
-        isProcessing = false; window.fridayState = 'idle';
-        $("sendBtn").disabled = false; $("voiceBtn").disabled = false;
-        if (!$("assistant").classList.contains("hidden")) $("command").focus();
-      }
-    }
-
-    // ============================================
-    // LOGIN
-    // ============================================
-    $("loginForm").addEventListener("submit", async (event) => {
-      event.preventDefault();
-      const password = $("password").value;
-      status("Verificando credenciais...");
-      try {
-        await request("/login", { password });
-        $("password").value = "";
-        $("login").classList.add("hidden");
-        $("assistant").classList.remove("hidden");
-        status("Autenticada. FRIDAY online."); soundBoot();
-        $('messages').replaceChildren();
-        startSysMetrics();
-        sendCommandToFriday('Gere o meu briefing matinal para a cidade de Criciúma usando a ferramenta get_morning_briefing', true);
-        $("command").focus();
-        checkCalendarConnection();
-        startWakeWordListener();
-        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        if (audioCtx.state === 'suspended') audioCtx.resume();
-      } catch (error) {
-        status(error.message); $("password").value = "";
-        if (error.status === 429) startLockout(error.remaining); else $("password").focus();
-      }
-    });
-
-    $("chatForm").addEventListener("submit", async (event) => {
-      event.preventDefault();
-      const command = $("command").value.trim();
-      if (!command && !currentAttachment) return;
-      $("command").value = "";
-      sendCommandToFriday(command, false);
-    });
-
-    // ============================================
-    // VOZ (RECOGNITION)
-    // ============================================
-    function startVoice(isContinuous = false) {
-      const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-      if (!SR) { status("Reconhecimento indisponível."); return; }
-      if (listening && recognition) { recognition.stop(); return; }
-
-      stopVoice();
-      recognition = new SR();
-      recognition.lang = "pt-BR"; recognition.continuous = isContinuous;
-      recognition.interimResults = false; recognition.maxAlternatives = 1;
-
-      recognition.onstart = () => {
-        listening = true; setupMicVisualizer();
-        $("voiceBtn").classList.add("listening"); soundListen(); setWaveformState('listening');
-        $("voiceBtn").textContent = "⏹";
-        status(isContinuous ? "Aguardando continuação..." : "Estou ouvindo, chefe...");
-        clearTimeout(silenceTimer);
-        if (isContinuous) {
-          silenceTimer = setTimeout(() => { if (listening && recognition) { recognition.stop(); status("Escuta encerrada."); } }, 5000);
-        }
-      };
-      recognition.onresult = (event) => {
-        clearTimeout(silenceTimer);
-        $("command").value = event.results[0][0].transcript;
-        status("Voz reconhecida.");
-        $("chatForm").requestSubmit();
-      };
-      recognition.onerror = (event) => {
-        clearTimeout(silenceTimer);
-        status("Falha no mic: " + event.error); setWaveformState('idle');
-      };
-      recognition.onend = () => {
-        clearTimeout(silenceTimer); listening = false;
-        $("voiceBtn").classList.remove("listening"); $("voiceBtn").textContent = "🎙";
-        setWaveformState('idle');
-        setTimeout(() => {
-          if (!$("assistant").classList.contains("hidden") && !speaking && !isProcessing) startWakeWordListener();
-        }, isContinuous ? 3000 : 1000);
-      };
-      try { recognition.start(); } catch (e) { status("Não foi possível iniciar o mic."); setWaveformState('idle'); }
-    }
-    $("voiceBtn").addEventListener("click", () => startVoice(false));
-
-    // ============================================
-    // CALENDAR
-    // ============================================
-    async function checkCalendarConnection() {
-      try {
-        const res = await fetch("/calendar/status", { credentials: "same-origin", cache: "no-store" });
-        const data = await res.json();
-        if (res.ok && data.connected) {
-          $("calendarConnect").textContent = "📅 CONNECTED";
-          loadCalendarEvents("upcoming");
-          return true;
-        }
-      } catch (e) {}
-      return false;
-    }
-    $("calendarConnect").addEventListener("click", () => { window.location.href = "/calendar/connect"; });
-    $("refreshCalendarTodayBtn").addEventListener("click", () => loadCalendarEvents("today"));
-    $("refreshCalendarBtn").addEventListener("click", () => loadCalendarEvents("upcoming"));
-    $("stopSpeakTop").addEventListener("click", () => { stopVoice(); status("Fala interrompida."); });
-
-    // ============================================
-    // WAKE WORD
-    // ============================================
-    function startWakeWordListener() {
-      const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-      if (!SR || wakeWordActive) return;
-      wakeWordRecognition = new SR();
-      wakeWordRecognition.lang = 'pt-BR';
-      wakeWordRecognition.continuous = true;
-      wakeWordRecognition.interimResults = true;
-      wakeWordRecognition.onresult = (event) => {
-        const transcript = Array.from(event.results).map(r => r[0].transcript).join('').toLowerCase();
-        if (transcript.includes('hey friday') || transcript.includes('oi friday')) {
-          wakeWordRecognition.stop(); wakeWordActive = false;
-          soundListen(); startVoice(false);
-        }
-      };
-      wakeWordRecognition.onerror = (event) => {
-        if (event.error === 'no-speech' || event.error === 'aborted') return;
-      };
-      wakeWordRecognition.onend = () => {
-        if (!wakeWordActive && !$("assistant").classList.contains("hidden") && !listening && !speaking && !isProcessing) {
-          try { wakeWordRecognition.start(); } catch (e) {}
-        }
-      };
-      try { wakeWordRecognition.start(); wakeWordActive = true; } catch (e) {}
-    }
-
-    // ============================================
-    // SESSION
-    // ============================================
-    function showLogin() {
-      stopVoice(); stopStatusPolling();
-      $("assistant").classList.add("hidden"); $("login").classList.remove("hidden");
-      $("messages").replaceChildren(); $("settingsModal").classList.add("hidden");
-      $("calendarPanel").classList.add("hidden"); $("musicPlayer").classList.add("hidden");
-      $("musicPlayer").src = ""; status("Aguardando autenticação");
-    }
-    $("logout").addEventListener("click", async () => {
-      stopVoice();
-      try { await request("/logout", {}); } catch (e) {}
-      showLogin();
-    });
-
-    async function checkSession() {
-      try {
-        const res = await fetch("/session", { credentials: "same-origin", cache: "no-store" });
-        const data = await res.json();
-        const calendarState = new URLSearchParams(location.search).get("calendar");
-        const msgs = {
-          connected: "Google Calendar conectado.",
-          nosession: "Entre antes de conectar.",
-          denied: "Autorização cancelada.",
-          old: "Tentativa expirou.",
-          state: "Sessão não confere.",
-          config: "OAuth incompleto.",
-          redirect: "Redirect URI inválida.",
-          client: "Cliente OAuth recusado.",
-          token: "Google não concluiu.",
-          incomplete: "Resposta incompleta."
-        };
-        if (data.authenticated) {
-          $("login").classList.add("hidden");
-          $("assistant").classList.remove("hidden");
-          status("Sessão ativa. FRIDAY online.");
-          $('messages').replaceChildren();
-          startSysMetrics();
-          sendCommandToFriday('Gere o meu briefing matinal para a cidade de Criciúma usando a ferramenta get_morning_briefing', true);
-          checkCalendarConnection();
-          startWakeWordListener();
-        }
-        if (msgs[calendarState]) {
-          status(msgs[calendarState]);
-          history.replaceState({}, "", location.pathname);
-        }
-      } catch (e) { status("Não foi possível verificar a sessão."); }
-    }
-
-    // ============================================
-    // POLLING SECUNDÁRIO
-    // ============================================
-    setInterval(async () => {
-      if ($("assistant").classList.contains("hidden")) return;
-      try {
-        const res = await fetch("/calendar/events?range=today", { credentials: "same-origin", cache: "no-store" });
-        if (!res.ok) return;
-        const data = await res.json();
-        if (!data.events || !data.events.length) return;
-        const now = new Date();
-        data.events.forEach(evt => {
-          if (!evt.start) return;
-          const t = new Date(evt.start);
-          const diff = (t - now) / 1000 / 60;
-          if (diff > 0 && diff <= 15) {
-            const key = `alerted_${evt.summary}_${evt.start}`;
-            if (!localStorage.getItem(key)) {
-              localStorage.setItem(key, "true");
-              const msg = `Chefe, seu compromisso "${evt.summary}" começa em ${Math.round(diff)} minutos.`;
-              addMessage("FRIDAY", msg); speakText(msg, true);
-            }
-          }
-        });
-      } catch (e) {}
-    }, 5 * 60 * 1000);
-
-    setInterval(async () => {
-      if ($("assistant").classList.contains("hidden")) return;
-      try {
-        const res = await fetch("/notifications", { credentials: "same-origin" });
-        if (!res.ok) return;
-        const data = await res.json();
-        if (data.notifications && data.notifications.length > 0) {
-          data.notifications.forEach(msg => { addMessage("FRIDAY", msg); speakResponse(msg); });
-        }
-      } catch (e) {}
-    }, 30000);
-
-    // ============================================
-    // INIT
-    // ============================================
-    loadVisualPreferences();
-    checkSession();
-
-    window.addEventListener('load', () => {
-      if (!document.body.classList.contains('hide-particles')) initBgParticles();
-      if (!document.body.classList.contains('hide-sidebar')) initReactor();
-    });
-  </script>
-  <script src="https://www.youtube.com/iframe_api"></script>
-</body>
-</html>
+          color: 0x00e
