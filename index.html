@@ -2323,4 +2323,778 @@
       const halo = new THREE.Mesh(
         new THREE.SphereGeometry(0.7, 32, 32),
         new THREE.MeshBasicMaterial({
-          color: 0x00e
+          color: 0x00e5ff, transparent: true, opacity: 0.12, blending: THREE.AdditiveBlending
+        })
+      );
+      reactorGroup.add(halo);
+
+      reactorGroup.add(arcSegment(0.63, 0.65, 0, Math.PI * 2, 0x00e5ff, 0.45, 128));
+      for (let i = 0; i < 24; i++) {
+        const seg = (Math.PI * 2) / 24;
+        reactorGroup.add(arcSegment(0.78, 0.80, i * seg + seg * 0.15, seg * 0.7, 0x5ee7f2, 0.55));
+      }
+      for (let i = 0; i < 8; i++) {
+        const seg = (Math.PI * 2) / 8;
+        reactorGroup.add(arcSegment(0.92, 1.05, i * seg, seg * 0.9, 0x00e5ff, 0.6));
+      }
+      reactorGroup.add(arcSegment(1.13, 1.16, 0, Math.PI * 2, 0x00e5ff, 0.28, 128));
+      for (let i = 0; i < 4; i++) {
+        const seg = (Math.PI * 2) / 4;
+        reactorGroup.add(arcSegment(1.22, 1.32, i * seg + seg * 0.15, seg * 0.45, 0xff2b4a, 0.75));
+      }
+      for (let i = 0; i < 60; i++) {
+        const angle = (Math.PI * 2 * i) / 60;
+        const segLen = (Math.PI * 2) / 60 * 0.4;
+        reactorGroup.add(arcSegment(1.38, 1.42, angle, segLen, 0x00e5ff, i % 5 === 0 ? 0.7 : 0.35));
+      }
+      reactorGroup.add(arcSegment(1.58, 1.60, 0, Math.PI * 2, 0x5ee7f2, 0.18, 128));
+      for (let i = 0; i < 48; i++) {
+        const seg = (Math.PI * 2) / 48;
+        reactorGroup.add(arcSegment(1.73, 1.76, i * seg, seg * 0.55, 0x00e5ff, 0.4));
+      }
+
+      const particleCount = 100;
+      const pGeo = new THREE.BufferGeometry();
+      const pPos = new Float32Array(particleCount * 3);
+      const pData = [];
+      for (let i = 0; i < particleCount; i++) {
+        const r = 1.85 + Math.random() * 0.35;
+        const a = Math.random() * Math.PI * 2;
+        pData.push({ r, a, speed: 0.0008 + Math.random() * 0.002 });
+        pPos[i*3] = Math.cos(a) * r;
+        pPos[i*3+1] = Math.sin(a) * r;
+        pPos[i*3+2] = (Math.random() - 0.5) * 0.1;
+      }
+      pGeo.setAttribute('position', new THREE.BufferAttribute(pPos, 3));
+      orbitalParticles = new THREE.Points(pGeo, new THREE.PointsMaterial({
+        color: 0x5ee7f2, size: 0.035, transparent: true, opacity: 0.75, blending: THREE.AdditiveBlending
+      }));
+      reactorGroup.add(orbitalParticles);
+
+      // PARALLAX com mouse
+      let targetRotX = 0, targetRotY = 0;
+      container.addEventListener('mousemove', (e) => {
+        const rect = container.getBoundingClientRect();
+        targetRotX = ((e.clientY - rect.top) / rect.height - 0.5) * 0.25;
+        targetRotY = ((e.clientX - rect.left) / rect.width - 0.5) * 0.25;
+      });
+      container.addEventListener('mouseleave', () => {
+        targetRotX = 0;
+        targetRotY = 0;
+      });
+
+      let t = 0;
+      function animateReactor() {
+        requestAnimationFrame(animateReactor);
+        t += 0.016;
+
+        // Parallax suave
+        reactorGroup.rotation.x += (targetRotX - reactorGroup.rotation.x) * 0.05;
+        reactorGroup.rotation.y += (targetRotY - reactorGroup.rotation.y) * 0.05;
+
+        const pulse = 1 + Math.sin(t * 2.5) * 0.08;
+        coreMesh.scale.setScalar(pulse);
+        halo.scale.setScalar(pulse);
+
+        const pAttr = orbitalParticles.geometry.attributes.position;
+        const pArr = pAttr.array;
+        for (let i = 0; i < particleCount; i++) {
+          const d = pData[i];
+          d.a += d.speed;
+          pArr[i*3] = Math.cos(d.a) * d.r;
+          pArr[i*3+1] = Math.sin(d.a) * d.r;
+        }
+        pAttr.needsUpdate = true;
+
+        if (audioAnalyser && speaking) {
+          const dataArr = new Uint8Array(audioAnalyser.frequencyBinCount);
+          audioAnalyser.getByteFrequencyData(dataArr);
+          let sum = 0;
+          for (let i = 0; i < 8; i++) sum += dataArr[i];
+          const avg = sum / 8;
+          const scale = 1 + (avg / 255) * 0.4;
+          coreMesh.scale.setScalar(scale);
+          coreMat.color.setHex(0x8b5cf6);
+        } else {
+          coreMat.color.setHex(0x00e5ff);
+        }
+
+        renderer.render(scene, camera);
+      }
+      animateReactor();
+    }
+
+    window.addEventListener('resize', () => {
+      if (bgRenderer) {
+        bgRenderer.setSize(window.innerWidth, window.innerHeight);
+        bgCamera.aspect = window.innerWidth / window.innerHeight;
+        bgCamera.updateProjectionMatrix();
+      }
+      if (renderer) {
+        const container = $('three-reactor');
+        if (container) {
+          renderer.setSize(container.clientWidth, container.clientHeight);
+          camera.aspect = container.clientWidth / container.clientHeight;
+          camera.updateProjectionMatrix();
+        }
+      }
+    });
+
+    function setupAudioAnalyser(audioElement) {
+      if (!audioContext) audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      if (audioContext.state === 'suspended') audioContext.resume();
+      try {
+        const source = audioContext.createMediaElementSource(audioElement);
+        audioAnalyser = audioContext.createAnalyser();
+        audioAnalyser.fftSize = 256;
+        source.connect(audioAnalyser);
+        audioAnalyser.connect(audioContext.destination);
+      } catch(e) {}
+    }
+
+    // ============================================
+    // MIC VISUALIZER
+    // ============================================
+    let micContext, micAnalyser, micSource, micDataArray;
+    async function setupMicVisualizer() {
+      if (micContext) return;
+      try {
+        micContext = new (window.AudioContext || window.webkitAudioContext)();
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        micSource = micContext.createMediaStreamSource(stream);
+        micAnalyser = micContext.createAnalyser();
+        micAnalyser.fftSize = 64;
+        micSource.connect(micAnalyser);
+        micDataArray = new Uint8Array(micAnalyser.frequencyBinCount);
+      } catch(e) {}
+    }
+    function animateMicVisualizer() {
+      if (!listening) return;
+      requestAnimationFrame(animateMicVisualizer);
+      if (!micAnalyser) return;
+      micAnalyser.getByteFrequencyData(micDataArray);
+      const bars = document.querySelectorAll('#waveform span');
+      for (let i = 0; i < bars.length; i++) {
+        const val = micDataArray[i] || 0;
+        bars[i].style.height = `${Math.max(4, (val / 255) * 28)}px`;
+      }
+    }
+
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => { navigator.serviceWorker.register('/sw.js').catch(() => {}); });
+    }
+
+    // ============================================
+    // MUSIC
+    // ============================================
+    window.onYouTubeIframeAPIReady = function() {
+      ytPlayer = new YT.Player('musicPlayer', { events: { 'onReady': () => {} } });
+    };
+    function handleMusicAction(text) {
+      if (text.includes('[MUSIC_ACTION:pause]')) { if (ytPlayer && ytPlayer.pauseVideo) ytPlayer.pauseVideo(); return text.replace('[MUSIC_ACTION:pause]', '').trim(); }
+      if (text.includes('[MUSIC_ACTION:play]')) { if (ytPlayer && ytPlayer.playVideo) ytPlayer.playVideo(); return text.replace('[MUSIC_ACTION:play]', '').trim(); }
+      if (text.includes('[MUSIC_PLAY:')) {
+        const match = text.match(/\[MUSIC_PLAY:(.*?)\]/);
+        if (match && match[1]) {
+          $('musicPlayer').src = match[1];
+          $('musicPlayer').classList.remove('hidden');
+          return text.replace(/\[MUSIC_PLAY:.*?\]/, '').trim();
+        }
+      }
+      return text;
+    }
+
+    function startStatusPolling() {
+      stopStatusPolling();
+      statusPollingInterval = setInterval(async () => {
+        try {
+          const res = await fetch("/status", { credentials: "same-origin", cache: "no-store" });
+          if (!res.ok) return;
+          const data = await res.json();
+          if (data.status && data.status.length > 0) $("status").textContent = data.status[data.status.length - 1];
+        } catch (e) {}
+      }, 3000);
+    }
+    function stopStatusPolling() {
+      if (statusPollingInterval) { clearInterval(statusPollingInterval); statusPollingInterval = null; }
+    }
+
+    let audioCtx = null;
+    function playTone(freq, type, duration, vol=0.04) {
+      try {
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        const osc = audioCtx.createOscillator(); const gain = audioCtx.createGain();
+        osc.type = type; osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+        gain.gain.setValueAtTime(vol, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.00001, audioCtx.currentTime + duration);
+        osc.connect(gain); gain.connect(audioCtx.destination);
+        osc.start(); osc.stop(audioCtx.currentTime + duration);
+      } catch(e) {}
+    }
+    function soundBoot() { playTone(400, 'sine', 0.08); setTimeout(() => playTone(800, 'sine', 0.15), 90); }
+    function soundListen() { playTone(600, 'sine', 0.08); }
+    function soundSend() { playTone(300, 'sine', 0.08); }
+    function soundReceive() { playTone(800, 'sine', 0.08); }
+
+    function setWaveformState(state) {
+      const wf = $('waveform');
+      if (!wf) return;
+      wf.className = 'waveform-container';
+      if (state === 'listening') {
+        wf.classList.add('active');
+        $('ctx-mic').textContent = "LISTENING";
+        $('ctx-mic').style.color = "var(--green)";
+        document.querySelectorAll('#waveform span').forEach(s => s.style.animation = 'none');
+        animateMicVisualizer();
+      } else if (state === 'speaking') {
+        wf.classList.add('active', 'speaking');
+        $('ctx-mic').textContent = "STANDBY";
+        $('ctx-mic').style.color = "var(--cyan-2)";
+        document.querySelectorAll('#waveform span').forEach(s => s.style.height = '4px');
+      } else {
+        $('ctx-mic').textContent = "STANDBY";
+        $('ctx-mic').style.color = "var(--text-mid)";
+      }
+    }
+    function status(text) { $("status").textContent = text; }
+
+    // ============================================
+    // CALENDAR
+    // ============================================
+    function formatEventDate(dateStr) {
+      if (!dateStr) return "Sem data";
+      const d = new Date(dateStr);
+      if (isNaN(d.getTime())) return dateStr;
+      return new Intl.DateTimeFormat("pt-BR", {
+        day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"
+      }).format(d);
+    }
+    async function loadCalendarEvents(range = "upcoming") {
+      const panel = $("calendarPanel"); const container = $("calendarEventsList");
+      if (!panel || !container) return;
+      panel.classList.remove("hidden");
+      container.innerHTML = '<p class="awareness-note">Sincronizando agenda...</p>';
+      try {
+        const response = await fetch(`/calendar/events?range=${range}`, { credentials: "same-origin", cache: "no-store" });
+        const data = await response.json();
+        if (!response.ok) {
+          container.innerHTML = `<p class="awareness-note" style="color: var(--red);">${data.error || data.detail || "Erro."}</p>`;
+          return;
+        }
+        if (!data.events || data.events.length === 0) {
+          container.innerHTML = `<p class="awareness-note">Nenhum compromisso ${range === "today" ? "hoje" : "nos próximos dias"}.</p>`;
+          return;
+        }
+        container.replaceChildren();
+        data.events.forEach((evt) => {
+          const item = document.createElement("div"); item.className = "awareness-item";
+          const title = document.createElement("strong"); title.textContent = evt.summary;
+          const timeSpan = document.createElement("span"); timeSpan.textContent = formatEventDate(evt.start);
+          item.append(title, timeSpan); container.appendChild(item);
+        });
+      } catch (e) {
+        container.innerHTML = '<p class="awareness-note" style="color: var(--red);">Erro de conexão.</p>';
+      }
+    }
+
+    // ============================================
+    // VOICE / STOP
+    // ============================================
+    function stopVoice() {
+      speechRunId++;
+      clearTimeout(silenceTimer);
+      if (wakeWordRecognition && wakeWordActive) { wakeWordActive = false; try { wakeWordRecognition.stop(); } catch(e) {} }
+      if (currentUtterance instanceof Audio) { currentUtterance.pause(); currentUtterance.currentTime = 0; }
+      currentUtterance = null;
+      if (recognition && listening) { try { recognition.stop(); } catch (e) {} }
+      if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+      speaking = false;
+      setWaveformState('idle');
+    }
+
+    function cleanSpeechText(text) {
+      return String(text)
+        .replace(/\*\*(.*?)\*\*/g, "$1")
+        .replace(/\*(.*?)\*/g, "$1")
+        .replace(/`([^`]*)`/g, "$1")
+        .replace(/https?:\/\/\S+/g, "link omitido")
+        .replace(/^\s*[-*]\s+/gm, "")
+        .trim();
+    }
+
+    function scrambleText(element, finalText) {
+      const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!<>-_/[]{}';
+      let it = 0; const max = 15;
+      const interval = setInterval(() => {
+        const scrambled = finalText.split('').map((char, i) => {
+          if (i < (it / max) * finalText.length) return char;
+          if (char === ' ' || char === '\n') return char;
+          return chars[Math.floor(Math.random() * chars.length)];
+        }).join('');
+        element.innerHTML = marked.parse(scrambled);
+        it++;
+        if (it >= max) { clearInterval(interval); element.innerHTML = marked.parse(finalText); }
+      }, 25);
+    }
+
+    async function speakText(text, force = false) {
+      const autoEl = $("autoSpeak");
+      if (!force && autoEl && !autoEl.checked) return;
+      const cleanText = cleanSpeechText(text);
+      if (!cleanText) return;
+
+      speechRunId++;
+      const runId = speechRunId;
+      if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+      status('FRIDAY está falando...');
+
+      try {
+        const response = await fetch(`/tts?text=${encodeURIComponent(cleanText)}`);
+        if (!response.ok) throw new Error('TTS falhou');
+        const blob = await response.blob();
+        if (blob.size === 0) throw new Error('Áudio vazio');
+        const url = URL.createObjectURL(blob);
+        const audio = new Audio(url);
+        setupAudioAnalyser(audio);
+        audio.onplay = () => { if (runId === speechRunId) { speaking = true; soundListen(); setWaveformState('speaking'); } };
+        audio.onended = () => {
+          if (runId === speechRunId) {
+            speaking = false; status('Sistema online.'); setWaveformState('idle');
+            URL.revokeObjectURL(url);
+            setTimeout(() => {
+              if (!$("assistant").classList.contains("hidden") && !listening && !isProcessing) startVoice(true);
+            }, 800);
+          }
+        };
+        audio.onerror = () => { browserSpeak(cleanText, runId); };
+        currentUtterance = audio;
+        await audio.play();
+        return;
+      } catch (e) {
+        browserSpeak(cleanText, runId);
+      }
+    }
+    function speakResponse(text) { lastReply = String(text || ""); speakText(lastReply, false); }
+
+    // ============================================
+    // MESSAGES (com timestamp)
+    // ============================================
+    function addMessage(who, text) {
+      const item = document.createElement("div");
+      item.className = "msg " + (who === "Você" ? "user" : "bot");
+      const label = document.createElement("strong");
+      const name = who === "Você" ? "CHEFE" : "FRIDAY";
+      const time = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+      label.textContent = name;
+      const timeEl = document.createElement("span");
+      timeEl.style.cssText = "font-size:8px;color:var(--text-dim);margin-left:6px;letter-spacing:0.1em;font-weight:400;";
+      timeEl.textContent = time;
+      label.appendChild(timeEl);
+      const content = document.createElement("span");
+      item.append(label, content);
+      $("messages").appendChild(item);
+      $("messages").scrollTop = $("messages").scrollHeight;
+      return content;
+    }
+
+    function addToolCard(toolName) {
+      const item = document.createElement("div"); item.className = "msg bot";
+      const label = document.createElement("strong"); label.textContent = "SYSTEM";
+      const card = document.createElement("div"); card.className = "tool-card loading";
+      let icon = "⚙"; let displayName = toolName.replace(/_/g, ' ');
+      if (toolName.includes("calendar")) { icon = "📅"; displayName = "Acessando Agenda..."; }
+      else if (toolName.includes("weather")) { icon = "🌤"; displayName = "Consultando Clima..."; }
+      card.innerHTML = `<span>${icon}</span><span>${displayName}</span>`;
+      item.append(label, card); $("messages").appendChild(item);
+      $("messages").scrollTop = $("messages").scrollHeight;
+    }
+
+    // ============================================
+    // SCROLL PILL
+    // ============================================
+    const msgsEl = $("messages");
+    const pill = $("scrollPill");
+    msgsEl.addEventListener('scroll', () => {
+      const nearBottom = msgsEl.scrollHeight - msgsEl.scrollTop - msgsEl.clientHeight < 80;
+      pill.classList.toggle('visible', !nearBottom);
+    });
+    pill.addEventListener('click', () => {
+      msgsEl.scrollTo({ top: msgsEl.scrollHeight, behavior: 'smooth' });
+    });
+
+    // ============================================
+    // REQUEST / LOCKOUT
+    // ============================================
+    async function request(url, data) {
+      const response = await fetch(url, {
+        method: "POST", credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data)
+      });
+      let result;
+      try { result = await response.json(); } catch (e) { throw new Error("Resposta inválida."); }
+      if (!response.ok) throw new Error((result && result.detail) || (result && result.error) || "Falha.");
+      return result;
+    }
+
+    function startLockout(remaining) {
+      const seconds = Math.max(0, Math.ceil(Number(remaining) || 0));
+      const notice = $("lockoutNotice");
+      clearInterval(lockoutInterval);
+      if (seconds === 0) { lockoutEndsAt = 0; notice.classList.add("hidden"); return; }
+      lockoutEndsAt = Date.now() + seconds * 1000;
+      notice.classList.remove("hidden");
+      const upd = () => {
+        const left = Math.max(0, Math.ceil((lockoutEndsAt - Date.now()) / 1000));
+        if (left === 0) { clearInterval(lockoutInterval); lockoutEndsAt = 0; notice.textContent = "Bloqueio encerrado."; return; }
+        notice.textContent = `ACESSO BLOQUEADO · ${left}s`;
+      };
+      upd(); lockoutInterval = setInterval(upd, 1000);
+    }
+
+    // ============================================
+    // ATTACHMENTS
+    // ============================================
+    function handleFileSelect(e, type) {
+      const file = e.target.files[0]; if (!file) return;
+      currentAttachmentName = file.name;
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        currentAttachment = ev.target.result; currentAttachmentType = type;
+        $('attachmentName').textContent = file.name;
+        $('attachmentPreview').classList.remove('hidden');
+      };
+      reader.readAsDataURL(file); e.target.value = '';
+    }
+    $('attachImgBtn').addEventListener('click', () => $('fileInputImage').click());
+    $('attachPdfBtn').addEventListener('click', () => $('fileInputPdf').click());
+    $('fileInputImage').addEventListener('change', (e) => handleFileSelect(e, 'image'));
+    $('fileInputPdf').addEventListener('change', (e) => handleFileSelect(e, 'pdf'));
+    $('removeAttachment').addEventListener('click', () => {
+      currentAttachment = null; currentAttachmentType = null; currentAttachmentName = null;
+      $('attachmentPreview').classList.add('hidden'); $('attachmentName').textContent = '';
+    });
+
+    // ============================================
+    // SEND
+    // ============================================
+    async function sendCommandToFriday(command, isInitial = false) {
+      if (isProcessing) return;
+      isProcessing = true; window.fridayState = 'thinking';
+      if (!isInitial) { addMessage("Você", command); soundSend(); }
+      const botSpan = addMessage("FRIDAY", " ");
+      const botMsgEl = botSpan.parentElement;
+      botMsgEl.classList.add('typing');
+      $("sendBtn").disabled = true; $("voiceBtn").disabled = true;
+      status("FRIDAY está processando..."); startStatusPolling();
+
+      try {
+        const payload = { command: command };
+        if (currentAttachmentType === 'pdf' && !isInitial) {
+          payload.pdf = currentAttachment; payload.pdf_name = currentAttachmentName;
+          currentAttachment = null; currentAttachmentType = null; currentAttachmentName = null;
+          $('attachmentPreview').classList.add('hidden'); $('attachmentName').textContent = '';
+        }
+
+        const response = await fetch("/chat", {
+          method: "POST", credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        if (!response.ok) throw new Error("Erro na conexão.");
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder("utf-8");
+        let fullReplyText = ""; let buffer = ""; let streamDone = false; let gotFirst = false;
+
+        while (!streamDone) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n'); buffer = lines.pop();
+          for (const line of lines) {
+            if (line.startsWith("data: ")) {
+              const dataStr = line.substring(6).trim(); if (!dataStr) continue;
+              try {
+                const dataObj = JSON.parse(dataStr);
+                if (dataObj.done) { streamDone = true; break; }
+                if (!gotFirst) { soundReceive(); gotFirst = true; }
+                if (dataObj.tool) { window.fridayState = 'tooling'; addToolCard(dataObj.tool); }
+                if (dataObj.text) {
+                  if (botMsgEl.classList.contains('typing')) botMsgEl.classList.remove('typing');
+                  fullReplyText += dataObj.text;
+                  botSpan.innerHTML = marked.parse(fullReplyText);
+                  $("messages").scrollTop = $("messages").scrollHeight;
+                }
+                if (dataObj.error) { botMsgEl.classList.remove('typing'); botSpan.innerHTML = "[ERRO] " + dataObj.error; status("Erro na IA."); }
+              } catch (e) {}
+            }
+          }
+        }
+
+        botMsgEl.classList.remove('typing');
+        if (window.hljs) botSpan.querySelectorAll('pre code').forEach(el => hljs.highlightElement(el));
+        stopStatusPolling();
+
+        if (!fullReplyText) { status("Falha na resposta."); }
+        else {
+          status("Sistema online.");
+          let finalReply = handleMusicAction(fullReplyText);
+          scrambleText(botSpan, finalReply);
+          lastReply = finalReply; speakResponse(finalReply);
+        }
+      } catch (error) {
+        stopStatusPolling();
+        botMsgEl.classList.remove('typing');
+        botSpan.innerHTML = "[ERRO] " + error.message;
+        status("Erro de conexão.");
+      } finally {
+        isProcessing = false; window.fridayState = 'idle';
+        $("sendBtn").disabled = false; $("voiceBtn").disabled = false;
+        if (!$("assistant").classList.contains("hidden")) $("command").focus();
+      }
+    }
+
+    // ============================================
+    // LOGIN
+    // ============================================
+    $("loginForm").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const password = $("password").value;
+      status("Verificando credenciais...");
+      try {
+        await request("/login", { password });
+        $("password").value = "";
+        $("login").classList.add("hidden");
+        await runBootSequence();
+        $("assistant").classList.remove("hidden");
+        status("Autenticada. FRIDAY online.");
+        soundBoot();
+        $('messages').replaceChildren();
+        startSysMetrics();
+        sendCommandToFriday('Gere o meu briefing matinal para a cidade de Criciúma usando a ferramenta get_morning_briefing', true);
+        $("command").focus();
+        checkCalendarConnection();
+        startWakeWordListener();
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+
+        // Mostra atalhos na primeira sessão
+        if (!localStorage.getItem('friday_shortcuts_shown')) {
+          setTimeout(() => {
+            addMessage("FRIDAY", "💡 **Atalhos:** `Ctrl+K` focar · `Ctrl+/` configurações · `Esc` parar.");
+            localStorage.setItem('friday_shortcuts_shown', 'true');
+          }, 4000);
+        }
+      } catch (error) {
+        status(error.message); $("password").value = "";
+        if (error.status === 429) startLockout(error.remaining); else $("password").focus();
+      }
+    });
+
+    $("chatForm").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const command = $("command").value.trim();
+      if (!command && !currentAttachment) return;
+      $("command").value = "";
+      sendCommandToFriday(command, false);
+    });
+
+    // ============================================
+    // VOICE RECOGNITION
+    // ============================================
+    function startVoice(isContinuous = false) {
+      const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SR) { status("Reconhecimento indisponível."); return; }
+      if (listening && recognition) { recognition.stop(); return; }
+
+      stopVoice();
+      recognition = new SR();
+      recognition.lang = "pt-BR"; recognition.continuous = isContinuous;
+      recognition.interimResults = false; recognition.maxAlternatives = 1;
+
+      recognition.onstart = () => {
+        listening = true; setupMicVisualizer();
+        $("voiceBtn").classList.add("listening"); soundListen(); setWaveformState('listening');
+        $("voiceBtn").textContent = "⏹";
+        status(isContinuous ? "Aguardando continuação..." : "Estou ouvindo, chefe...");
+        clearTimeout(silenceTimer);
+        if (isContinuous) {
+          silenceTimer = setTimeout(() => { if (listening && recognition) { recognition.stop(); status("Escuta encerrada."); } }, 5000);
+        }
+      };
+      recognition.onresult = (event) => {
+        clearTimeout(silenceTimer);
+        $("command").value = event.results[0][0].transcript;
+        status("Voz reconhecida.");
+        $("chatForm").requestSubmit();
+      };
+      recognition.onerror = (event) => {
+        clearTimeout(silenceTimer);
+        status("Falha no mic: " + event.error); setWaveformState('idle');
+      };
+      recognition.onend = () => {
+        clearTimeout(silenceTimer); listening = false;
+        $("voiceBtn").classList.remove("listening"); $("voiceBtn").textContent = "🎙";
+        setWaveformState('idle');
+        setTimeout(() => {
+          if (!$("assistant").classList.contains("hidden") && !speaking && !isProcessing) startWakeWordListener();
+        }, isContinuous ? 3000 : 1000);
+      };
+      try { recognition.start(); } catch (e) { status("Não foi possível iniciar o mic."); setWaveformState('idle'); }
+    }
+    $("voiceBtn").addEventListener("click", () => startVoice(false));
+
+    // ============================================
+    // CALENDAR CONNECT
+    // ============================================
+    async function checkCalendarConnection() {
+      try {
+        const res = await fetch("/calendar/status", { credentials: "same-origin", cache: "no-store" });
+        const data = await res.json();
+        if (res.ok && data.connected) {
+          $("calendarConnect").textContent = "📅 CONNECTED";
+          loadCalendarEvents("upcoming");
+          return true;
+        }
+      } catch (e) {}
+      return false;
+    }
+    $("calendarConnect").addEventListener("click", () => { window.location.href = "/calendar/connect"; });
+    $("refreshCalendarTodayBtn").addEventListener("click", () => loadCalendarEvents("today"));
+    $("refreshCalendarBtn").addEventListener("click", () => loadCalendarEvents("upcoming"));
+    $("stopSpeakTop").addEventListener("click", () => { stopVoice(); status("Fala interrompida."); });
+
+    // ============================================
+    // WAKE WORD
+    // ============================================
+    function startWakeWordListener() {
+      const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SR || wakeWordActive) return;
+      wakeWordRecognition = new SR();
+      wakeWordRecognition.lang = 'pt-BR';
+      wakeWordRecognition.continuous = true;
+      wakeWordRecognition.interimResults = true;
+      wakeWordRecognition.onresult = (event) => {
+        const transcript = Array.from(event.results).map(r => r[0].transcript).join('').toLowerCase();
+        if (transcript.includes('hey friday') || transcript.includes('oi friday')) {
+          wakeWordRecognition.stop(); wakeWordActive = false;
+          soundListen(); startVoice(false);
+        }
+      };
+      wakeWordRecognition.onerror = (event) => {
+        if (event.error === 'no-speech' || event.error === 'aborted') return;
+      };
+      wakeWordRecognition.onend = () => {
+        if (!wakeWordActive && !$("assistant").classList.contains("hidden") && !listening && !speaking && !isProcessing) {
+          try { wakeWordRecognition.start(); } catch (e) {}
+        }
+      };
+      try { wakeWordRecognition.start(); wakeWordActive = true; } catch (e) {}
+    }
+
+    // ============================================
+    // SESSION
+    // ============================================
+    function showLogin() {
+      stopVoice(); stopStatusPolling();
+      $("assistant").classList.add("hidden"); $("login").classList.remove("hidden");
+      $("messages").replaceChildren(); $("settingsModal").classList.add("hidden");
+      $("calendarPanel").classList.add("hidden"); $("musicPlayer").classList.add("hidden");
+      $("musicPlayer").src = ""; status("Aguardando autenticação");
+    }
+    $("logout").addEventListener("click", async () => {
+      stopVoice();
+      try { await request("/logout", {}); } catch (e) {}
+      showLogin();
+    });
+
+    async function checkSession() {
+      try {
+        const res = await fetch("/session", { credentials: "same-origin", cache: "no-store" });
+        const data = await res.json();
+        const calendarState = new URLSearchParams(location.search).get("calendar");
+        const msgs = {
+          connected: "Google Calendar conectado.",
+          nosession: "Entre antes de conectar.",
+          denied: "Autorização cancelada.",
+          old: "Tentativa expirou.",
+          state: "Sessão não confere.",
+          config: "OAuth incompleto.",
+          redirect: "Redirect URI inválida.",
+          client: "Cliente OAuth recusado.",
+          token: "Google não concluiu.",
+          incomplete: "Resposta incompleta."
+        };
+        if (data.authenticated) {
+          $("login").classList.add("hidden");
+          await runBootSequence();
+          $("assistant").classList.remove("hidden");
+          status("Sessão ativa. FRIDAY online.");
+          $('messages').replaceChildren();
+          startSysMetrics();
+          sendCommandToFriday('Gere o meu briefing matinal para a cidade de Criciúma usando a ferramenta get_morning_briefing', true);
+          checkCalendarConnection();
+          startWakeWordListener();
+        }
+        if (msgs[calendarState]) {
+          status(msgs[calendarState]);
+          history.replaceState({}, "", location.pathname);
+        }
+      } catch (e) { status("Não foi possível verificar a sessão."); }
+    }
+
+    // ============================================
+    // POLLING
+    // ============================================
+    setInterval(async () => {
+      if ($("assistant").classList.contains("hidden")) return;
+      try {
+        const res = await fetch("/calendar/events?range=today", { credentials: "same-origin", cache: "no-store" });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!data.events || !data.events.length) return;
+        const now = new Date();
+        data.events.forEach(evt => {
+          if (!evt.start) return;
+          const t = new Date(evt.start);
+          const diff = (t - now) / 1000 / 60;
+          if (diff > 0 && diff <= 15) {
+            const key = `alerted_${evt.summary}_${evt.start}`;
+            if (!localStorage.getItem(key)) {
+              localStorage.setItem(key, "true");
+              const msg = `Chefe, seu compromisso "${evt.summary}" começa em ${Math.round(diff)} minutos.`;
+              addMessage("FRIDAY", msg); speakText(msg, true);
+            }
+          }
+        });
+      } catch (e) {}
+    }, 5 * 60 * 1000);
+
+    setInterval(async () => {
+      if ($("assistant").classList.contains("hidden")) return;
+      try {
+        const res = await fetch("/notifications", { credentials: "same-origin" });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.notifications && data.notifications.length > 0) {
+          data.notifications.forEach(msg => { addMessage("FRIDAY", msg); speakResponse(msg); });
+        }
+      } catch (e) {}
+    }, 30000);
+
+    // ============================================
+    // INIT
+    // ============================================
+    loadVisualPreferences();
+    checkSession();
+
+    window.addEventListener('load', () => {
+      if (!document.body.classList.contains('hide-particles')) initBgParticles();
+      if (!document.body.classList.contains('hide-sidebar')) initReactor();
+    });
+  </script>
+  <script src="https://www.youtube.com/iframe_api"></script>
+</body>
+</html>
