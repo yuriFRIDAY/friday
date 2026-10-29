@@ -88,7 +88,7 @@ def _notify_tool(tool_name, args, result):
         print(f"[NOTIFY] Falha: {e}")
 
 # ========================================
-# BANCO DE DADOS (POSTGRESQL / SQLITE)
+# BANCO DE DADOS
 # ========================================
 def get_db():
     if not DATABASE_URL:
@@ -187,7 +187,6 @@ def _db_get_history(session_token):
         rows = cursor.fetchall()
         history = []
         for r in rows:
-            # Compatibilidade estrita entre Postgres (tupla) e SQLite (Row)
             if DATABASE_URL:
                 history.append({"role": r[0], "content": r[1]})
             else:
@@ -523,8 +522,12 @@ async def chat_endpoint(data: ChatData, friday_session: Optional[str] = Cookie(N
                     response_generated = True
                 break
 
+        # Se a IA gerou uma resposta vazia (apenas a tag de música), adiciona um texto de fallback
+        if response_generated and not full_text.strip():
+            yield f"data: {json.dumps({'text': 'Entendido, chefe.'})}\n\n"
+        
         if not response_generated and not error_occurred:
-            yield f"data: {json.dumps({'text': 'Não consegui obter uma resposta.'})}\n\n"
+            yield f"data: {json.dumps({'text': 'Desculpe, chefe. Não consegui processar a ação.'})}\n\n"
 
         yield f"data: {json.dumps({'done': True})}\n\n"
 
