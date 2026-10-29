@@ -159,7 +159,9 @@ def _db_get_recent_memories():
         else:
             cursor.execute("SELECT key, value FROM ai_memory ORDER BY rowid DESC LIMIT 5")
         return [f"{r[0]}: {r[1]}" for r in cursor.fetchall()]
-    except: return []
+    except Exception as e:
+        print(f"Erro RAG: {e}")
+        return []
     finally: cursor.close(); conn.close()
 
 def _db_save_message(session_token, role, content):
@@ -170,7 +172,8 @@ def _db_save_message(session_token, role, content):
         else:
             cursor.execute("INSERT INTO chat_history (session_token, role, content) VALUES (?, ?, ?)", (session_token, role, content))
         conn.commit()
-    except Exception as e: print(f"Erro ao salvar msg: {e}")
+    except Exception as e: 
+        print(f"Erro ao salvar msg: {e}")
     finally: cursor.close(); conn.close()
 
 def _db_get_history(session_token):
@@ -180,8 +183,19 @@ def _db_get_history(session_token):
             cursor.execute("SELECT role, content FROM chat_history WHERE session_token = %s ORDER BY id ASC", (session_token,))
         else:
             cursor.execute("SELECT role, content FROM chat_history WHERE session_token = ? ORDER BY id ASC", (session_token,))
-        return [{"role": r["role"] if not DATABASE_URL else r[0], "content": r["content"] if not DATABASE_URL else r[1]} for r in cursor.fetchall()]
-    except: return []
+        
+        rows = cursor.fetchall()
+        history = []
+        for r in rows:
+            # Compatibilidade estrita entre Postgres (tupla) e SQLite (Row)
+            if DATABASE_URL:
+                history.append({"role": r[0], "content": r[1]})
+            else:
+                history.append({"role": r["role"], "content": r["content"]})
+        return history
+    except Exception as e: 
+        print(f"Erro ao ler histórico: {e}")
+        return []
     finally: cursor.close(); conn.close()
 
 set_memory_context(save_func=_db_save_memory, recall_func=_db_recall_memory, delete_func=_db_delete_memory)
