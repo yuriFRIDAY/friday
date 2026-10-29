@@ -1735,6 +1735,7 @@ function scrambleText(element, finalText) {
     if (it >= max) { clearInterval(interval); element.innerHTML = safeMarkedParse(finalText); }
   }, 25);
 }
+
 async function speakText(text, force = false) {
   const autoEl = $("autoSpeak");
   if (!force && autoEl && !autoEl.checked) return;
@@ -1746,13 +1747,10 @@ async function speakText(text, force = false) {
   status('FRIDAY está falando...');
   try {
     const response = await fetch(`/tts?text=${encodeURIComponent(cleanText)}`);
-    // ✅ Se o backend retornar 204 (ElevenLabs falhou/limite), pula para o fallback
-    if (response.status === 204) throw new Error('Fallback'); 
+    if (response.status === 204) throw new Error('Fallback');
     if (!response.ok) throw new Error('TTS falhou');
-    
     const blob = await response.blob();
     if (blob.size === 0) throw new Error('Áudio vazio');
-    
     const url = URL.createObjectURL(blob);
     const audio = new Audio(url);
     setupAudioAnalyser(audio);
@@ -1770,12 +1768,12 @@ async function speakText(text, force = false) {
     return;
   } catch (e) { 
     // Voz nativa do navegador entra em ação silenciosamente
-    console.warn("[TTS] ElevenLabs indisponível. Usando voz nativa do navegador.");
     browserSpeak(cleanText, runId); 
   }
 }
 function speakResponse(text) { lastReply = String(text || ""); speakText(lastReply, false); }
 
+// ✅ FUNÇÃO CORRIGIDA (Inserindo o texto no chat)
 function addMessage(who, text) {
   const item = document.createElement("div");
   item.className = "msg " + (who === "Você" ? "user" : "bot");
@@ -1787,7 +1785,12 @@ function addMessage(who, text) {
   timeEl.style.cssText = "font-size:8px;color:var(--text-dim);margin-left:6px;letter-spacing:0.1em;font-weight:400;";
   timeEl.textContent = time;
   label.appendChild(timeEl);
+  
   const content = document.createElement("span");
+  if (text && text.trim()) {
+    content.innerHTML = safeMarkedParse(text);
+  }
+  
   item.append(label, content);
   $("messages").appendChild(item);
   $("messages").scrollTop = $("messages").scrollHeight;
@@ -2217,7 +2220,7 @@ window.addEventListener('load', () => {
   const stage = $('reactorStage');
   if (stage) {
     const ro = new ResizeObserver(() => {
-      if (stage.clientWidth < 20 || stage.clientHeight < 20) return;
+      if (stage.clientWidth === 0 || stage.clientHeight === 0) return; // Previne WebGL 0x0
       if (!renderer) initReactor();
       else {
         renderer.setSize(stage.clientWidth, stage.clientHeight);
