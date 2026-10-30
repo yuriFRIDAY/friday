@@ -675,9 +675,8 @@ async def chat_endpoint(data: ChatData, friday_session: Optional[str] = Cookie(N
                         if not exec_res.get("ok"):
                             err_msg = exec_res.get("error", "Erro desconhecido na ferramenta")
                             _audit_tool(tc_data["name"], args, False, err_msg)
-                            yield f"data: {json.dumps({'text': f'⚠ {err_msg}'})}\n\n"
-                            tool_content = f"ERRO: {err_msg}"
-                            any_failed = True
+                            # Em vez de quebrar, enviamos o erro para a IA explicar ao usuário
+                            tool_content = f"ERRO NA FERRAMENTA: {err_msg}. Explique isso ao Chefe de forma natural e sugira uma solução se possível."
                         else:
                             result = exec_res.get("result")
                             _audit_tool(tc_data["name"], args, True, None)
