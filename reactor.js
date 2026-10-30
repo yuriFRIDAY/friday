@@ -11,7 +11,7 @@ const STATE_PALETTE = {
   error:     { primary: 0xff2b4a, secondary: 0xff5c74, accent: 0xff0044, bloomStrength: 1.5, bloomThreshold: 0.65 }
 };
 
-let scene, camera, renderer, composer, bloomPass, controls, audioAnalyser, audioContext;
+let scene, camera, renderer, composer, bloomPass, controls, audioContext;
 let reactorGroup, coreMesh, coreMat, haloMesh, orbitalParticles, reactorStars, polarGrid, sweepMesh, sweepMat;
 let innerRingsGroup, innerCoreMesh, wireframeShell, ambientParticles;
 let lensFlares = [];
@@ -351,14 +351,14 @@ window.initReactor = function() {
     }
     pAttr.needsUpdate = true;
 
-    if (audioAnalyser && window.speaking) {
-      const dataArr = new Uint8Array(audioAnalyser.frequencyBinCount);
-      audioAnalyser.getByteFrequencyData(dataArr);
+    if (window.audioAnalyser && window.speaking) {
+      const dataArr = new Uint8Array(window.audioAnalyser.frequencyBinCount);
+      window.audioAnalyser.getByteFrequencyData(dataArr);
       let sum = 0; for (let i = 0; i < 8; i++) sum += dataArr[i];
       coreMesh.scale.setScalar(1 + (sum / 8 / 255) * 0.4);
 
-      const eqData = new Uint8Array(audioAnalyser.frequencyBinCount);
-      audioAnalyser.getByteFrequencyData(eqData);
+      const eqData = new Uint8Array(window.audioAnalyser.frequencyBinCount);
+      window.audioAnalyser.getByteFrequencyData(eqData);
       reactorEqBars.forEach((bar, i) => {
         const idx = Math.floor((i / reactorEqBars.length) * eqData.length);
         const val = eqData[idx] / 255;
@@ -604,9 +604,9 @@ window.setupAudioAnalyser = function(audioElement) {
   if (audioContext.state === 'suspended') audioContext.resume();
   try {
     const source = audioContext.createMediaElementSource(audioElement);
-    audioAnalyser = audioContext.createAnalyser();
-    audioAnalyser.fftSize = 256;
-    source.connect(audioAnalyser);
-    audioAnalyser.connect(audioContext.destination);
+    window.audioAnalyser = audioContext.createAnalyser();
+    window.audioAnalyser.fftSize = 256;
+    source.connect(window.audioAnalyser);
+    window.audioAnalyser.connect(audioContext.destination);
   } catch(e) {}
 };
