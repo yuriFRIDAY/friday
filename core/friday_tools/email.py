@@ -8,9 +8,9 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.application import MIMEApplication
 from urllib.request import Request, urlopen
-
+from html.parser import HTMLParser
 from .context import _CALENDAR_CONTEXT
-from .utils import _extract_email_body, _truncate_text
+from .utils import _truncate_text
 
 try:
     import PyPDF2
@@ -18,7 +18,6 @@ try:
 except ImportError:
     HAS_PYPDF2 = False
 
-from html.parser import HTMLParser
 class _HTMLTextExtractor(HTMLParser):
     def __init__(self):
         super().__init__()
@@ -56,6 +55,9 @@ def _extract_email_body(payload):
             except Exception: return ""
     parts = payload.get("parts", [])
     return "\n".join(t for t in (_extract_email_body(p) for p in parts) if t)
+
+# --- Handlers ---
+
 def _handler_send_email(to_email, subject, body, attachment_base64=None, attachment_name=None):
     smtp_server = os.getenv("SMTP_SERVER")
     smtp_port = int(os.getenv("SMTP_PORT", "587"))
