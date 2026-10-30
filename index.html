@@ -605,6 +605,7 @@ let currentAttachment = null, currentAttachmentType = null, currentAttachmentNam
 let statusPollingInterval = null, deferredPrompt = null, availableVoices = [];
 let bootTime = Date.now();
 let bootRunning = false;
+let assistantActivated = false;
 window.fridayState = 'idle';
 
 let currentAbortController = null;
@@ -1826,6 +1827,49 @@ async function request(url, data) {
   if (!response.ok) throw new Error((result && result.detail) || (result && result.error) || "Falha.");
   return result;
 }
+
+// Autentica o usuário e abre a interface sem exigir atualização manual.
+$("loginForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+
+  if (lockoutEndsAt > Date.now()) return;
+
+  const button = $("loginForm").querySelector('button[type="submit"]');
+  const passwordInput = $("password");
+  const notice = $("lockoutNotice");
+
+  button.disabled = true;
+  notice.classList.add("hidden");
+  notice.textContent = "";
+
+  try {
+    await request("/login", { password: passwordInput.value });
+
+    const sessionResponse = await fetch("/session", {
+      credentials: "same-origin",
+      cache: "no-store"
+    });
+    if (!sessionResponse.ok) {
+      throw new Error("Não foi possível confirmar a sessão.");
+    }
+
+    const sessionData = await sessionResponse.json();
+    if (!sessionData.authenticated) {
+      throw new Error("A sessão não foi validada. Tente entrar novamente.");
+    }
+
+    passwordInput.value = "";
+    await activateAssistant();
+  } catch (error) {
+    notice.textContent = error.message || "Falha ao entrar. Verifique a senha.";
+    notice.classList.remove("hidden");
+    passwordInput.focus();
+    passwordInput.select();
+  } finally {
+    button.disabled = false;
+  }
+});
+
 function startLockout(remaining) {
   const seconds = Math.max(0, Math.ceil(Number(remaining) || 0));
   const notice = $("lockoutNotice");
@@ -2083,38 +2127,81 @@ function showLogin() {
 $("logout").addEventListener("click", async () => {
   stopVoice();
   try { await request("/logout", {}); } catch (e) {}
+  assistantActivated = false;
   showLogin();
 });
 
+async function activateAssistant() {
+  if (assistantActivated) return;
+  assistantActivated = true;
+
+  try {
+    $("login").classList.add("hidden");
+    await runBootSequence();
+    $("assistant").classList.remove("hidden");
+    status("Sessão ativa. FRIDAY online.");
+    startAmbience();
+
+    $("messages").replaceChildren();
+    await loadHistoryFromBackend();
+
+    startSysMetrics();
+    initReactor();
+    requestAnimationFrame(() => initReactor());
+
+    sendCommandToFriday(
+      "Gere o meu briefing matinal para a cidade de Criciúma usando a ferramenta get_morning_briefing",
+      true
+    );
+
+    checkCalendarConnection();
+    startWakeWordListener();
+  } catch (error) {
+    assistantActivated = false;
+    $("assistant").classList.add("hidden");
+    $("login").classList.remove("hidden");
+    const notice = $("lockoutNotice");
+    notice.textContent = "Não foi possível iniciar a interface: " + (error.message || "erro desconhecido");
+    notice.classList.remove("hidden");
+    status("Falha ao iniciar a FRIDAY.");
+  }
+}
+
 async function checkSession() {
   try {
-    const res = await fetch("/session", { credentials: "same-origin", cache: "no-store" });
+    const res = await fetch("/session", {
+      credentials: "same-origin",
+      cache: "no-store"
+    });
+    if (!res.ok) throw new Error("Falha ao verificar a sessão.");
+
     const data = await res.json();
     const calendarState = new URLSearchParams(location.search).get("calendar");
     const msgMap = {
-      connected: "Google Calendar conectado.", nosession: "Entre antes de conectar.",
-      denied: "Autorização cancelada.", old: "Tentativa expirou.",
-      state: "Sessão não confere.", config: "OAuth incompleto.",
-      redirect: "Redirect URI inválida.", client: "Cliente OAuth recusado.",
-      token: "Google não concluiu.", incomplete: "Resposta incompleta."
+      connected: "Google Calendar conectado.",
+      nosession: "Entre antes de conectar.",
+      denied: "Autorização cancelada.",
+      old: "Tentativa expirou.",
+      state: "Sessão não confere.",
+      config: "OAuth incompleto.",
+      redirect: "Redirect URI inválida.",
+      client: "Cliente OAuth recusado.",
+      token: "Google não concluiu.",
+      incomplete: "Resposta incompleta."
     };
+
     if (data.authenticated) {
-      $("login").classList.add("hidden");
-      await runBootSequence();
-      $("assistant").classList.remove("hidden");
-      status("Sessão ativa. FRIDAY online.");
-      startAmbience();
-      $('messages').replaceChildren();
-      await loadHistoryFromBackend();
-      startSysMetrics();
-      initReactor();
-      requestAnimationFrame(() => initReactor());
-      sendCommandToFriday('Gere o meu briefing matinal para a cidade de Criciúma usando a ferramenta get_morning_briefing', true);
-      checkCalendarConnection();
-      startWakeWordListener();
+      await activateAssistant();
     }
-    if (msgMap[calendarState]) { status(msgMap[calendarState]); history.replaceState({}, "", location.pathname); }
-  } catch (e) { status("Não foi possível verificar a sessão."); }
+
+    if (msgMap[calendarState]) {
+      status(msgMap[calendarState]);
+      history.replaceState({}, "", location.pathname);
+    }
+  } catch (error) {
+    console.error("FRIDAY session check:", error);
+    status("Não foi possível verificar a sessão.");
+  }
 }
 
 setInterval(async () => {
