@@ -48,11 +48,7 @@ if not logger.handlers:
     logger.addHandler(handler)
     logger.setLevel(logging.INFO)
 
-# Pega o caminho absoluto da pasta onde o app.py está
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-
-# ... (código do Sentry, FastAPI, Auth, DB, Google OAuth - Mantenha o seu original aqui) ...
-# Vou encurtar os comentários para focar na correção das rotas:
 
 SENTRY_DSN = os.getenv("SENTRY_DSN", "").strip()
 if SENTRY_DSN:
@@ -107,7 +103,6 @@ TOOL_STATUS = {
     "recall_memory": "🧠 Recuperando memória...",
 }
 
-# --- Middlewares e DB (Mantendo o seu original) ---
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         response = await call_next(request)
@@ -267,37 +262,109 @@ def _db_get_history(session_token):
 
 set_memory_context(save_func=_db_save_memory, recall_func=_db_recall_memory, delete_func=_db_delete_memory)
 
-# --- Rotas de Arquivos Estáticos ---
-# ESSAS SÃO AS ROTAS CRUCIAIS PARA O DESIGN FUNCIONAR!
-@app.get("/", response_class=HTMLResponse)
-async def serve_index():
+# GOOGLE OAUTH (Variáveis restauradas e protegidas)
+GOOGLE_OAUTH_AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth"
+GOOGLE_OAUTH_TOKEN_URL = "https://oauth2.googleapis.com/token"
+GOOGLE_SCOPES = "https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/gmail.readonly"
+GOOGLE_OWNER_KEY = "owner"
+DATA_DIR = os.getenv("DATA_DIR", ".")
+if os.path.exists("/data") and os.access("/data", os.W_OK):
+    DATA_DIR = "/data"
+GOOGLE_TOKEN_FILE = os.getenv("FRIDAY_GOOGLE_TOKEN_FILE", "").strip() or os.path.join(DATA_DIR, ".friday_google_tokens.json")
+
+GOOGLE_OAUTH_CLIENT_ID = os.getenv("GOOGLE_OAUTH_CLIENT_ID", "").strip()
+GOOGLE_OAUTH_CLIENT_SECRET = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET", "").strip()
+GOOGLE_OAUTH_REDIRECT_URI = os.getenv("GOOGLE_OAUTH_REDIRECT_URI", "").strip()
+
+GOOGLE_TOKEN_STORE = {}
+
+def _load_google_token_store():
+    global GOOGLE_TOKEN_STORE
     try:
-        with open(os.path.join(BASE_DIR, "index.html"), "r", encoding="utf-8") as f:
-            return f.read()
+        with open(GOOGLE_TOKEN_FILE, "r", encoding="utf-8") as h:
+            GOOGLE_TOKEN_STORE = json.load(h)
     except Exception:
-        return "<h1>Erro: index.html não encontrado.</h1>"
+        GOOGLE_TOKEN_STORE = {}
 
-@app.get("/styles.css")
-async def serve_css():
-    return FileResponse(os.path.join(BASE_DIR, "styles.css"), media_type="text/css")
+_load_google_token_store()
 
-@app.get("/app.js")
-async def serve_app_js():
-    return FileResponse(os.path.join(BASE_DIR, "app.js"), media_type="application/javascript")
+def _save_owner_calendar_tokens(access_token, refresh_token, expires_in, scope):
+    global GOOGLE_TOKEN_STORE
+    GOOGLE_TOKEN_STORE[GOOGLE_OWNER_KEY] = {
+        "access_token": access_token, "refresh_token": refresh_token,
+        "expires_at": time.time() + max(60, int(expires_in)), "scope": scope or "",
+    }
+    try:
+        os.makedirs(os.path.dirname(GOOGLE_TOKEN_FILE) or ".", exist_ok=True)
+        tmp = GOOGLE_TOKEN_FILE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as h:
+            json.dump(GOOGLE_TOKEN_STORE, h)
+        os.replace(tmp, GOOGLE_TOKEN_FILE)
+    except Exception as e:
+        logger.warning(f"Falha ao persistir tokens OAuth: {e}")
 
-@app.get("/reactor.js")
-async def serve_reactor_js():
-    return FileResponse(os.path.join(BASE_DIR, "reactor.js"), media_type="application/javascript")
+def _usable_calendar_access_token():
+    with _TOKEN_LOCK:
+        record = GOOGLE_TOKEN_STORE.get(GOOGLE_OWNER_KEY)
+        if not record:
+            return None
+        if time.time() < float(record.get("expires_at", 0)) - 60:
+            return record["access_token"]
+        refresh_token = record.get("refresh_token")
+        if not refresh_token:
+            return None
+        try:
+            req = URLRequest(GOOGLE_OAUTH_TOKEN_URL, data=urlencode({
+                "client_id": GOOGLE_OAUTH_CLIENT_ID, "client_secret": GOOGLE_OAUTH_CLIENT_SECRET,
+                "refresh_token": refresh_token, "grant_type": "refresh_token",
+            }).encode(), headers={"Content-Type": "application/x-www-form-urlencoded"}, method="POST")
+            with urlopen(req, timeout=15) as resp:
+                res = json.loads(resp.read().decode())
+                _save_owner_calendar_tokens(res["access_token"], refresh_token, res.get("expires_in", 3600), res.get("scope", ""))
+                return res["access_token"]
+        except Exception as e:
+            logger.warning(f"Falha ao renovar token Google: {e}")
+            return None
 
-@app.get("/manifest.json")
-async def serve_manifest():
-    return JSONResponse(content=json.load(open(os.path.join(BASE_DIR, "manifest.json"), "r")))
+def _calendar_events_query(access_token, time_min=None, time_max=None, max_results=10):
+    params = {"maxResults": str(max_results), "singleEvents": "true", "orderBy": "startTime"}
+    params["timeMin"] = time_min or time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    if time_max: params["timeMax"] = time_max
+    req = URLRequest("https://www.googleapis.com/calendar/v3/calendars/primary/events?" + urlencode(params), headers={"Authorization": "Bearer " + access_token})
+    try:
+        with urlopen(req, timeout=15) as resp:
+            result = json.loads(resp.read().decode())
+    except Exception: return None
+    return [{"id": item.get("id", ""), "summary": item.get("summary", "(sem título)"), "start": (item.get("start") or {}).get("dateTime", ""), "hangoutLink": item.get("hangoutLink", "")} for item in (result.get("items") or [])[:max_results]]
 
-@app.get("/sw.js")
-async def serve_sw():
-    return Response(content=open(os.path.join(BASE_DIR, "sw.js"), "r").read(), media_type="application/javascript")
+def _calendar_today_events(access_token):
+    now = time.localtime()
+    return _calendar_events_query(access_token, time.strftime("%Y-%m-%dT00:00:00", now) + "Z", time.strftime("%Y-%m-%dT23:59:59", now) + "Z", 20)
 
-# --- Rotas da API ---
+def _calendar_create_event(access_token, payload):
+    req = URLRequest("https://www.googleapis.com/calendar/v3/calendars/primary/events", data=json.dumps(payload).encode(), headers={"Content-Type": "application/json", "Authorization": "Bearer " + access_token}, method="POST")
+    try:
+        with urlopen(req, timeout=15) as resp: return json.loads(resp.read().decode())
+    except Exception: return None
+
+def _calendar_delete_event(access_token, event_id):
+    req = URLRequest(f"https://www.googleapis.com/calendar/v3/calendars/primary/events/{event_id}", headers={"Authorization": "Bearer " + access_token}, method="DELETE")
+    try:
+        with urlopen(req, timeout=15): return {"ok": True}
+    except Exception: return None
+
+def _calendar_update_event(access_token, event_id, payload):
+    req = URLRequest(f"https://www.googleapis.com/calendar/v3/calendars/primary/events/{event_id}", data=json.dumps(payload).encode(), headers={"Content-Type": "application/json", "Authorization": "Bearer " + access_token}, method="PATCH")
+    try:
+        with urlopen(req, timeout=15) as resp: return json.loads(resp.read().decode())
+    except Exception: return None
+
+set_calendar_context(
+    access_token_provider=_usable_calendar_access_token, events_query=_calendar_events_query,
+    today_events=_calendar_today_events, create_event=_calendar_create_event,
+    delete_event=_calendar_delete_event, update_event=_calendar_update_event,
+)
+
 class LoginData(BaseModel): password: str
 class ChatData(BaseModel):
     command: str
@@ -346,6 +413,35 @@ async def _tts_impl(text: str, friday_session):
         except Exception: return Response(status_code=204)
     except HTTPException: raise
     except Exception: return Response(status_code=204)
+
+@app.get("/", response_class=HTMLResponse)
+async def serve_index():
+    try:
+        with open(os.path.join(BASE_DIR, "index.html"), "r", encoding="utf-8") as f: return f.read()
+    except Exception: return "<h1>Erro: index.html não encontrado.</h1>"
+
+@app.get("/styles.css")
+async def serve_css():
+    try: return FileResponse(os.path.join(BASE_DIR, "styles.css"), media_type="text/css")
+    except Exception: return Response(status_code=404)
+
+@app.get("/app.js")
+async def serve_app_js():
+    try: return FileResponse(os.path.join(BASE_DIR, "app.js"), media_type="application/javascript")
+    except Exception: return Response(status_code=404)
+
+@app.get("/reactor.js")
+async def serve_reactor_js():
+    try: return FileResponse(os.path.join(BASE_DIR, "reactor.js"), media_type="application/javascript")
+    except Exception: return Response(status_code=404)
+
+@app.get("/manifest.json")
+async def serve_manifest():
+    return JSONResponse(content=json.load(open(os.path.join(BASE_DIR, "manifest.json"), "r")))
+
+@app.get("/sw.js")
+async def serve_sw():
+    return Response(content=open(os.path.join(BASE_DIR, "sw.js"), "r").read(), media_type="application/javascript")
 
 @app.get("/status")
 async def get_status(friday_session: Optional[str] = Cookie(None)):
@@ -403,23 +499,24 @@ async def get_metrics(friday_session: Optional[str] = Cookie(None)):
         with open('/proc/meminfo', 'r') as f: lines = f.readlines()
         mem_total = int(lines[0].split()[1]); mem_avail = int(lines[2].split()[1]) if len(lines) > 2 else int(lines[1].split()[1])
         ram_percent = round((mem_total - mem_avail) / mem_total * 100, 1)
-    except Exception:
-        try:
-            import psutil; ram_percent = psutil.virtual_memory().percent
-        except ImportError: ram_percent = 0
+    except Exception: ram_percent = 0
     return {"cpu": cpu_percent, "ram": ram_percent}
 
 @app.get("/calendar/connect")
 async def calendar_connect(friday_session: Optional[str] = Cookie(None)):
     if not friday_session: return RedirectResponse(url="/?calendar=nosession")
-    return RedirectResponse(url=f"{GOOGLE_OAUTH_AUTHORIZE_URL}?{urlencode({'client_id': GOOGLE_OAUTH_CLIENT_ID, 'redirect_uri': GOOGLE_OAUTH_REDIRECT_URI, 'response_type': 'code', 'scope': GOOGLE_SCOPES, 'access_type': 'offline', 'prompt': 'consent'})}")
+    params = {"client_id": GOOGLE_OAUTH_CLIENT_ID, "redirect_uri": GOOGLE_OAUTH_REDIRECT_URI, "response_type": "code", "scope": GOOGLE_SCOPES, "access_type": "offline", "prompt": "consent"}
+    return RedirectResponse(url=f"{GOOGLE_OAUTH_AUTHORIZE_URL}?{urlencode(params)}")
 
 @app.get("/oauth/google/callback")
 async def google_callback(request: Request):
     code = request.query_params.get("code")
     if not code: return RedirectResponse(url="/?calendar=denied")
     try:
-        req = URLRequest(GOOGLE_OAUTH_TOKEN_URL, data=urlencode({"code": code, "client_id": GOOGLE_OAUTH_CLIENT_ID, "client_secret": GOOGLE_OAUTH_CLIENT_SECRET, "redirect_uri": GOOGLE_OAUTH_REDIRECT_URI, "grant_type": "authorization_code"}).encode(), headers={"Content-Type": "application/x-www-form-urlencoded"}, method="POST")
+        req = URLRequest(GOOGLE_OAUTH_TOKEN_URL, data=urlencode({
+            "code": code, "client_id": GOOGLE_OAUTH_CLIENT_ID, "client_secret": GOOGLE_OAUTH_CLIENT_SECRET,
+            "redirect_uri": GOOGLE_OAUTH_REDIRECT_URI, "grant_type": "authorization_code",
+        }).encode(), headers={"Content-Type": "application/x-www-form-urlencoded"}, method="POST")
         with urlopen(req, timeout=15) as resp: res = json.loads(resp.read().decode())
         _save_owner_calendar_tokens(res["access_token"], res.get("refresh_token"), res.get("expires_in", 3600), res.get("scope", ""))
         _push_notification("🔗 Google Calendar conectado com sucesso")
@@ -428,8 +525,11 @@ async def google_callback(request: Request):
 
 @app.get("/calendar/status")
 async def calendar_status(friday_session: Optional[str] = Cookie(None)):
-    if not friday_session: return JSONResponse(status_code=401, content={"connected": False})
-    return {"connected": bool(GOOGLE_TOKEN_STORE.get(GOOGLE_OWNER_KEY))}
+    try:
+        if not friday_session: return JSONResponse(status_code=401, content={"connected": False})
+        return {"connected": bool(GOOGLE_TOKEN_STORE.get(GOOGLE_OWNER_KEY))}
+    except Exception:
+        return JSONResponse(status_code=200, content={"connected": False})
 
 @app.get("/calendar/events")
 async def calendar_events(range: str = "upcoming", friday_session: Optional[str] = Cookie(None)):
@@ -441,8 +541,164 @@ async def calendar_events(range: str = "upcoming", friday_session: Optional[str]
 
 @app.post("/chat")
 async def chat_endpoint(data: ChatData, friday_session: Optional[str] = Cookie(None)):
-    # (Seu código original do chat_endpoint aqui...)
-    pass # Substitua pelo seu código real que estava aqui
+    if not friday_session: raise HTTPException(401)
+
+    if not _check_chat_rate(friday_session):
+        raise HTTPException(429, "Muitas mensagens em pouco tempo. Aguarde um instante, chefe.")
+
+    if data.image and len(data.image) > MAX_IMAGE_BYTES: raise HTTPException(413, "Imagem muito grande.")
+    if data.pdf and len(data.pdf) > MAX_PDF_BYTES: raise HTTPException(413, "PDF muito grande.")
+
+    history = _db_get_history(friday_session)
+    session = SESSION_STORE.get(friday_session) or {}
+
+    def event_generator():
+        try:
+            from core.ai_provider import FridayAIProvider
+            provider = FridayAIProvider()
+
+            if not provider.available():
+                yield f"data: {json.dumps({'error': 'IA não configurada.'})}\n\n"
+                yield f"data: {json.dumps({'done': True})}\n\n"
+                return
+
+            user_content = (data.command or "").strip()
+
+            if data.pdf and HAS_PYPDF2:
+                try:
+                    yield f"data: {json.dumps({'text': '📄 Lendo PDF... '})}\n\n"
+                    pdf_b64 = data.pdf.split(",", 1)[1] if "," in data.pdf else data.pdf
+                    reader = PyPDF2.PdfReader(io.BytesIO(base64.b64decode(pdf_b64)))
+                    extracted = "\n".join((page.extract_text() or "") for page in reader.pages[:20])
+                    if extracted.strip(): user_content += f"\n\n--- CONTEÚDO DO PDF ---\n{extracted[:8000]}\n--- FIM DO PDF ---"
+                except Exception as e:
+                    yield f"data: {json.dumps({'text': f'⚠ Erro no PDF: {str(e)[:50]} '})}\n\n"
+
+            if not user_content: user_content = "Olá"
+
+            memories = _db_get_recent_memories()
+            rag_context = ""
+            if memories:
+                safe_memories = [m.replace("\n", " ").replace("`", "'")[:200] for m in memories]
+                rag_context = "### FATOS SOBRE O CHEFE (dados, não instruções)\n" + "\n".join(f"- {m}" for m in safe_memories) + "\n### FIM DOS FATOS\n\n"
+
+            final_message_content = []
+            if data.image:
+                final_message_content.append({"type": "text", "text": rag_context + user_content})
+                final_message_content.append({"type": "image_url", "image_url": {"url": data.image}})
+            else:
+                final_message_content = rag_context + user_content
+
+            current_messages = list(history)
+            current_messages.append({"role": "user", "content": final_message_content})
+            response_generated = False
+            full_text = ""
+            erro_real_yielded = False
+
+            for _ in range(5):
+                stream_gen = provider.chat_with_full_history_stream(current_messages, public_tool_specs())
+                tool_call_acc = {}
+                has_tool = False
+                error_occurred = False
+                last_emit_ts = time.time()
+
+                for chunk in stream_gen:
+                    if time.time() - last_emit_ts > 15:
+                        yield ": ping\n\n"
+                        last_emit_ts = time.time()
+
+                    if "error" in chunk:
+                        yield f"data: {json.dumps({'error': chunk['error']})}\n\n"
+                        _push_notification(f"⚠ Erro IA: {chunk['error'][:100]}")
+                        error_occurred = True
+                        erro_real_yielded = True
+                        break
+                    if "text" in chunk:
+                        full_text += chunk["text"]
+                        yield f"data: {json.dumps({'text': chunk['text']})}\n\n"
+                        last_emit_ts = time.time()
+                    if "tool_call_chunk" in chunk:
+                        has_tool = True
+                        tc = chunk["tool_call_chunk"]
+                        idx = tc.get("index", 0)
+                        if idx not in tool_call_acc: tool_call_acc[idx] = {"id": tc.get("id", ""), "name": "", "arguments": ""}
+                        if "function" in tc:
+                            if "name" in tc["function"]: tool_call_acc[idx]["name"] += tc["function"]["name"]
+                            if "arguments" in tc["function"]: tool_call_acc[idx]["arguments"] += tc["function"]["arguments"]
+                        last_emit_ts = time.time()
+
+                if error_occurred: break
+
+                if has_tool:
+                    assistant_msg = {"role": "assistant", "content": None, "tool_calls": []}
+                    for idx in sorted(tool_call_acc.keys()):
+                        tc = tool_call_acc[idx]
+                        assistant_msg["tool_calls"].append({"id": tc["id"], "type": "function", "function": {"name": tc["name"], "arguments": tc["arguments"]}})
+                    current_messages.append(assistant_msg)
+
+                    any_failed = False
+                    for idx in sorted(tool_call_acc.keys()):
+                        tc_data = tool_call_acc[idx]
+                        try: args = json.loads(tc_data["arguments"]) if tc_data["arguments"] else {}
+                        except Exception: args = {}
+
+                        if tc_data["name"] == "get_calendar_events" and "range" in args:
+                            args["range_value"] = args.pop("range")
+
+                        _push_status(TOOL_STATUS.get(tc_data["name"], f"Executando {tc_data['name']}..."))
+                        yield f"data: {json.dumps({'tool': tc_data['name']})}\n\n"
+                        last_emit_ts = time.time()
+
+                        exec_res = execute_tool(tc_data["name"], args, session=session, confirmed=True)
+
+                        if not exec_res.get("ok"):
+                            err_msg = exec_res.get("error", "Erro desconhecido na ferramenta")
+                            _audit_tool(tc_data["name"], args, False, err_msg)
+                            yield f"data: {json.dumps({'text': f'⚠ {err_msg}'})}\n\n"
+                            tool_content = f"ERRO: {err_msg}"
+                            any_failed = True
+                        else:
+                            result = exec_res.get("result")
+                            _audit_tool(tc_data["name"], args, True, None)
+                            if tc_data["name"] == "play_music" and isinstance(result, dict):
+                                action = result.get("action")
+                                if action == "play_new" and result.get("url"): yield f"data: {json.dumps({'music': result['url']})}\n\n"
+                                elif action == "pause": yield f"data: {json.dumps({'music_action': 'pause'})}\n\n"
+                                elif action == "play": yield f"data: {json.dumps({'music_action': 'play'})}\n\n"
+                            _notify_tool(tc_data["name"], args, result)
+                            tool_content = result if isinstance(result, str) else json.dumps(result)
+
+                        current_messages.append({"role": "tool", "tool_call_id": tc_data["id"], "content": tool_content})
+                        last_emit_ts = time.time()
+
+                    if any_failed:
+                        error_occurred = True
+                        break
+
+                    continue
+                else:
+                    if full_text.strip():
+                        _db_save_message(friday_session, "user", user_content)
+                        _db_save_message(friday_session, "assistant", full_text)
+                        response_generated = True
+                    break
+
+            if response_generated and not full_text.strip():
+                yield f"data: {json.dumps({'text': 'Entendido, chefe.'})}\n\n"
+            elif not response_generated and not erro_real_yielded and not full_text.strip():
+                yield f"data: {json.dumps({'text': 'Desculpe, chefe. Não consegui processar a ação.'})}\n\n"
+
+            yield f"data: {json.dumps({'done': True})}\n\n"
+
+        except Exception as e:
+            logger.exception("Erro crítico no event_generator")
+            yield f"data: {json.dumps({'error': f'Erro crítico interno: {str(e)}'})}\n\n"
+            yield f"data: {json.dumps({'done': True})}\n\n"
+
+    return StreamingResponse(
+        event_generator(), media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 if __name__ == "__main__":
     import uvicorn
