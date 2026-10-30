@@ -1,9 +1,10 @@
 import json
 import logging
 import os
+import time
 from datetime import datetime, timezone, timedelta
 from urllib.request import Request, urlopen
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 
 try:
     from zoneinfo import ZoneInfo
@@ -18,6 +19,9 @@ if not logger.handlers:
     handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
     logger.addHandler(handler)
 logger.propagate = False
+
+MAX_HISTORY_MESSAGES = 20
+MAX_TOKENS_PER_MESSAGE = 4000
 
 
 class FridayAIProvider:
@@ -53,31 +57,31 @@ Personalidade: formal, leal, proativa, precisa e levemente espirituosa.
 Trate o usuário por "chefe" ou "senhor".
 Responda SEMPRE em português brasileiro natural e fluido.
 
-REGRAS:
-1. Execute ferramentas quando forem apropriadas e autorizadas.
-2. Comece resumindo o que o Chefe pediu.
-3. Finalize oferecendo ajuda adicional de forma breve.
-4. Não traduza expressões do inglês literalmente.
+DIRETRIZES:
+1. Perguntas simples (hora, clima, cotação, status) → responda direto e curto.
+2. Pedidos complexos → comece resumindo o que foi pedido, execute, depois finalize.
+3. Só ofereça ajuda adicional se houver ambiguidade real ou se o usuário pedir.
+4. Execute ferramentas quando apropriadas; informe erros com clareza.
 5. Analise imagens enviadas pelo Chefe.
-6. Informe erros de ferramentas com clareza; nunca afirme sucesso se houve falha.
+6. Nunca afirme sucesso se uma ferramenta falhou.
 
 CONTEXTO DE TEMPO:
 {self._get_current_time_context()}
 
-CONTEXTO DA CONVERSA:
 {history_context}
-"""
+""".strip()
 
-    def _summarize_history(self, history):
-        return history if len(history) <= 8 else history[-8:]
-
-    def _build_messages(self, message, history=None):
-        messages = [{"role": "system", "content": self._get_system_prompt().strip()}]
-        for item in self._summarize_history(history or []):
-            if isinstance(item, dict) and item.get("role") in ("user", "assistant") and isinstance(item.get("content"), str):
-                messages.append({"role": item["role"], "content": item["content"][:4000]})
-        messages.append({"role": "user", "content": message})
-        return messages
+    def _trim_history(self, messages):
+        """Mantém apenas as N últimas mensagens + a atual (controla custo)."""
+        if not messages:
+            return messages
+        if len(messages) <= MAX_HISTORY_MESSAGES:
+            return messages
+        tail = messages[-MAX_HISTORY_MESSAGES:]
+        # Remove mensagens 'tool' órfãs do começo (podem quebrar a API do Groq)
+        while tail and tail[0].get("role") == "tool":
+            tail.pop(0)
+        return tail
 
     def chat_with_full_history_stream(self, messages, tools):
         if not self.available():
@@ -87,7 +91,8 @@ CONTEXTO DA CONVERSA:
             yield {"error": "A conversa está vazia."}
             return
 
-        last_msg = messages[-1].get("content", "")
+        trimmed = self._trim_history(messages)
+        last_msg = trimmed[-1].get("content", "")
         is_vision = isinstance(last_msg, list) and any(
             isinstance(item, dict) and item.get("type") == "image_url" for item in last_msg
         )
@@ -95,7 +100,7 @@ CONTEXTO DA CONVERSA:
             {"type": "function", "function": {
                 "name": name,
                 "description": spec.get("description", ""),
-                "parameters": spec.get("parameters", {})
+                "parameters": spec.get("parameters", {}),
             }}
             for name, spec in (tools or {}).items()
         ]
@@ -104,25 +109,56 @@ CONTEXTO DA CONVERSA:
 
         payload = {
             "model": self._get_model(is_vision),
-            "messages": [{"role": "system", "content": self._get_system_prompt().strip()}] + messages,
+            "messages": [{"role": "system", "content": self._get_system_prompt()}] + trimmed,
             "stream": True,
-            "max_tokens": 4096
+            "max_tokens": 4096,
         }
         if formatted_tools:
             payload["tools"] = formatted_tools
             payload["tool_choice"] = "auto"
 
-        req = Request(
-            f"{self.base_url}/chat/completions",
-            data=json.dumps(payload).encode("utf-8"),
-            headers={"Content-Type": "application/json", "Authorization": f"Bearer {self.api_key}", "User-Agent": "FRIDAY/1.0"},
-            method="POST"
-        )
+        body_bytes = json.dumps(payload).encode("utf-8")
+
+        # Retry apenas ANTES do stream começar (stream é irrecuperável)
+        response = None
+        last_err = None
+        for attempt in range(3):
+            req = Request(
+                f"{self.base_url}/chat/completions",
+                data=body_bytes,
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {self.api_key}",
+                    "User-Agent": "FRIDAY/1.0",
+                },
+                method="POST",
+            )
+            try:
+                response = urlopen(req, timeout=90)
+                break
+            except HTTPError as e:
+                body = e.read().decode("utf-8", errors="replace")
+                logger.error(f"Groq HTTP {e.code} (tentativa {attempt+1}/3): {body[:200]}")
+                last_err = f"Groq HTTP {e.code}: {body[:500]}"
+                if e.code < 500 or attempt == 2:
+                    yield {"error": last_err}
+                    return
+                time.sleep(2 ** attempt)
+            except Exception as e:
+                logger.exception(f"Erro conexão Groq (tentativa {attempt+1}/3)")
+                last_err = str(e)[:300]
+                if attempt == 2:
+                    yield {"error": f"Erro de conexão: {last_err}"}
+                    return
+                time.sleep(2 ** attempt)
+
+        if response is None:
+            yield {"error": last_err or "Falha desconhecida."}
+            return
 
         try:
-            with urlopen(req, timeout=90) as response:
-                while True:
-                    line = response.readline()
+            with response:
+                for line in response:
                     if not line:
                         break
                     line = line.decode("utf-8", errors="replace").strip()
@@ -143,10 +179,6 @@ CONTEXTO DA CONVERSA:
                         yield {"text": delta["content"]}
                     for tool_call in delta.get("tool_calls") or []:
                         yield {"tool_call_chunk": tool_call}
-        except HTTPError as error:
-            body = error.read().decode("utf-8", errors="replace")
-            logger.exception("Groq HTTP error %s", error.code)
-            yield {"error": f"Groq HTTP {error.code}: {body[:500]}"}
         except Exception as error:
             logger.exception("Erro no streaming da FRIDAY")
             yield {"error": f"Erro no streaming: {str(error)[:300]}"}
