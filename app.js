@@ -949,4 +949,273 @@ async function sendCommandToFriday(command, isInitial = false) {
   }
 }
 
-$("chat
+$("chatForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const command = $("command").value.trim();
+  if (!command && !currentAttachment) return;
+  $("command").value = "";
+  sendCommandToFriday(command, false);
+});
+
+/* ---------- VOZ (SPEECH RECOGNITION) ---------- */
+window.startVoice = function(isContinuous = false) {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) { window.status("Reconhecimento indisponível."); return; }
+  if (window.listening && recognition) { recognition.stop(); return; }
+  window.stopVoice();
+  
+  recognition = new SR();
+  recognition.lang = "pt-BR"; recognition.continuous = isContinuous;
+  recognition.interimResults = false; recognition.maxAlternatives = 1;
+  
+  recognition.onstart = () => {
+    window.listening = true; setupMicVisualizer();
+    $("voiceBtn").classList.add("listening"); soundListen(); setWaveformState('listening');
+    $("voiceBtn").textContent = "⏹";
+    window.status(isContinuous ? "Aguardando continuação..." : "Estou ouvindo, chefe...");
+    clearTimeout(silenceTimer);
+    if (isContinuous) silenceTimer = setTimeout(() => { if (window.listening && recognition) { recognition.stop(); window.status("Escuta encerrada."); } }, 5000);
+  };
+  
+  recognition.onresult = (event) => {
+    clearTimeout(silenceTimer);
+    $("command").value = event.results[0][0].transcript;
+    window.status("Voz reconhecida.");
+    $("chatForm").requestSubmit();
+  };
+  
+  recognition.onerror = (event) => { clearTimeout(silenceTimer); window.status("Falha no mic: " + event.error); setWaveformState('idle'); };
+  
+  recognition.onend = () => {
+    clearTimeout(silenceTimer); window.listening = false;
+    $("voiceBtn").classList.remove("listening"); $("voiceBtn").textContent = "🎙";
+    setWaveformState('idle');
+    setTimeout(() => { if (!$("assistant").classList.contains("hidden") && !window.speaking && !isProcessing) startWakeWordListener(); }, isContinuous ? 3000 : 1000);
+  };
+  
+  try { recognition.start(); } catch (e) { window.status("Não foi possível iniciar o mic."); setWaveformState('idle'); }
+};
+
+$("voiceBtn").addEventListener("click", () => window.startVoice(false));
+
+/* ---------- CALENDÁRIO: CONTROLES ---------- */
+async function checkCalendarConnection() {
+  try {
+    const res = await fetch("/calendar/status", { credentials: "same-origin", cache: "no-store" });
+    const data = await res.json();
+    if (res.ok && data.connected) {
+      $("calendarConnect").textContent = "📅 CONNECTED";
+      window.loadCalendarEvents("upcoming");
+      return true;
+    }
+  } catch (e) {}
+  return false;
+}
+$("calendarConnect").addEventListener("click", () => { window.location.href = "/calendar/connect"; });
+$("refreshCalendarTodayBtn").addEventListener("click", () => window.loadCalendarEvents("today"));
+$("refreshCalendarBtn").addEventListener("click", () => window.loadCalendarEvents("upcoming"));
+$("stopSpeakTop").addEventListener("click", () => { window.stopVoice(); window.status("Fala interrompida."); });
+
+/* ---------- WAKE WORD ---------- */
+function startWakeWordListener() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR || wakeWordActive) return;
+  wakeWordRecognition = new SR();
+  wakeWordRecognition.lang = 'pt-BR'; wakeWordRecognition.continuous = true; wakeWordRecognition.interimResults = true;
+  wakeWordRecognition.onresult = (event) => {
+    const transcript = Array.from(event.results).map(r => r[0].transcript).join('').toLowerCase();
+    const now = Date.now();
+    if (now - wakeWordLastHit < 5000) return;
+    if (transcript.includes('hey friday') || transcript.includes('oi friday') || transcript.includes('ei friday')) {
+      wakeWordHits++;
+      wakeWordLastHit = now;
+      if (wakeWordHits >= 2) {
+        wakeWordHits = 0;
+        try { wakeWordRecognition.stop(); } catch(e) {}
+        wakeWordActive = false;
+        soundListen(); window.startVoice(false);
+      } else {
+        setTimeout(() => { wakeWordHits = 0; }, 3000);
+      }
+    }
+  };
+  wakeWordRecognition.onerror = (event) => { if (event.error === 'no-speech' || event.error === 'aborted') return; };
+  wakeWordRecognition.onend = () => {
+    if (!wakeWordActive && !$("assistant").classList.contains("hidden") && !window.listening && !window.speaking && !isProcessing) {
+      try { wakeWordRecognition.start(); } catch (e) {}
+    }
+  };
+  try { wakeWordRecognition.start(); wakeWordActive = true; } catch (e) {}
+}
+
+/* ---------- LOGIN / LOGOUT ---------- */
+function showLogin() {
+  window.stopVoice(); stopStatusPolling(); stopAmbience();
+  $("assistant").classList.add("hidden"); $("login").classList.remove("hidden");
+  $("messages").replaceChildren(); $("settingsModal").classList.add("hidden");
+  $("calendarPanel").classList.add("hidden"); $('musicPlayerContainer').classList.add('hidden');
+  $('musicPlayer').src = ""; window.status("Aguardando autenticação");
+  document.body.dataset.state = 'idle';
+  assistantActivated = false;
+}
+$("logout").addEventListener("click", async () => {
+  window.stopVoice();
+  try { await request("/logout", {}); } catch (e) {}
+  assistantActivated = false;
+  showLogin();
+});
+
+/* ---------- ATIVAÇÃO ---------- */
+async function activateAssistant() {
+  if (assistantActivated) return;
+  assistantActivated = true;
+
+  try {
+    $("login").classList.add("hidden");
+    await runBootSequence();
+    $("assistant").classList.remove("hidden");
+    window.status("Sessão ativa. FRIDAY online.");
+    startAmbience();
+
+    $("messages").replaceChildren();
+    await loadHistoryFromBackend();
+
+    startSysMetrics();
+    
+    // Chama o Reactor externo
+    if (window.initReactor) window.initReactor();
+
+    sendCommandToFriday(
+      "Gere o meu briefing matinal para a cidade de Criciúma usando a ferramenta get_morning_briefing",
+      true
+    );
+
+    checkCalendarConnection();
+    startWakeWordListener();
+  } catch (error) {
+    assistantActivated = false;
+    $("assistant").classList.add("hidden");
+    $("login").classList.remove("hidden");
+    const notice = $("lockoutNotice");
+    notice.textContent = "Não foi possível iniciar a interface: " + (error.message || "erro desconhecido");
+    notice.classList.remove("hidden");
+    window.status("Falha ao iniciar a FRIDAY.");
+  }
+}
+
+/* ---------- SESSÃO ---------- */
+async function checkSession() {
+  try {
+    const res = await fetch("/session", { credentials: "same-origin", cache: "no-store" });
+    if (!res.ok) throw new Error("Falha ao verificar a sessão.");
+    const data = await res.json();
+    const calendarState = new URLSearchParams(location.search).get("calendar");
+    const msgMap = {
+      connected: "Google Calendar conectado.", nosession: "Entre antes de conectar.", denied: "Autorização cancelada.",
+      old: "Tentativa expirou.", state: "Sessão não confere.", config: "OAuth incompleto.",
+      redirect: "Redirect URI inválida.", client: "Cliente OAuth recusado.", token: "Google não concluiu.", incomplete: "Resposta incompleta."
+    };
+    if (data.authenticated) await activateAssistant();
+    if (msgMap[calendarState]) {
+      window.status(msgMap[calendarState]);
+      history.replaceState({}, "", location.pathname);
+    }
+  } catch (error) {
+    console.error("FRIDAY session check:", error);
+    window.status("Não foi possível verificar a sessão.");
+  }
+}
+
+/* ---------- ALERTAS DE AGENDA / NOTIFICAÇÕES ---------- */
+setInterval(async () => {
+  if ($("assistant").classList.contains("hidden")) return;
+  try {
+    const res = await fetch("/calendar/events?range=today", { credentials: "same-origin", cache: "no-store" });
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!data.events || !data.events.length) return;
+    const now = new Date();
+    data.events.forEach(evt => {
+      if (!evt.start) return;
+      const t = new Date(evt.start);
+      const diff = (t - now) / 1000 / 60;
+      if (diff > 0 && diff <= 15) {
+        const key = `alerted_${evt.summary}_${evt.start}`;
+        if (!localStorage.getItem(key)) {
+          localStorage.setItem(key, "true");
+          const msg = `Chefe, seu compromisso "${evt.summary}" começa em ${Math.round(diff)} minutos.`;
+          window.showToast(msg, 8000); window.speakText(msg, true);
+        }
+      }
+    });
+  } catch (e) {}
+}, 5 * 60 * 1000);
+
+setInterval(async () => {
+  if ($("assistant").classList.contains("hidden")) return;
+  try {
+    const res = await fetch("/notifications", { credentials: "same-origin" });
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!data.notifications || data.notifications.length === 0) return;
+    const now = Date.now();
+    const timeSinceAI = now - lastAIResponseTime;
+    data.notifications.forEach(msg => {
+      if (timeSinceAI < 30000 && !msg.includes('[CRITICAL]')) return;
+      window.showToast(msg, 5000);
+    });
+  } catch (e) {}
+}, 15000);
+
+/* ---------- COMMAND PALETTE ---------- */
+const PALETTE_COMMANDS = [
+  { name: 'Focar input', shortcut: 'Ctrl+K', action: () => $('command').focus() },
+  { name: 'Configurações', shortcut: 'Ctrl+/', action: () => $('settingsModal').classList.remove('hidden') },
+  { name: 'Parar voz', shortcut: 'Esc', action: () => window.stopVoice() },
+  { name: 'Recarregar agenda', shortcut: '', action: () => { $('calendarPanel').classList.remove('hidden'); window.loadCalendarEvents('today'); } },
+  { name: 'Conectar Google Calendar', shortcut: '', action: () => { window.location.href = '/calendar/connect'; } },
+  { name: 'Nova conversa (limpar)', shortcut: '', action: () => $('messages').replaceChildren() },
+  { name: 'Mostrar/ocultar sidebar', shortcut: '', action: () => document.body.classList.toggle('hide-sidebar') },
+  { name: 'Mostrar/ocultar telemetria', shortcut: '', action: () => document.body.classList.toggle('hide-chart') },
+  { name: 'Sair', shortcut: '', action: () => $('logout').click() },
+];
+
+window.openPalette = function() {
+  $('palette').classList.remove('hidden');
+  $('paletteInput').value = '';
+  renderPaletteItems('');
+  setTimeout(() => $('paletteInput').focus(), 50);
+};
+function closePalette() { $('palette').classList.add('hidden'); }
+function renderPaletteItems(query) {
+  const q = query.toLowerCase();
+  const filtered = PALETTE_COMMANDS.filter(c => c.name.toLowerCase().includes(q));
+  const container = $('paletteResults');
+  container.innerHTML = '';
+  if (!filtered.length) { container.innerHTML = '<div class="palette-item" style="color:var(--text-dim);">Nenhum comando</div>'; return; }
+  filtered.forEach((cmd, i) => {
+    const el = document.createElement('div');
+    el.className = 'palette-item' + (i === 0 ? ' selected' : '');
+    el.innerHTML = `<span>${cmd.name}</span>${cmd.shortcut ? `<span class="shortcut">${cmd.shortcut}</span>` : ''}`;
+    el.onclick = () => { cmd.action(); closePalette(); };
+    container.appendChild(el);
+  });
+}
+$('paletteInput')?.addEventListener('input', e => renderPaletteItems(e.target.value));
+$('palette')?.addEventListener('click', e => { if (e.target.id === 'palette') closePalette(); });
+
+/* ---------- BOOT ---------- */
+loadVisualPreferences();
+checkSession();
+
+window.addEventListener('load', () => {
+  if (!document.body.classList.contains('hide-particles')) initBgParticles();
+  const stage = $('reactorStage');
+  if (stage) {
+    const ro = new ResizeObserver(() => {
+      if (stage.clientWidth === 0 || stage.clientHeight === 0) return;
+      if (window.initReactor) window.initReactor(); 
+    });
+    ro.observe(stage);
+  }
+});
