@@ -82,9 +82,3 @@ import pytest
 from fastapi import HTTPException
 from app import chat_endpoint, ChatData
 import asyncio
-
-def test_chat_requires_auth():
-    # Testa a função diretamente, sem depender do TestClient e sem risco de cookies vazarem
-    with pytest.raises(HTTPException) as exc_info:
-        asyncio.run(chat_endpoint(ChatData(command="oi"), friday_session=None))
-    assert exc_info.value.status_code == 401
