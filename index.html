@@ -1882,6 +1882,8 @@ async function sendCommandToFriday(command, isInitial = false) {
     $('thinkingTime').textContent = `${elapsed}s`;
   }, 100);
 
+  let botError = null; // ✅ Variável para capturar erros reais
+
   try {
     const payload = { command };
     if (currentAttachmentType === 'pdf' && !isInitial) {
@@ -1943,7 +1945,7 @@ async function sendCommandToFriday(command, isInitial = false) {
             if (dataObj.error) { 
               if (currentToolCard) { currentToolCard.classList.remove('loading'); currentToolCard = null; }
               botMsgEl.classList.remove('typing'); 
-              botSpan.innerHTML = "[ERRO] " + dataObj.error; 
+              botError = dataObj.error; // ✅ Salva o erro real
               status("Erro na IA."); 
             }
           } catch (e) {}
@@ -1955,7 +1957,9 @@ async function sendCommandToFriday(command, isInitial = false) {
     if (window.hljs) botSpan.querySelectorAll('pre code').forEach(el => hljs.highlightElement(el));
     stopStatusPolling();
     
-    if (!fullReplyText.trim()) { 
+    if (botError) {
+      botSpan.innerHTML = "[ERRO] " + botError;
+    } else if (!fullReplyText.trim()) { 
       botSpan.innerHTML = "Entendido, chefe."; 
       status("Sistema online.");
     }
@@ -1981,7 +1985,7 @@ async function sendCommandToFriday(command, isInitial = false) {
     clearInterval(thinkingTimer);
     $('thinkingIndicator').classList.add('hidden');
     $('cancelBtn').classList.add('hidden');
-    if (currentToolCard) { currentToolCard.classList.remove('loading'); currentToolCard = null; } // Limpa card no final
+    if (currentToolCard) { currentToolCard.classList.remove('loading'); currentToolCard = null; }
     currentAbortController = null;
     isProcessing = false;
     if (window.fridayState !== 'error') window.fridayState = 'idle';
@@ -1989,41 +1993,6 @@ async function sendCommandToFriday(command, isInitial = false) {
     if (!$("assistant").classList.contains("hidden")) $("command").focus();
   }
 }
-$("loginForm").addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const password = $("password").value;
-  status("Verificando credenciais...");
-  try {
-    await request("/login", { password });
-    $("password").value = "";
-    $("login").classList.add("hidden");
-    await runBootSequence();
-    $("assistant").classList.remove("hidden");
-    status("Autenticada. FRIDAY online.");
-    soundBoot(); startAmbience();
-    $('messages').replaceChildren();
-    await loadHistoryFromBackend();
-    startSysMetrics();
-    initReactor();
-    requestAnimationFrame(() => initReactor());
-    sendCommandToFriday('Gere o meu briefing matinal para a cidade de Criciúma usando a ferramenta get_morning_briefing', true);
-    $("command").focus();
-    checkCalendarConnection();
-    startWakeWordListener();
-    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    if (audioCtx.state === 'suspended') audioCtx.resume();
-    if (!localStorage.getItem('friday_shortcuts_shown')) {
-      setTimeout(() => {
-        addMessage("FRIDAY", "💡 **Atalhos:** `Ctrl+K` focar · `Ctrl+/` config · `Ctrl+Shift+P` palette · `Esc` parar.\n\n🎯 **Dica:** clique nos nós ao redor do núcleo para navegar. Clique no núcleo para falar por voz.");
-        localStorage.setItem('friday_shortcuts_shown', 'true');
-      }, 4000);
-    }
-  } catch (error) {
-    status(error.message); $("password").value = "";
-    if (error.status === 429) startLockout(error.remaining); else $("password").focus();
-  }
-});
-
 $("chatForm").addEventListener("submit", async (event) => {
   event.preventDefault();
   const command = $("command").value.trim();
