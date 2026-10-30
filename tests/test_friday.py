@@ -79,6 +79,10 @@ def test_session_requires_auth():
     assert r.json()["authenticated"] is False
 
 def test_chat_requires_auth():
-    client.cookies.clear() # Garante que o cookie não vaze de outros testes
-    r = client.post("/chat", json={"command": "oi"})
+    # Cria um cliente novo em folha para garantir que não há cookies vazando de outros testes
+    from fastapi.testclient import TestClient
+    import app as friday_main
+    fresh_client = TestClient(friday_main.app)
+    
+    r = fresh_client.post("/chat", json={"command": "oi"})
     assert r.status_code == 401
