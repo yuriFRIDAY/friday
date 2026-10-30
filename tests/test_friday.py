@@ -20,7 +20,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from core import friday_tools
-import main as friday_main
+import app as friday_main
 
 client = TestClient(friday_main.app)
 
