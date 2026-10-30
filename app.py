@@ -129,6 +129,28 @@ def _push_notification(text):
         NOTIFICATION_QUEUE.append(text)
         if len(NOTIFICATION_QUEUE) > 20: NOTIFICATION_QUEUE.pop(0)
 
+def _notify_tool(tool_name, args, result):
+    if not result: return
+    try:
+        if tool_name == "create_calendar_event" and isinstance(result, dict) and result.get("ok"):
+            summary = result.get("summary") or args.get("summary", "evento")
+            _push_notification(f"📅 Evento criado: {summary}")
+        elif tool_name == "delete_calendar_event" and isinstance(result, dict) and result.get("ok"):
+            _push_notification("🗑 Evento removido da agenda")
+        elif tool_name == "update_calendar_event" and isinstance(result, dict) and result.get("ok"):
+            _push_notification("✏ Evento atualizado")
+        elif tool_name == "send_email" and isinstance(result, str) and "enviado" in result.lower():
+            _push_notification(f"✉ E-mail enviado para {args.get('to_email', '?')}")
+        elif tool_name == "reply_to_email" and isinstance(result, str) and "enviada" in result.lower():
+            _push_notification(f"✉ Resposta enviada para {args.get('to_email', '?')}")
+        elif tool_name == "create_task" and isinstance(result, str) and "criada" in result.lower():
+            desc = str(args.get("description", ""))[:60]
+            _push_notification(f"📋 Tarefa criada: {desc}")
+        elif tool_name == "complete_task" and isinstance(result, str) and "concluída" in result.lower():
+            _push_notification(f"✓ Tarefa {args.get('task_id', '?')} concluída")
+    except Exception as e:
+        logger.warning(f"[NOTIFY] Falha: {e}")
+
 def _check_chat_rate(session_token):
     now = time.time()
     with _RATE_LOCK:
@@ -262,7 +284,6 @@ def _db_get_history(session_token):
 
 set_memory_context(save_func=_db_save_memory, recall_func=_db_recall_memory, delete_func=_db_delete_memory)
 
-# GOOGLE OAUTH (Variáveis restauradas e protegidas)
 GOOGLE_OAUTH_AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_OAUTH_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GOOGLE_SCOPES = "https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/gmail.readonly"
