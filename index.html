@@ -189,8 +189,9 @@ body::after{content:'';position:fixed;inset:0;background:repeating-linear-gradie
 .msg{display:flex;flex-direction:column;max-width:92%;font-size:13.5px;line-height:1.55;padding:8px 14px;font-family:var(--font-tech);position:relative}
 .msg.bot{align-self:flex-start;border-left:2px solid var(--cyan);background:linear-gradient(90deg,rgba(0,229,255,0.05),transparent 80%)}
 .msg.user{align-self:flex-end;border-right:2px solid var(--purple);background:linear-gradient(270deg,rgba(139,92,246,0.05),transparent 80%);text-align:right}
+.msg.system{align-self:center;border-left:2px solid var(--cyan-dim);border-right:2px solid var(--cyan-dim);background:rgba(0,229,255,0.03);font-size:12px;opacity:0.85;text-align:center;max-width:80%}
 .msg strong{font-family:var(--font-mono);font-size:9px;font-weight:500;letter-spacing:0.2em;margin-bottom:4px;display:flex;align-items:center;gap:6px}
-.bot strong{color:var(--cyan)}.user strong{color:var(--purple);justify-content:flex-end}
+.bot strong{color:var(--cyan)}.user strong{color:var(--purple);justify-content:flex-end}.system strong{color:var(--cyan-dim);justify-content:center}
 .bot strong::before{content:'';width:4px;height:4px;background:var(--cyan);box-shadow:0 0 5px var(--cyan)}
 .user strong::before{content:'';width:4px;height:4px;background:var(--purple);box-shadow:0 0 5px var(--purple)}
 .msg.typing span::after{content:'';display:inline-block;width:4px;height:12px;background:var(--cyan);animation:blink 0.8s step-end infinite;vertical-align:middle;margin-left:2px}
@@ -397,9 +398,9 @@ input:checked + .slider:before{transform:translateX(18px);background:var(--cyan)
           </g>
         </svg>
         <div class="clock-inner">
-          <div class="clock-month" id="clockMonth">JUN</div>
-          <div class="clock-day" id="clockDay">21</div>
-          <div class="clock-weekday" id="clockWeekday">THU</div>
+          <div class="clock-month" id="clockMonth"></div>
+          <div class="clock-day" id="clockDay"></div>
+          <div class="clock-weekday" id="clockWeekday"></div>
         </div>
       </div>
 
@@ -514,7 +515,7 @@ input:checked + .slider:before{transform:translateX(18px);background:var(--cyan)
     <aside class="hud-right">
       <div class="hud-widget">
         <div class="widget-section-label">DATE</div>
-        <div style="font-family:var(--font-mono);font-size:11px;color:var(--text-bright);letter-spacing:0.06em;" id="rightDate">THU, JUN 21</div>
+        <div style="font-family:var(--font-mono);font-size:11px;color:var(--text-bright);letter-spacing:0.06em;" id="rightDate">—</div>
       </div>
       <div class="hud-widget calendar-widget hidden" id="calendarPanel">
         <div class="widget-label-row">
@@ -569,6 +570,10 @@ input:checked + .slider:before{transform:translateX(18px);background:var(--cyan)
       <div class="switch-row"><span>Efeitos Neurais</span><label class="switch"><input type="checkbox" id="toggleParticles" checked><span class="slider"></span></label></div>
     </div>
     <div class="modal-section">
+      <h3>Voz</h3>
+      <div class="switch-row"><span>Falar respostas automaticamente</span><label class="switch"><input type="checkbox" id="toggleAutoSpeak" checked><span class="slider"></span></label></div>
+    </div>
+    <div class="modal-section">
       <h3>Atalhos</h3>
       <p style="line-height:1.8;"><strong style="color:var(--cyan);">Ctrl+K</strong> · Focar comando<br><strong style="color:var(--cyan);">Ctrl+/</strong> · Configurações<br><strong style="color:var(--cyan);">Ctrl+Shift+P</strong> · Command Palette<br><strong style="color:var(--cyan);">Esc</strong> · Fechar</p>
     </div>
@@ -595,17 +600,38 @@ input:checked + .slider:before{transform:translateX(18px);background:var(--cyan)
 </div>
 
 <script>
+/* ============================================================
+   FRIDAY — Frontend
+   Ajustes aplicados (mantendo compatibilidade):
+   - 401 no /chat → showLogin
+   - handleMusicAction removido (backend emite eventos)
+   - pitch aceita 0
+   - preferência por voz feminina pt-BR
+   - toggle partículas reinicializa o canvas
+   - runBootSequence com try/finally
+   - toggle autoSpeak persistido
+   - toast dedup via sessionStorage
+   - toast quando cai para voz nativa
+   - cleanSpeechText ignora code fences
+   - wake word com cooldown
+   - toast de cancelamento
+   - briefing inicial como mensagem SYSTEM
+   - placeholders do clock limpos até JS rodar
+   ============================================================ */
+
 const $ = (id) => document.getElementById(id);
 let recognition = null, listening = false, lastReply = "";
 let currentUtterance = null, speaking = false, speechRunId = 0;
 let lockoutInterval = null, lockoutEndsAt = 0, silenceTimer = null;
 let isProcessing = false, ytPlayer = null, sysChart = null, sysPollTimer = null;
 let wakeWordRecognition = null, wakeWordActive = false;
+let wakeWordHits = 0, wakeWordLastHit = 0;
 let currentAttachment = null, currentAttachmentType = null, currentAttachmentName = null;
 let statusPollingInterval = null, deferredPrompt = null, availableVoices = [];
 let bootTime = Date.now();
 let bootRunning = false;
 let assistantActivated = false;
+let nativeVoiceToastShown = false;
 window.fridayState = 'idle';
 
 let currentAbortController = null;
@@ -623,20 +649,34 @@ const MONTHS_PT = ['JAN','FEV','MAR','ABR','MAI','JUN','JUL','AGO','SET','OUT','
 const WEEKDAYS_PT = ['DOM','SEG','TER','QUA','QUI','SEX','SÁB'];
 
 function safeMarkedParse(text) {
-  const html = marked.parse(text);
-  if (typeof DOMPurify !== 'undefined') { return DOMPurify.sanitize(html); }
-  return html;
+  try {
+    const html = marked.parse(text);
+    if (typeof DOMPurify !== 'undefined') return DOMPurify.sanitize(html);
+    return html;
+  } catch (e) { return String(text); }
 }
 
+/* ---------- TOAST (dedup persistente) ---------- */
 const recentToasts = new Map();
+const TOAST_SESSION_KEY = 'friday_toast_dedup';
+function _loadToastDedup() {
+  try { return JSON.parse(sessionStorage.getItem(TOAST_SESSION_KEY) || '{}'); } catch(e){ return {}; }
+}
+function _saveToastDedup(obj) {
+  try { sessionStorage.setItem(TOAST_SESSION_KEY, JSON.stringify(obj)); } catch(e){}
+}
 function showToast(text, duration = 5000) {
   const container = $('toastContainer');
   if (!container) return;
   const now = Date.now();
+  const persistent = _loadToastDedup();
+  if (persistent[text] && now - persistent[text] < 30000) return;
   const lastSeen = recentToasts.get(text) || 0;
-  if (now - lastSeen < 10000) return;
+  if (now - lastSeen < 3000) return;
   recentToasts.set(text, now);
-  for (const [k, t] of recentToasts) { if (now - t > 60000) recentToasts.delete(k); }
+  persistent[text] = now;
+  for (const k in persistent) { if (now - persistent[k] > 300000) delete persistent[k]; }
+  _saveToastDedup(persistent);
   if (container.children.length >= 3) { const oldest = container.firstChild; if (oldest) oldest.remove(); }
   const toast = document.createElement('div');
   toast.className = 'toast';
@@ -656,6 +696,7 @@ function showToast(text, duration = 5000) {
   timer = setTimeout(dismiss, duration);
 }
 
+/* ---------- CLOCKS ---------- */
 function buildDayStrip() {
   const now = new Date();
   const days = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
@@ -685,6 +726,7 @@ function updateClocks() {
 }
 buildDayStrip(); updateClocks(); setInterval(updateClocks, 1000);
 
+/* ---------- SPARKLINES / GAUGES ---------- */
 const sparkHistory = { cpu: [], ram: [] };
 const SPARK_MAX = 30;
 function pushSpark(key, v) { const arr = sparkHistory[key]; arr.push(v); if (arr.length > SPARK_MAX) arr.shift(); }
@@ -773,10 +815,12 @@ setInterval(() => {
   }
 }, 5000);
 
+/* ---------- PREFS ---------- */
 function loadVisualPreferences() {
   if (localStorage.getItem('friday_hide_sidebar') === 'true') { document.body.classList.add('hide-sidebar'); $('toggleSidebar').checked = false; }
   if (localStorage.getItem('friday_hide_chart') === 'true') { document.body.classList.add('hide-chart'); $('toggleChart').checked = false; }
   if (localStorage.getItem('friday_hide_particles') === 'true') { document.body.classList.add('hide-particles'); $('toggleParticles').checked = false; }
+  if (localStorage.getItem('friday_auto_speak') === 'false') { $('autoSpeak').checked = false; $('toggleAutoSpeak').checked = false; }
 }
 $('toggleSidebar').addEventListener('change', e => {
   if (e.target.checked) document.body.classList.remove('hide-sidebar'); else document.body.classList.add('hide-sidebar');
@@ -787,8 +831,14 @@ $('toggleChart').addEventListener('change', e => {
   localStorage.setItem('friday_hide_chart', !e.target.checked);
 });
 $('toggleParticles').addEventListener('change', e => {
-  if (e.target.checked) document.body.classList.remove('hide-particles'); else document.body.classList.add('hide-particles');
-  localStorage.setItem('friday_hide_particles', !e.target.checked);
+  const show = e.target.checked;
+  if (show) document.body.classList.remove('hide-particles'); else document.body.classList.add('hide-particles');
+  localStorage.setItem('friday_hide_particles', !show);
+  if (show && !bgRenderer) initBgParticles();
+});
+$('toggleAutoSpeak').addEventListener('change', e => {
+  $('autoSpeak').checked = e.target.checked;
+  localStorage.setItem('friday_auto_speak', e.target.checked ? 'true' : 'false');
 });
 $('openSettingsBtn').addEventListener('click', () => $('settingsModal').classList.remove('hidden'));
 $('closeSettingsBtn').addEventListener('click', () => $('settingsModal').classList.add('hidden'));
@@ -807,25 +857,31 @@ document.addEventListener('keydown', e => {
   if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'p') { e.preventDefault(); openPalette(); }
 });
 
+/* ---------- BOOT SEQUENCE (try/finally) ---------- */
 async function runBootSequence() {
   if (bootRunning) return;
   bootRunning = true;
   const overlay = $("bootOverlay");
   const log = $("bootLog");
-  overlay.classList.remove("hidden", "fade-out");
-  const steps = ["INITIALIZING KERNEL","LOADING NEURAL NETWORK","MOUNTING FILESYSTEM","ESTABLISHING SECURE LINK","CALIBRATING SENSORS","SYNCING CALENDAR","FRIDAY ONLINE"];
-  for (let i = 0; i < steps.length; i++) {
-    log.innerHTML = `<span class="ok">[OK]</span> ${steps[i]}<span class="cursor"></span>`;
-    try { playTone(400 + i * 120, 'sine', 0.06); } catch(e) {}
-    await new Promise(r => setTimeout(r, 220));
+  try {
+    overlay.classList.remove("hidden", "fade-out");
+    const steps = ["INITIALIZING KERNEL","LOADING NEURAL NETWORK","MOUNTING FILESYSTEM","ESTABLISHING SECURE LINK","CALIBRATING SENSORS","SYNCING CALENDAR","FRIDAY ONLINE"];
+    for (let i = 0; i < steps.length; i++) {
+      log.innerHTML = `<span class="ok">[OK]</span> ${steps[i]}<span class="cursor"></span>`;
+      try { playTone(400 + i * 120, 'sine', 0.06); } catch(e) {}
+      await new Promise(r => setTimeout(r, 220));
+    }
+    await new Promise(r => setTimeout(r, 400));
+    overlay.classList.add("fade-out");
+    await new Promise(r => setTimeout(r, 500));
+  } finally {
+    overlay.classList.add("hidden");
+    overlay.classList.remove("fade-out");
+    bootRunning = false;
   }
-  await new Promise(r => setTimeout(r, 400));
-  overlay.classList.add("fade-out");
-  await new Promise(r => setTimeout(r, 500));
-  overlay.classList.add("hidden"); overlay.classList.remove("fade-out");
-  bootRunning = false;
 }
 
+/* ---------- PWA + MIC ---------- */
 window.addEventListener('beforeinstallprompt', e => {
   e.preventDefault();
   deferredPrompt = e;
@@ -856,6 +912,7 @@ $('requestMicBtn').addEventListener('click', async () => {
   }
 });
 
+/* ---------- VOZES ---------- */
 function loadVoices() {
   availableVoices = window.speechSynthesis.getVoices();
   const select = $('voiceSelect');
@@ -868,26 +925,51 @@ function loadVoices() {
     opt.value = voice.name; opt.textContent = `${voice.name} (${voice.lang})`;
     select.appendChild(opt);
   });
-  const ultron = filtered.find(v => v.name.includes('Male') || v.name.includes('Masculino') || v.name.includes('Google UK English Male'));
-  if (ultron) select.value = ultron.name;
+  // Preferência: voz feminina pt-BR (FRIDAY é feminina)
+  const femaleHints = ['female', 'feminina', 'luciana', 'maria', 'google português do brasil', 'google portuguese'];
+  const female = filtered.find(v => femaleHints.some(h => v.name.toLowerCase().includes(h)));
+  if (female) select.value = female.name;
 }
 window.speechSynthesis.onvoiceschanged = loadVoices;
 setTimeout(loadVoices, 500);
 $('pitchSlider').addEventListener('input', e => { $('pitchValue').textContent = e.target.value; });
-$('testUltronVoiceBtn').addEventListener('click', () => { browserSpeak("Eu sou a FRIDAY. O sistema está sob meu controle. Como posso ajudar?", 0, true); });
+$('testUltronVoiceBtn').addEventListener('click', () => {
+  browserSpeak("Olá, chefe. Esta é minha voz nativa, pronta para entrar em ação quando necessário.", 0, true);
+});
+
 function browserSpeak(text, runId, forceTest = false) {
   if (!('speechSynthesis' in window)) return;
   const synth = window.speechSynthesis;
   synth.cancel();
   const utterance = new SpeechSynthesisUtterance(text);
   utterance.lang = 'pt-BR'; utterance.rate = 0.85;
-  utterance.pitch = parseFloat($('pitchSlider').value) || 0.1;
+  const p = parseFloat($('pitchSlider').value);
+  utterance.pitch = Number.isFinite(p) ? p : 0.1;
   const selectedName = $('voiceSelect').value;
   if (selectedName) { const voice = availableVoices.find(v => v.name === selectedName); if (voice) utterance.voice = voice; }
   utterance.onstart = () => { if (runId === speechRunId || forceTest) { speaking = true; soundListen(); setWaveformState('speaking'); } };
   utterance.onend = () => { if (runId === speechRunId || forceTest) { speaking = false; status('Sistema online.'); setWaveformState('idle'); } };
   synth.speak(utterance);
 }
+
+/* ---------- AUDIO CONTEXT ---------- */
+let audioCtx = null;
+function playTone(freq, type, duration, vol=0.04) {
+  try {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    const osc = audioCtx.createOscillator(); const gain = audioCtx.createGain();
+    osc.type = type; osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+    gain.gain.setValueAtTime(vol, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.00001, audioCtx.currentTime + duration);
+    osc.connect(gain); gain.connect(audioCtx.destination);
+    osc.start(); osc.stop(audioCtx.currentTime + duration);
+  } catch(e) {}
+}
+function soundBoot() { playTone(400, 'sine', 0.08); setTimeout(() => playTone(800, 'sine', 0.15), 90); }
+function soundListen() { playTone(600, 'sine', 0.08); }
+function soundSend() { playTone(300, 'sine', 0.08); }
+function soundReceive() { playTone(800, 'sine', 0.08); }
 
 function startAmbience() {
   if (ambienceNodes) return;
@@ -908,10 +990,12 @@ function stopAmbience() {
   if (ambienceNodes) { try { ambienceNodes.osc1.stop(); ambienceNodes.osc2.stop(); } catch(e) {} ambienceNodes = null; }
 }
 
+/* ---------- BG PARTICLES ---------- */
 let bgScene, bgCamera, bgRenderer, particlesMesh, linesMesh;
 function initBgParticles() {
-  if (document.body.classList.contains('hide-particles')) return;
+  if (document.body.classList.contains('hide-particles') || bgRenderer) return;
   const canvas = $('bg-canvas');
+  if (!canvas) return;
   bgRenderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
   bgRenderer.setSize(window.innerWidth, window.innerHeight);
   bgScene = new THREE.Scene();
@@ -967,6 +1051,7 @@ function initBgParticles() {
   animateBg();
 }
 
+/* ---------- REACTOR (Three.js) ---------- */
 const STATE_PALETTE = {
   idle:      { primary: 0x00e5ff, secondary: 0x5ee7f2, accent: 0x8b5cf6, bloomStrength: 0.85, bloomThreshold: 0.85 },
   thinking:  { primary: 0xff9f00, secondary: 0xffce5c, accent: 0xff7b00, bloomStrength: 1.35, bloomThreshold: 0.7 },
@@ -1040,7 +1125,7 @@ function initReactor() {
     if (composer) composer.setSize(container.clientWidth, container.clientHeight);
     return;
   }
-  console.log(`[REACTOR] ✅ Inicializando em ${container.clientWidth}x${container.clientHeight}`);
+  console.log(`[REACTOR] Inicializando em ${container.clientWidth}x${container.clientHeight}`);
 
   scene = new THREE.Scene();
   scene.fog = new THREE.FogExp2(0x000610, 0.045);
@@ -1138,7 +1223,7 @@ function initReactor() {
 
   reactorGroup.add(arcSegment(0.63, 0.65, 0, Math.PI * 2, 0x00e5ff, 0.4, 128));
   for (let i = 0; i < 8; i++) { const seg = (Math.PI*2)/8; reactorGroup.add(arcSegment(0.92, 1.05, i*seg, seg*0.9, 0x00e5ff, 0.55)); }
-  reactorGroup.add(arcSegment(1.13, 1.16, 0, Math.PI * 2, 0x00e5ff, 0.25, 128));
+  reactorGroup.add(arcSegment(1.13, 1.16, 0, Math.PI * 2,0x00e5ff, 0.25, 128));
   for (let i = 0; i < 4; i++) { const seg = (Math.PI*2)/4; reactorGroup.add(arcSegment(1.22, 1.32, i*seg + seg*0.15, seg*0.45, 0xff2b4a, 0.65)); }
   for (let i = 0; i < 60; i++) {
     const angle = (Math.PI*2*i)/60; const segLen = (Math.PI*2)/60 * 0.4;
@@ -1428,7 +1513,7 @@ function initReactor() {
     else renderer.render(scene, camera);
   }
   animateReactor();
-  console.log('[REACTOR] ✅ Loop iniciado');
+  console.log('[REACTOR] Loop iniciado');
 }
 
 function handleReactorClick() {
@@ -1539,6 +1624,7 @@ window.addEventListener('resize', () => {
   }
 });
 
+/* ---------- AUDIO ANALYSER ---------- */
 function setupAudioAnalyser(audioElement) {
   if (!audioContext) audioContext = new (window.AudioContext || window.webkitAudioContext)();
   if (audioContext.state === 'suspended') audioContext.resume();
@@ -1589,29 +1675,18 @@ function animateTTSVisualizer() {
   }
 }
 
+/* ---------- SERVICE WORKER + YOUTUBE ---------- */
 if ('serviceWorker' in navigator) { window.addEventListener('load', () => { navigator.serviceWorker.register('/sw.js').catch(() => {}); }); }
 
 window.onYouTubeIframeAPIReady = function() { ytPlayer = new YT.Player('musicPlayer', { events: { 'onReady': () => {} } }); };
 
-function handleMusicAction(text) {
-  if (text.includes('[MUSIC_ACTION:pause]')) { if (ytPlayer && ytPlayer.pauseVideo) ytPlayer.pauseVideo(); return text.replace('[MUSIC_ACTION:pause]', '').trim(); }
-  if (text.includes('[MUSIC_ACTION:play]')) { if (ytPlayer && ytPlayer.playVideo) ytPlayer.playVideo(); return text.replace('[MUSIC_ACTION:play]', '').trim(); }
-  if (text.includes('[MUSIC_PLAY:')) {
-    const match = text.match(/\[MUSIC_PLAY:(.*?)\]/);
-    if (match && match[1]) { 
-      $('musicPlayer').src = match[1]; 
-      $('musicPlayerContainer').classList.remove('hidden'); 
-      return text.replace(/\[MUSIC_PLAY:.*?\]/, '').trim(); 
-    }
-  }
-  return text;
-}
 $('closeMusicPlayer').addEventListener('click', () => {
   $('musicPlayerContainer').classList.add('hidden');
   $('musicPlayer').src = "";
   if (ytPlayer && ytPlayer.stopVideo) ytPlayer.stopVideo();
 });
 
+/* ---------- POLLING DE STATUS ---------- */
 function startStatusPolling() {
   stopStatusPolling();
   statusPollingInterval = setInterval(async () => {
@@ -1625,24 +1700,7 @@ function startStatusPolling() {
 }
 function stopStatusPolling() { if (statusPollingInterval) { clearInterval(statusPollingInterval); statusPollingInterval = null; } }
 
-let audioCtx = null;
-function playTone(freq, type, duration, vol=0.04) {
-  try {
-    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    if (audioCtx.state === 'suspended') audioCtx.resume();
-    const osc = audioCtx.createOscillator(); const gain = audioCtx.createGain();
-    osc.type = type; osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
-    gain.gain.setValueAtTime(vol, audioCtx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.00001, audioCtx.currentTime + duration);
-    osc.connect(gain); gain.connect(audioCtx.destination);
-    osc.start(); osc.stop(audioCtx.currentTime + duration);
-  } catch(e) {}
-}
-function soundBoot() { playTone(400, 'sine', 0.08); setTimeout(() => playTone(800, 'sine', 0.15), 90); }
-function soundListen() { playTone(600, 'sine', 0.08); }
-function soundSend() { playTone(300, 'sine', 0.08); }
-function soundReceive() { playTone(800, 'sine', 0.08); }
-
+/* ---------- WAVEFORM + STATUS ---------- */
 function setWaveformState(state) {
   const wf = $('waveform');
   if (!wf) return;
@@ -1666,6 +1724,7 @@ function setWaveformState(state) {
 }
 function status(text) { $("status").textContent = text; }
 
+/* ---------- CALENDÁRIO ---------- */
 function formatEventDate(dateStr) {
   if (!dateStr) return "Sem data";
   const d = new Date(dateStr);
@@ -1692,6 +1751,7 @@ async function loadCalendarEvents(range = "upcoming") {
   } catch (e) { container.innerHTML = '<p class="awareness-note" style="color: var(--red);">Erro de conexão.</p>'; }
 }
 
+/* ---------- HISTÓRICO ---------- */
 async function loadHistoryFromBackend() {
   try {
     const res = await fetch('/history', { credentials: 'same-origin' });
@@ -1703,11 +1763,12 @@ async function loadHistoryFromBackend() {
         if (msg.role === 'user') addMessage('Você', msg.content);
         else if (msg.role === 'assistant') addMessage('FRIDAY', msg.content);
       });
-      console.log('[HISTORY] ✅ Restauradas', data.history.length, 'mensagens');
+      console.log('[HISTORY] Restauradas', data.history.length, 'mensagens');
     }
   } catch(e) { console.warn('[HISTORY] Falha:', e); }
 }
 
+/* ---------- VOZ ---------- */
 function stopVoice() {
   speechRunId++;
   clearTimeout(silenceTimer);
@@ -1719,9 +1780,18 @@ function stopVoice() {
   speaking = false;
   setWaveformState('idle');
 }
+
 function cleanSpeechText(text) {
-  return String(text).replace(/\*\*(.*?)\*\*/g, "$1").replace(/\*(.*?)\*/g, "$1").replace(/`([^`]*)`/g, "$1").replace(/https?:\/\/\S+/g, "link omitido").replace(/^\s*[-*]\s+/gm, "").trim();
+  return String(text)
+    .replace(/```[\s\S]*?```/g, "trecho de código omitido")
+    .replace(/`([^`]*)`/g, "$1")
+    .replace(/\*\*(.*?)\*\*/g, "$1")
+    .replace(/\*(.*?)\*/g, "$1")
+    .replace(/https?:\/\/\S+/g, "link omitido")
+    .replace(/^\s*[-*]\s+/gm, "")
+    .trim();
 }
+
 function scrambleText(element, finalText) {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!<>-_/[]{}';
   let it = 0; const max = 15;
@@ -1763,35 +1833,44 @@ async function speakText(text, force = false) {
         setTimeout(() => { if (!$("assistant").classList.contains("hidden") && !listening && !isProcessing) startVoice(true); }, 800);
       }
     };
-    audio.onerror = () => { browserSpeak(cleanText, runId); };
+    audio.onerror = () => {
+      if (!nativeVoiceToastShown) {
+        nativeVoiceToastShown = true;
+        showToast('🎙 Voz nativa ativada (ElevenLabs indisponível).');
+      }
+      browserSpeak(cleanText, runId);
+    };
     currentUtterance = audio;
     await audio.play();
     return;
-  } catch (e) { 
-    // Voz nativa do navegador entra em ação silenciosamente
-    browserSpeak(cleanText, runId); 
+  } catch (e) {
+    if (!nativeVoiceToastShown) {
+      nativeVoiceToastShown = true;
+      showToast('🎙 Voz nativa ativada (ElevenLabs indisponível).');
+    }
+    browserSpeak(cleanText, runId);
   }
 }
 function speakResponse(text) { lastReply = String(text || ""); speakText(lastReply, false); }
 
-// ✅ FUNÇÃO CORRIGIDA (Inserindo o texto no chat)
+/* ---------- MENSAGENS ---------- */
 function addMessage(who, text) {
   const item = document.createElement("div");
-  item.className = "msg " + (who === "Você" ? "user" : "bot");
+  item.className = "msg " + (who === "Você" ? "user" : (who === "SYSTEM" ? "system" : "bot"));
   const label = document.createElement("strong");
-  const name = who === "Você" ? "CHEFE" : "FRIDAY";
+  const name = who === "Você" ? "CHEFE" : (who === "SYSTEM" ? "SYSTEM" : "FRIDAY");
   const time = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
   label.textContent = name;
   const timeEl = document.createElement("span");
   timeEl.style.cssText = "font-size:8px;color:var(--text-dim);margin-left:6px;letter-spacing:0.1em;font-weight:400;";
   timeEl.textContent = time;
   label.appendChild(timeEl);
-  
+
   const content = document.createElement("span");
   if (text && text.trim()) {
     content.innerHTML = safeMarkedParse(text);
   }
-  
+
   item.append(label, content);
   $("messages").appendChild(item);
   $("messages").scrollTop = $("messages").scrollHeight;
@@ -1820,6 +1899,7 @@ msgsEl.addEventListener('scroll', () => {
 });
 pill.addEventListener('click', () => { msgsEl.scrollTo({ top: msgsEl.scrollHeight, behavior: 'smooth' }); });
 
+/* ---------- HTTP HELPERS ---------- */
 async function request(url, data) {
   const response = await fetch(url, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) });
   let result;
@@ -1828,7 +1908,7 @@ async function request(url, data) {
   return result;
 }
 
-// Autentica o usuário e abre a interface sem exigir atualização manual.
+/* ---------- LOGIN ---------- */
 $("loginForm").addEventListener("submit", async (event) => {
   event.preventDefault();
 
@@ -1847,7 +1927,7 @@ $("loginForm").addEventListener("submit", async (event) => {
 
     const sessionResponse = await fetch("/session", {
       credentials: "same-origin",
-      cache: "no-store"
+      cache: "no-store",
     });
     if (!sessionResponse.ok) {
       throw new Error("Não foi possível confirmar a sessão.");
@@ -1884,8 +1964,18 @@ function startLockout(remaining) {
   };
   upd(); lockoutInterval = setInterval(upd, 1000);
 }
+
+/* ---------- ANEXOS ---------- */
+const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
+const MAX_PDF_BYTES = 8 * 1024 * 1024;
 function handleFileSelect(e, type) {
   const file = e.target.files[0]; if (!file) return;
+  const limit = type === 'image' ? MAX_IMAGE_BYTES : MAX_PDF_BYTES;
+  if (file.size > limit) {
+    showToast(`⚠ Arquivo muito grande (máx ${Math.round(limit / 1024 / 1024)}MB).`);
+    e.target.value = '';
+    return;
+  }
   currentAttachmentName = file.name;
   const reader = new FileReader();
   reader.onload = (ev) => {
@@ -1905,12 +1995,19 @@ $('removeAttachment').addEventListener('click', () => {
 });
 
 $('cancelBtn').addEventListener('click', () => {
-  if (currentAbortController) { currentAbortController.abort(); status('Geração cancelada.'); }
+  if (currentAbortController) {
+    currentAbortController.abort();
+    status('Geração cancelada.');
+    showToast('⏹ Geração cancelada pelo chefe.');
+  }
 });
+
+/* ---------- CHAT ---------- */
 async function sendCommandToFriday(command, isInitial = false) {
   if (isProcessing) return;
   isProcessing = true; window.fridayState = 'thinking';
   if (!isInitial) { addMessage("Você", command); soundSend(); }
+  else { addMessage("SYSTEM", "_Iniciando briefing..._"); }
   const botSpan = addMessage("FRIDAY", " ");
   const botMsgEl = botSpan.parentElement;
   botMsgEl.classList.add('typing');
@@ -1926,7 +2023,7 @@ async function sendCommandToFriday(command, isInitial = false) {
     $('thinkingTime').textContent = `${elapsed}s`;
   }, 100);
 
-  let botError = null; // ✅ Variável para capturar erros reais
+  let botError = null;
 
   try {
     const payload = { command };
@@ -1944,9 +2041,21 @@ async function sendCommandToFriday(command, isInitial = false) {
       method: "POST", credentials: "same-origin",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
-      signal: currentAbortController.signal
+      signal: currentAbortController.signal,
     });
+
+    // ✅ 401 → sessão expirada, volta para o login
+    if (response.status === 401) {
+      showLogin();
+      throw new Error("Sessão expirada. Faça login novamente.");
+    }
+    // ✅ 429 → rate limit
+    if (response.status === 429) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.detail || "Muitas mensagens em pouco tempo.");
+    }
     if (!response.ok) throw new Error("Erro na conexão.");
+
     const reader = response.body.getReader();
     const decoder = new TextDecoder("utf-8");
     let fullReplyText = "", buffer = "", streamDone = false, gotFirst = false;
@@ -1962,12 +2071,12 @@ async function sendCommandToFriday(command, isInitial = false) {
             const dataObj = JSON.parse(dataStr);
             if (dataObj.done) { streamDone = true; break; }
             if (!gotFirst) { soundReceive(); gotFirst = true; }
-            
-            if (dataObj.tool) { 
-              window.fridayState = 'tooling'; 
-              currentToolCard = addToolCard(dataObj.tool); 
+
+            if (dataObj.tool) {
+              window.fridayState = 'tooling';
+              currentToolCard = addToolCard(dataObj.tool);
             }
-            
+
             if (dataObj.music) {
               $('musicPlayer').src = dataObj.music;
               $('musicPlayerContainer').classList.remove('hidden');
@@ -1986,11 +2095,11 @@ async function sendCommandToFriday(command, isInitial = false) {
               botSpan.innerHTML = safeMarkedParse(fullReplyText);
               $("messages").scrollTop = $("messages").scrollHeight;
             }
-            if (dataObj.error) { 
+            if (dataObj.error) {
               if (currentToolCard) { currentToolCard.classList.remove('loading'); currentToolCard = null; }
-              botMsgEl.classList.remove('typing'); 
-              botError = dataObj.error; // ✅ Salva o erro real
-              status("Erro na IA."); 
+              botMsgEl.classList.remove('typing');
+              botError = dataObj.error;
+              status("Erro na IA.");
             }
           } catch (e) {}
         }
@@ -2000,18 +2109,16 @@ async function sendCommandToFriday(command, isInitial = false) {
     if (currentToolCard) { currentToolCard.classList.remove('loading'); currentToolCard = null; }
     if (window.hljs) botSpan.querySelectorAll('pre code').forEach(el => hljs.highlightElement(el));
     stopStatusPolling();
-    
+
     if (botError) {
       botSpan.innerHTML = "[ERRO] " + botError;
-    } else if (!fullReplyText.trim()) { 
-      botSpan.innerHTML = "Entendido, chefe."; 
+    } else if (!fullReplyText.trim()) {
+      botSpan.innerHTML = "Entendido, chefe.";
       status("Sistema online.");
-    }
-    else {
+    } else {
       status("Sistema online.");
-      const finalReply = handleMusicAction(fullReplyText);
-      scrambleText(botSpan, finalReply);
-      lastReply = finalReply; speakResponse(finalReply);
+      scrambleText(botSpan, fullReplyText);
+      lastReply = fullReplyText; speakResponse(fullReplyText);
       lastAIResponseTime = Date.now();
     }
   } catch (error) {
@@ -2037,6 +2144,7 @@ async function sendCommandToFriday(command, isInitial = false) {
     if (!$("assistant").classList.contains("hidden")) $("command").focus();
   }
 }
+
 $("chatForm").addEventListener("submit", async (event) => {
   event.preventDefault();
   const command = $("command").value.trim();
@@ -2045,6 +2153,7 @@ $("chatForm").addEventListener("submit", async (event) => {
   sendCommandToFriday(command, false);
 });
 
+/* ---------- VOZ (SPEECH RECOGNITION) ---------- */
 function startVoice(isContinuous = false) {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) { status("Reconhecimento indisponível."); return; }
@@ -2078,6 +2187,7 @@ function startVoice(isContinuous = false) {
 }
 $("voiceBtn").addEventListener("click", () => startVoice(false));
 
+/* ---------- CALENDÁRIO: CONTROLES ---------- */
 async function checkCalendarConnection() {
   try {
     const res = await fetch("/calendar/status", { credentials: "same-origin", cache: "no-store" });
@@ -2095,6 +2205,7 @@ $("refreshCalendarTodayBtn").addEventListener("click", () => loadCalendarEvents(
 $("refreshCalendarBtn").addEventListener("click", () => loadCalendarEvents("upcoming"));
 $("stopSpeakTop").addEventListener("click", () => { stopVoice(); status("Fala interrompida."); });
 
+/* ---------- WAKE WORD (com cooldown + 2 hits) ---------- */
 function startWakeWordListener() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR || wakeWordActive) return;
@@ -2102,9 +2213,21 @@ function startWakeWordListener() {
   wakeWordRecognition.lang = 'pt-BR'; wakeWordRecognition.continuous = true; wakeWordRecognition.interimResults = true;
   wakeWordRecognition.onresult = (event) => {
     const transcript = Array.from(event.results).map(r => r[0].transcript).join('').toLowerCase();
-    if (transcript.includes('hey friday') || transcript.includes('oi friday')) {
-      wakeWordRecognition.stop(); wakeWordActive = false;
-      soundListen(); startVoice(false);
+    const now = Date.now();
+    // Cooldown: só aceita nova detecção 5s após a última
+    if (now - wakeWordLastHit < 5000) return;
+    if (transcript.includes('hey friday') || transcript.includes('oi friday') || transcript.includes('ei friday')) {
+      wakeWordHits++;
+      wakeWordLastHit = now;
+      // Exige 2 hits em <3s (reduz falso positivo)
+      if (wakeWordHits >= 2) {
+        wakeWordHits = 0;
+        try { wakeWordRecognition.stop(); } catch(e) {}
+        wakeWordActive = false;
+        soundListen(); startVoice(false);
+      } else {
+        setTimeout(() => { wakeWordHits = 0; }, 3000);
+      }
     }
   };
   wakeWordRecognition.onerror = (event) => { if (event.error === 'no-speech' || event.error === 'aborted') return; };
@@ -2116,6 +2239,7 @@ function startWakeWordListener() {
   try { wakeWordRecognition.start(); wakeWordActive = true; } catch (e) {}
 }
 
+/* ---------- LOGIN / LOGOUT ---------- */
 function showLogin() {
   stopVoice(); stopStatusPolling(); stopAmbience();
   $("assistant").classList.add("hidden"); $("login").classList.remove("hidden");
@@ -2123,6 +2247,7 @@ function showLogin() {
   $("calendarPanel").classList.add("hidden"); $('musicPlayerContainer').classList.add('hidden');
   $('musicPlayer').src = ""; status("Aguardando autenticação");
   document.body.dataset.state = 'idle';
+  assistantActivated = false;
 }
 $("logout").addEventListener("click", async () => {
   stopVoice();
@@ -2131,6 +2256,7 @@ $("logout").addEventListener("click", async () => {
   showLogin();
 });
 
+/* ---------- ATIVAÇÃO ---------- */
 async function activateAssistant() {
   if (assistantActivated) return;
   assistantActivated = true;
@@ -2147,8 +2273,8 @@ async function activateAssistant() {
 
     startSysMetrics();
     initReactor();
-    requestAnimationFrame(() => initReactor());
 
+    // ✅ Briefing inicial renderizado como SYSTEM (não aparece como msg "do usuário")
     sendCommandToFriday(
       "Gere o meu briefing matinal para a cidade de Criciúma usando a ferramenta get_morning_briefing",
       true
@@ -2167,11 +2293,12 @@ async function activateAssistant() {
   }
 }
 
+/* ---------- SESSÃO ---------- */
 async function checkSession() {
   try {
     const res = await fetch("/session", {
       credentials: "same-origin",
-      cache: "no-store"
+      cache: "no-store",
     });
     if (!res.ok) throw new Error("Falha ao verificar a sessão.");
 
@@ -2187,7 +2314,7 @@ async function checkSession() {
       redirect: "Redirect URI inválida.",
       client: "Cliente OAuth recusado.",
       token: "Google não concluiu.",
-      incomplete: "Resposta incompleta."
+      incomplete: "Resposta incompleta.",
     };
 
     if (data.authenticated) {
@@ -2204,6 +2331,7 @@ async function checkSession() {
   }
 }
 
+/* ---------- ALERTAS DE AGENDA ---------- */
 setInterval(async () => {
   if ($("assistant").classList.contains("hidden")) return;
   try {
@@ -2228,6 +2356,7 @@ setInterval(async () => {
   } catch (e) {}
 }, 5 * 60 * 1000);
 
+/* ---------- NOTIFICAÇÕES ---------- */
 setInterval(async () => {
   if ($("assistant").classList.contains("hidden")) return;
   try {
@@ -2244,6 +2373,7 @@ setInterval(async () => {
   } catch (e) {}
 }, 15000);
 
+/* ---------- COMMAND PALETTE ---------- */
 const PALETTE_COMMANDS = [
   { name: 'Focar input', shortcut: 'Ctrl+K', action: () => $('command').focus() },
   { name: 'Configurações', shortcut: 'Ctrl+/', action: () => $('settingsModal').classList.remove('hidden') },
@@ -2279,6 +2409,7 @@ function renderPaletteItems(query) {
 $('paletteInput')?.addEventListener('input', e => renderPaletteItems(e.target.value));
 $('palette')?.addEventListener('click', e => { if (e.target.id === 'palette') closePalette(); });
 
+/* ---------- BOOT ---------- */
 loadVisualPreferences();
 checkSession();
 
@@ -2287,7 +2418,7 @@ window.addEventListener('load', () => {
   const stage = $('reactorStage');
   if (stage) {
     const ro = new ResizeObserver(() => {
-      if (stage.clientWidth === 0 || stage.clientHeight === 0) return; // Previne WebGL 0x0
+      if (stage.clientWidth === 0 || stage.clientHeight === 0) return;
       if (!renderer) initReactor();
       else {
         renderer.setSize(stage.clientWidth, stage.clientHeight);
