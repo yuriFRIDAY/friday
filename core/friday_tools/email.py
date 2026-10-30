@@ -18,6 +18,44 @@ try:
 except ImportError:
     HAS_PYPDF2 = False
 
+from html.parser import HTMLParser
+class _HTMLTextExtractor(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.result = []
+        self.skip = False
+        self.ignore_tags = {'script', 'style', 'nav', 'footer', 'header', 'aside', 'noscript'}
+    def handle_starttag(self, tag, attrs):
+        if tag in self.ignore_tags: self.skip = True
+    def handle_endtag(self, tag):
+        if tag in self.ignore_tags: self.skip = False
+    def handle_data(self, data):
+        if not self.skip:
+            text = data.strip()
+            if text: self.result.append(text)
+    def get_text(self): return " ".join(self.result)
+
+def _extract_email_body(payload):
+    mime = payload.get("mimeType", "")
+    if mime == "text/plain":
+        body_data = payload.get("body", {}).get("data", "")
+        if body_data:
+            try:
+                padded = body_data + "=" * (-len(body_data) % 4)
+                return base64.urlsafe_b64decode(padded).decode("utf-8", errors="replace")
+            except Exception: return ""
+    elif mime == "text/html":
+        body_data = payload.get("body", {}).get("data", "")
+        if body_data:
+            try:
+                padded = body_data + "=" * (-len(body_data) % 4)
+                html = base64.urlsafe_b64decode(padded).decode("utf-8", errors="replace")
+                parser = _HTMLTextExtractor()
+                parser.feed(html)
+                return parser.get_text()
+            except Exception: return ""
+    parts = payload.get("parts", [])
+    return "\n".join(t for t in (_extract_email_body(p) for p in parts) if t)
 def _handler_send_email(to_email, subject, body, attachment_base64=None, attachment_name=None):
     smtp_server = os.getenv("SMTP_SERVER")
     smtp_port = int(os.getenv("SMTP_PORT", "587"))
