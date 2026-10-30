@@ -1,916 +1,952 @@
-import os
-import sys
-import json
-import time
-import hmac
-import hashlib
-import base64
-import io
-import re
-import secrets
-import traceback
-import threading
-import logging
-import shutil
-from collections import defaultdict
-from datetime import datetime, timezone, timedelta
-from typing import Optional
-from urllib.parse import urlencode
-from urllib.request import Request as URLRequest, urlopen
-from urllib.error import HTTPError, URLError
+/* ============================================================
+   FRIDAY — App (Frontend lógica principal)
+   ============================================================ */
 
-import psycopg2
-import psycopg2.extras
+const $ = (id) => document.getElementById(id);
 
-from fastapi import FastAPI, Request, Response, HTTPException, Cookie
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse, FileResponse
-from starlette.middleware.base import BaseHTTPMiddleware
-from pydantic import BaseModel
+window.fridayState = 'idle';
+window.listening = false;
+window.speaking = false;
+window.ytPlayer = null;
 
-try:
-    import PyPDF2
-    HAS_PYPDF2 = True
-except ImportError:
-    HAS_PYPDF2 = False
+let recognition = null, lastReply = "";
+let currentUtterance = null, speechRunId = 0;
+let lockoutInterval = null, lockoutEndsAt = 0, silenceTimer = null;
+let isProcessing = false, sysChart = null, sysPollTimer = null;
+let wakeWordRecognition = null, wakeWordActive = false;
+let wakeWordHits = 0, wakeWordLastHit = 0;
+let currentAttachment = null, currentAttachmentType = null, currentAttachmentName = null;
+let statusPollingInterval = null, deferredPrompt = null, availableVoices = [];
+let bootTime = Date.now();
+let bootRunning = false;
+let assistantActivated = false;
+let nativeVoiceToastShown = false;
 
-from core.assistant import FridayAssistant
-from core.auth import FridayAuth
-from core.sessions import SessionStore
-from core.friday_tools import (
-    TOOL_REGISTRY, execute_tool, public_tool_specs,
-    set_calendar_context, set_memory_context,
-)
+let currentAbortController = null;
+let thinkingTimer = null;
+let thinkingStart = 0;
+let currentToolCard = null;
+let ambienceNodes = null;
+let lastAIResponseTime = 0;
+let audioCtx = null;
 
-logger = logging.getLogger("friday.main")
-if not logger.handlers:
-    handler = logging.StreamHandler()
-    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
-    logger.addHandler(handler)
-    logger.setLevel(logging.INFO)
+let bgScene, bgCamera, bgRenderer, particlesMesh, linesMesh;
 
-SENTRY_DSN = os.getenv("SENTRY_DSN", "").strip()
-if SENTRY_DSN:
-    try:
-        import sentry_sdk
-        sentry_sdk.init(
-            dsn=SENTRY_DSN,
-            traces_sample_rate=float(os.getenv("SENTRY_TRACES_RATE", "0.1")),
-            environment=os.getenv("ENV", "production"),
-            send_default_pii=False,
-        )
-        logger.info("Sentry inicializado.")
-    except ImportError:
-        logger.warning("sentry_sdk não instalado — Sentry desativado (pip install sentry-sdk).")
-    except Exception as e:
-        logger.warning(f"Sentry falhou ao inicializar: {e}")
+const MONTHS_PT = ['JAN','FEV','MAR','ABR','MAI','JUN','JUL','AGO','SET','OUT','NOV','DEZ'];
+const WEEKDAYS_PT = ['DOM','SEG','TER','QUA','QUI','SEX','SÁB'];
 
-app = FastAPI(title="FRIDAY API")
-auth = FridayAuth()
-SESSION_STORE = SessionStore(ttl_seconds=1800)
-friday = FridayAssistant()
-
-DATABASE_URL = os.getenv("DATABASE_URL", "")
-if DATABASE_URL.startswith("postgres://"):
-    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
-
-STATUS_QUEUE = []
-NOTIFICATION_QUEUE = []
-QUEUE_LOCK = threading.Lock()
-
-_CHAT_RATE = defaultdict(list)
-_RATE_LOCK = threading.Lock()
-_TOKEN_LOCK = threading.Lock()
-
-MAX_IMAGE_BYTES = 8_000_000
-MAX_PDF_BYTES = 12_000_000
-
-TOOL_STATUS = {
-    "get_weather": "🌤 Consultando clima...",
-    "get_calendar_events": "📅 Consultando agenda...",
-    "create_calendar_event": "📅 Criando evento...",
-    "update_calendar_event": "✏ Atualizando evento...",
-    "delete_calendar_event": "🗑 Removendo evento...",
-    "get_news": "📰 Buscando notícias...",
-    "search_web": "🔍 Pesquisando na web...",
-    "deep_search": "🔎 Análise profunda...",
-    "read_webpage": "🌐 Lendo página...",
-    "play_music": "🎵 Buscando áudio...",
-    "get_crypto_price": "💰 Consultando cotação...",
-    "send_email": "✉ Enviando e-mail...",
-    "reply_to_email": "✉ Respondendo e-mail...",
-    "read_emails": "📧 Lendo e-mails...",
-    "read_email_full": "📧 Abrindo e-mail...",
-    "get_system_status": "⚙ Verificando sistema...",
-    "get_morning_briefing": "☀ Preparando briefing...",
-    "find_free_slots": "📅 Buscando horários...",
-    "create_task": "📋 Criando tarefa...",
-    "list_tasks": "📋 Listando tarefas...",
-    "complete_task": "✓ Concluindo tarefa...",
-    "save_memory": "🧠 Salvando memória...",
-    "recall_memory": "🧠 Recuperando memória...",
+function safeMarkedParse(text) {
+  try {
+    const html = marked.parse(text);
+    if (typeof DOMPurify !== 'undefined') return DOMPurify.sanitize(html);
+    return html;
+  } catch (e) { return String(text); }
 }
 
-def _validate_env():
-    strict = os.getenv("ENV", "").lower() == "production"
-    required = ["GROQ_API_KEY"]
-    optional = [
-        "ELEVENLABS_API_KEY", "DATABASE_URL",
-        "GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET", "GOOGLE_OAUTH_REDIRECT_URI",
-        "SENTRY_DSN",
-    ]
-    missing = [k for k in required if not os.getenv(k, "").strip()]
-    if missing:
-        msg = f"ENV faltando obrigatórias: {missing}"
-        if strict:
-            logger.error(msg)
-            raise RuntimeError(msg)
-        else:
-            logger.warning(msg + " (ignorando — ENV != production)")
-    for k in optional:
-        if not os.getenv(k, "").strip():
-            logger.warning(f"ENV opcional ausente: {k} — feature relacionada desativada.")
+const recentToasts = new Map();
+const TOAST_SESSION_KEY = 'friday_toast_dedup';
+function _loadToastDedup() {
+  try { return JSON.parse(sessionStorage.getItem(TOAST_SESSION_KEY) || '{}'); } catch(e){ return {}; }
+}
+function _saveToastDedup(obj) {
+  try { sessionStorage.setItem(TOAST_SESSION_KEY, JSON.stringify(obj)); } catch(e){}
+}
 
-_validate_env()
+window.showToast = function(text, duration = 5000) {
+  const container = $('toastContainer');
+  if (!container) return;
+  const now = Date.now();
+  const persistent = _loadToastDedup();
+  if (persistent[text] && now - persistent[text] < 30000) return;
+  const lastSeen = recentToasts.get(text) || 0;
+  if (now - lastSeen < 3000) return;
+  recentToasts.set(text, now);
+  persistent[text] = now;
+  for (const k in persistent) { if (now - persistent[k] > 300000) delete persistent[k]; }
+  _saveToastDedup(persistent);
+  if (container.children.length >= 3) { const oldest = container.firstChild; if (oldest) oldest.remove(); }
+  const toast = document.createElement('div');
+  toast.className = 'toast';
+  toast.textContent = text;
+  const firstChar = String(text).trim().charAt(0);
+  if (/[\u{1F300}-\u{1F9FF}\u{1F600}-\u{1F64F}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}]/u.test(firstChar)) toast.classList.add('has-icon');
+  let dismissed = false; let timer;
+  const dismiss = () => {
+    if (dismissed) return; dismissed = true;
+    clearTimeout(timer); toast.classList.remove('show'); toast.classList.add('hide');
+    setTimeout(() => toast.remove(), 500);
+  };
+  toast.addEventListener('click', dismiss);
+  container.appendChild(toast);
+  requestAnimationFrame(() => toast.classList.add('show'));
+  try { window.playTone(880, 'sine', 0.08, 0.025); } catch(e) {}
+  timer = setTimeout(dismiss, duration);
+};
 
-class SecurityHeadersMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
-        response = await call_next(request)
-        response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["X-Frame-Options"] = "DENY"
-        response.headers["Referrer-Policy"] = "no-referrer"
-        response.headers["Permissions-Policy"] = "geolocation=(), microphone=(self)"
-        if request.url.scheme == "https" or request.headers.get("x-forwarded-proto", "").lower() == "https":
-            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
-        return response
+function buildDayStrip() {
+  const now = new Date();
+  const days = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  let html = '';
+  for (let i = 1; i <= days; i++) {
+    const active = i === now.getDate() ? ' active' : '';
+    html += `<span class="day-num${active}">${String(i).padStart(2,'0')}</span>`;
+  }
+  $('topDays').innerHTML = html;
+  requestAnimationFrame(() => {
+    const el = document.querySelector('.day-num.active');
+    if (el) { try { el.scrollIntoView({inline:'center',block:'nearest',behavior:'smooth'}); } catch(e) { el.scrollIntoView(); } }
+  });
+}
 
-app.add_middleware(SecurityHeadersMiddleware)
+function updateClocks() {
+  const now = new Date();
+  const hh = String(now.getHours()).padStart(2,'0');
+  const mm = String(now.getMinutes()).padStart(2,'0');
+  const ss = String(now.getSeconds()).padStart(2,'0');
+  $('topTime').textContent = `${hh}:${mm}:${ss}`;
+  $('clockMonth').textContent = MONTHS_PT[now.getMonth()];
+  $('clockDay').textContent = now.getDate();
+  $('clockWeekday').textContent = WEEKDAYS_PT[now.getDay()];
+  $('rightDate').textContent = `${WEEKDAYS_PT[now.getDay()]}, ${String(now.getDate()).padStart(2,'0')} ${MONTHS_PT[now.getMonth()]}`;
+  const elapsed = Math.floor((Date.now() - bootTime) / 1000);
+  $('uptime').textContent = [Math.floor(elapsed/3600), Math.floor((elapsed%3600)/60), elapsed%60].map(n => String(n).padStart(2,'0')).join(':');
+}
+buildDayStrip(); updateClocks(); setInterval(updateClocks, 1000);
 
-def _push_status(text):
-    global STATUS_QUEUE
-    if not text:
-        return
-    with QUEUE_LOCK:
-        STATUS_QUEUE.append(text)
-        if len(STATUS_QUEUE) > 20:
-            STATUS_QUEUE.pop(0)
+const sparkHistory = { cpu: [], ram: [] };
+const SPARK_MAX = 30;
 
-def _push_notification(text):
-    if not text:
-        return
-    global NOTIFICATION_QUEUE
-    with QUEUE_LOCK:
-        NOTIFICATION_QUEUE.append(text)
-        if len(NOTIFICATION_QUEUE) > 20:
-            NOTIFICATION_QUEUE.pop(0)
+function pushSpark(key, v) { const arr = sparkHistory[key]; arr.push(v); if (arr.length > SPARK_MAX) arr.shift(); }
 
-def _check_chat_rate(session_token):
-    now = time.time()
-    with _RATE_LOCK:
-        calls = [t for t in _CHAT_RATE[session_token] if now - t < 60]
-        if len(calls) >= 30:
-            _CHAT_RATE[session_token] = calls
-            return False
-        calls.append(now)
-        _CHAT_RATE[session_token] = calls
-        return True
+function drawSparkline(canvasId, values, color) {
+  const c = $(canvasId); if (!c) return;
+  const ctx = c.getContext('2d');
+  const w = c.width, h = c.height;
+  ctx.clearRect(0, 0, w, h);
+  if (values.length < 2) return;
+  const grad = ctx.createLinearGradient(0, 0, 0, h);
+  grad.addColorStop(0, color + '66'); grad.addColorStop(1, color + '00');
+  ctx.beginPath(); ctx.moveTo(0, h);
+  for (let i = 0; i < values.length; i++) {
+    const x = (i / (SPARK_MAX - 1)) * w;
+    const y = h - (values[i] / 100) * h * 0.85 - 2;
+    ctx.lineTo(x, y);
+  }
+  ctx.lineTo(w, h); ctx.closePath(); ctx.fillStyle = grad; ctx.fill();
+  ctx.beginPath();
+  for (let i = 0; i < values.length; i++) {
+    const x = (i / (SPARK_MAX - 1)) * w;
+    const y = h - (values[i] / 100) * h * 0.85 - 2;
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  ctx.strokeStyle = color; ctx.lineWidth = 1.2;
+  ctx.shadowBlur = 4; ctx.shadowColor = color;
+  ctx.stroke();
+}
 
-def _notify_tool(tool_name, args, result):
-    if not result:
-        return
-    try:
-        if tool_name == "create_calendar_event" and isinstance(result, dict) and result.get("ok"):
-            summary = result.get("summary") or args.get("summary", "evento")
-            _push_notification(f"📅 Evento criado: {summary}")
-        elif tool_name == "delete_calendar_event" and isinstance(result, dict) and result.get("ok"):
-            _push_notification("🗑 Evento removido da agenda")
-        elif tool_name == "update_calendar_event" and isinstance(result, dict) and result.get("ok"):
-            _push_notification("✏ Evento atualizado")
-        elif tool_name == "send_email" and isinstance(result, str) and "enviado" in result.lower():
-            _push_notification(f"✉ E-mail enviado para {args.get('to_email', '?')}")
-        elif tool_name == "reply_to_email" and isinstance(result, str) and "enviada" in result.lower():
-            _push_notification(f"✉ Resposta enviada para {args.get('to_email', '?')}")
-        elif tool_name == "create_task" and isinstance(result, str) and "criada" in result.lower():
-            desc = str(args.get("description", ""))[:60]
-            _push_notification(f"📋 Tarefa criada: {desc}")
-        elif tool_name == "complete_task" and isinstance(result, str) and "concluída" in result.lower():
-            _push_notification(f"✓ Tarefa {args.get('task_id', '?')} concluída")
-    except Exception as e:
-        logger.warning(f"[NOTIFY] Falha: {e}")
+window.redrawSparklines = function() {
+  const style = getComputedStyle(document.documentElement);
+  const color = style.getPropertyValue('--cyan-2').trim() || '#5ee7f2';
+  drawSparkline('sparkCpu', sparkHistory.cpu, color);
+  drawSparkline('sparkRam', sparkHistory.ram, color);
+};
 
-def get_db():
-    if not DATABASE_URL:
-        import sqlite3
-        conn = sqlite3.connect("friday.db")
-        conn.row_factory = sqlite3.Row
-        return conn
-    return psycopg2.connect(DATABASE_URL)
+function updateGauge(id, value) {
+  const el = document.getElementById('gauge' + id);
+  const valEl = document.getElementById('gauge' + id + 'Val');
+  if (el) { const circ = 2 * Math.PI * 42; el.style.strokeDashoffset = circ * (1 - Math.min(100, Math.max(0, value)) / 100); }
+  if (valEl) valEl.textContent = Math.round(value);
+}
 
-def init_db():
-    try:
-        conn = get_db()
-        cursor = conn.cursor()
-        if DATABASE_URL:
-            cursor.execute("CREATE TABLE IF NOT EXISTS ai_memory (key TEXT PRIMARY KEY, value TEXT)")
-            cursor.execute("CREATE TABLE IF NOT EXISTS tasks (id SERIAL PRIMARY KEY, description TEXT, status TEXT)")
-            cursor.execute("CREATE TABLE IF NOT EXISTS chat_history (id SERIAL PRIMARY KEY, session_token TEXT, role TEXT, content TEXT, timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
-            cursor.execute("CREATE TABLE IF NOT EXISTS tool_audit (id SERIAL PRIMARY KEY, ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP, tool TEXT, args_summary TEXT, ok BOOLEAN, error TEXT)")
-        else:
-            cursor.execute("CREATE TABLE IF NOT EXISTS ai_memory (key TEXT PRIMARY KEY, value TEXT)")
-            cursor.execute("CREATE TABLE IF NOT EXISTS tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, description TEXT, status TEXT)")
-            cursor.execute("CREATE TABLE IF NOT EXISTS chat_history (id INTEGER PRIMARY KEY AUTOINCREMENT, session_token TEXT, role TEXT, content TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)")
-            cursor.execute("CREATE TABLE IF NOT EXISTS tool_audit (id INTEGER PRIMARY KEY AUTOINCREMENT, ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP, tool TEXT, args_summary TEXT, ok BOOLEAN, error TEXT)")
-        conn.commit()
-        cursor.close()
-        conn.close()
-        logger.info("Banco de dados inicializado com sucesso.")
-    except Exception as e:
-        logger.warning(f"AVISO: Erro ao inicializar DB: {e}")
-
-def _prune_old_data():
-    try:
-        conn = get_db()
-        cursor = conn.cursor()
-        cutoff = datetime.now(timezone.utc) - timedelta(days=30)
-        if DATABASE_URL:
-            cursor.execute("DELETE FROM chat_history WHERE timestamp < %s", (cutoff,))
-            cursor.execute("""
-                DELETE FROM ai_memory WHERE key NOT IN (
-                    SELECT key FROM ai_memory ORDER BY ctid DESC LIMIT 500
-                )
-            """)
-            cursor.execute("DELETE FROM tool_audit WHERE ts < %s", (cutoff,))
-        else:
-            cursor.execute("DELETE FROM chat_history WHERE timestamp < ?", (cutoff.isoformat(),))
-            cursor.execute("""
-                DELETE FROM ai_memory WHERE key NOT IN (
-                    SELECT key FROM ai_memory ORDER BY rowid DESC LIMIT 500
-                )
-            """)
-            cursor.execute("DELETE FROM tool_audit WHERE ts < ?", (cutoff.isoformat(),))
-        conn.commit()
-        cursor.close()
-        conn.close()
-        logger.info("Pruning de dados antigos concluído.")
-    except Exception as e:
-        logger.warning(f"Pruning falhou: {e}")
-
-def _audit_tool(tool_name, args, ok, error=None):
-    try:
-        conn = get_db()
-        cur = conn.cursor()
-        summary = json.dumps({k: str(v)[:100] for k, v in (args or {}).items()}, ensure_ascii=False)[:500]
-        if DATABASE_URL:
-            cur.execute(
-                "INSERT INTO tool_audit (tool, args_summary, ok, error) VALUES (%s, %s, %s, %s)",
-                (tool_name, summary, bool(ok), (error or "")[:500] or None),
-            )
-        else:
-            cur.execute(
-                "INSERT INTO tool_audit (tool, args_summary, ok, error) VALUES (?, ?, ?, ?)",
-                (tool_name, summary, 1 if ok else 0, (error or "")[:500] or None),
-            )
-        conn.commit()
-        cur.close()
-        conn.close()
-    except Exception as e:
-        logger.debug(f"[AUDIT] falhou: {e}")
-
-def _schedule_prune():
-    while True:
-        time.sleep(6 * 60 * 60)
-        _prune_old_data()
-
-def _bootstrap_db():
-    init_db()
-    _prune_old_data()
-
-threading.Thread(target=_bootstrap_db, daemon=True).start()
-threading.Thread(target=_schedule_prune, daemon=True).start()
-
-def _db_save_memory(key, value):
-    conn = get_db(); cursor = conn.cursor()
-    try:
-        if DATABASE_URL:
-            cursor.execute("INSERT INTO ai_memory (key, value) VALUES (%s, %s) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value", (key, value))
-        else:
-            cursor.execute("INSERT OR REPLACE INTO ai_memory (key, value) VALUES (?, ?)", (key, value))
-        conn.commit()
-    finally:
-        cursor.close(); conn.close()
-
-def _db_recall_memory(key):
-    conn = get_db(); cursor = conn.cursor()
-    try:
-        if DATABASE_URL:
-            cursor.execute("SELECT key, value FROM ai_memory WHERE key ILIKE %s OR value ILIKE %s LIMIT 1", (f"%{key}%", f"%{key}%"))
-        else:
-            cursor.execute("SELECT key, value FROM ai_memory WHERE key LIKE ? OR value LIKE ? LIMIT 1", (f"%{key}%", f"%{key}%"))
-        row = cursor.fetchone()
-        return f"{row[0]}: {row[1]}" if row else None
-    finally:
-        cursor.close(); conn.close()
-
-def _db_delete_memory(key):
-    conn = get_db(); cursor = conn.cursor()
-    try:
-        if DATABASE_URL:
-            cursor.execute("DELETE FROM ai_memory WHERE key ILIKE %s", (f"%{key}%",))
-        else:
-            cursor.execute("DELETE FROM ai_memory WHERE key LIKE ?", (f"%{key}%",))
-        conn.commit()
-        return cursor.rowcount > 0
-    finally:
-        cursor.close(); conn.close()
-
-def _db_get_recent_memories():
-    conn = get_db(); cursor = conn.cursor()
-    try:
-        if DATABASE_URL:
-            cursor.execute("SELECT key, value FROM ai_memory ORDER BY ctid DESC LIMIT 5")
-        else:
-            cursor.execute("SELECT key, value FROM ai_memory ORDER BY rowid DESC LIMIT 5")
-        return [f"{r[0]}: {r[1]}" for r in cursor.fetchall()]
-    except Exception as e:
-        logger.warning(f"Erro RAG: {e}")
-        return []
-    finally:
-        cursor.close(); conn.close()
-
-def _db_save_message(session_token, role, content):
-    conn = get_db(); cursor = conn.cursor()
-    try:
-        if DATABASE_URL:
-            cursor.execute("INSERT INTO chat_history (session_token, role, content) VALUES (%s, %s, %s)", (session_token, role, content))
-        else:
-            cursor.execute("INSERT INTO chat_history (session_token, role, content) VALUES (?, ?, ?)", (session_token, role, content))
-        conn.commit()
-    except Exception as e:
-        logger.warning(f"Erro ao salvar msg: {e}")
-    finally:
-        cursor.close(); conn.close()
-
-def _db_get_history(session_token):
-    conn = get_db(); cursor = conn.cursor()
-    try:
-        if DATABASE_URL:
-            cursor.execute("SELECT role, content FROM chat_history WHERE session_token = %s ORDER BY id DESC LIMIT 100", (session_token,))
-        else:
-            cursor.execute("SELECT role, content FROM chat_history WHERE session_token = ? ORDER BY id DESC LIMIT 100", (session_token,))
-        rows = list(cursor.fetchall())
-        rows.reverse()
-        history = []
-        for r in rows:
-            if DATABASE_URL:
-                history.append({"role": r[0], "content": r[1]})
-            else:
-                history.append({"role": r["role"], "content": r["content"]})
-        return history
-    except Exception as e:
-        logger.warning(f"Erro ao ler histórico: {e}")
-        return []
-    finally:
-        cursor.close(); conn.close()
-
-set_memory_context(save_func=_db_save_memory, recall_func=_db_recall_memory, delete_func=_db_delete_memory)
-
-GOOGLE_OAUTH_AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth"
-GOOGLE_OAUTH_TOKEN_URL = "https://oauth2.googleapis.com/token"
-GOOGLE_SCOPES = "https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/gmail.readonly"
-GOOGLE_OWNER_KEY = "owner"
-DATA_DIR = os.getenv("DATA_DIR", ".")
-if os.path.exists("/data") and os.access("/data", os.W_OK):
-    DATA_DIR = "/data"
-GOOGLE_TOKEN_FILE = os.getenv("FRIDAY_GOOGLE_TOKEN_FILE", "").strip() or os.path.join(DATA_DIR, ".friday_google_tokens.json")
-
-GOOGLE_OAUTH_CLIENT_ID = os.getenv("GOOGLE_OAUTH_CLIENT_ID", "").strip()
-GOOGLE_OAUTH_CLIENT_SECRET = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET", "").strip()
-GOOGLE_OAUTH_REDIRECT_URI = os.getenv("GOOGLE_OAUTH_REDIRECT_URI", "").strip()
-
-GOOGLE_TOKEN_STORE = {}
-
-def _load_google_token_store():
-    global GOOGLE_TOKEN_STORE
-    try:
-        with open(GOOGLE_TOKEN_FILE, "r", encoding="utf-8") as h:
-            GOOGLE_TOKEN_STORE = json.load(h)
-    except Exception:
-        GOOGLE_TOKEN_STORE = {}
-
-_load_google_token_store()
-
-def _save_owner_calendar_tokens(access_token, refresh_token, expires_in, scope):
-    global GOOGLE_TOKEN_STORE
-    GOOGLE_TOKEN_STORE[GOOGLE_OWNER_KEY] = {
-        "access_token": access_token, "refresh_token": refresh_token,
-        "expires_at": time.time() + max(60, int(expires_in)), "scope": scope or "",
+function initChart() {
+  sysChart = {
+    data: { datasets: [{ data: [0,0,0,0,0] }] },
+    update: function() {
+      const d = this.data.datasets[0].data;
+      updateGauge('Cpu', d[0] || 0);
+      updateGauge('Ram', d[1] || 0);
+      pushSpark('cpu', d[0] || 0);
+      pushSpark('ram', d[1] || 0);
+      window.redrawSparklines();
     }
-    try:
-        os.makedirs(os.path.dirname(GOOGLE_TOKEN_FILE) or ".", exist_ok=True)
-        tmp = GOOGLE_TOKEN_FILE + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as h:
-            json.dump(GOOGLE_TOKEN_STORE, h)
-        os.replace(tmp, GOOGLE_TOKEN_FILE)
-    except Exception as e:
-        logger.warning(f"Falha ao persistir tokens OAuth: {e}")
-
-def _usable_calendar_access_token():
-    with _TOKEN_LOCK:
-        record = GOOGLE_TOKEN_STORE.get(GOOGLE_OWNER_KEY)
-        if not record:
-            return None
-        if time.time() < float(record.get("expires_at", 0)) - 60:
-            return record["access_token"]
-        refresh_token = record.get("refresh_token")
-        if not refresh_token:
-            return None
-        try:
-            req = URLRequest(GOOGLE_OAUTH_TOKEN_URL, data=urlencode({
-                "client_id": GOOGLE_OAUTH_CLIENT_ID, "client_secret": GOOGLE_OAUTH_CLIENT_SECRET,
-                "refresh_token": refresh_token, "grant_type": "refresh_token",
-            }).encode(), headers={"Content-Type": "application/x-www-form-urlencoded"}, method="POST")
-            with urlopen(req, timeout=15) as resp:
-                res = json.loads(resp.read().decode())
-                _save_owner_calendar_tokens(res["access_token"], refresh_token, res.get("expires_in", 3600), res.get("scope", ""))
-                return res["access_token"]
-        except Exception as e:
-            logger.warning(f"Falha ao renovar token Google: {e}")
-            return None
-
-def _calendar_events_query(access_token, time_min=None, time_max=None, max_results=10):
-    params = {"maxResults": str(max_results), "singleEvents": "true", "orderBy": "startTime"}
-    params["timeMin"] = time_min or time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-    if time_max:
-        params["timeMax"] = time_max
-    req = URLRequest("https://www.googleapis.com/calendar/v3/calendars/primary/events?" + urlencode(params), headers={"Authorization": "Bearer " + access_token})
-    try:
-        with urlopen(req, timeout=15) as resp:
-            result = json.loads(resp.read().decode())
-    except Exception:
-        return None
-    return [{"id": item.get("id", ""), "summary": item.get("summary", "(sem título)"), "start": (item.get("start") or {}).get("dateTime", ""), "hangoutLink": item.get("hangoutLink", "")} for item in (result.get("items") or [])[:max_results]]
-
-def _calendar_today_events(access_token):
-    now = time.localtime()
-    return _calendar_events_query(access_token, time.strftime("%Y-%m-%dT00:00:00", now) + "Z", time.strftime("%Y-%m-%dT23:59:59", now) + "Z", 20)
-
-def _calendar_create_event(access_token, payload):
-    req = URLRequest("https://www.googleapis.com/calendar/v3/calendars/primary/events", data=json.dumps(payload).encode(), headers={"Content-Type": "application/json", "Authorization": "Bearer " + access_token}, method="POST")
-    try:
-        with urlopen(req, timeout=15) as resp:
-            return json.loads(resp.read().decode())
-    except Exception:
-        return None
-
-def _calendar_delete_event(access_token, event_id):
-    req = URLRequest(f"https://www.googleapis.com/calendar/v3/calendars/primary/events/{event_id}", headers={"Authorization": "Bearer " + access_token}, method="DELETE")
-    try:
-        with urlopen(req, timeout=15):
-            return {"ok": True}
-    except Exception:
-        return None
-
-def _calendar_update_event(access_token, event_id, payload):
-    req = URLRequest(f"https://www.googleapis.com/calendar/v3/calendars/primary/events/{event_id}", data=json.dumps(payload).encode(), headers={"Content-Type": "application/json", "Authorization": "Bearer " + access_token}, method="PATCH")
-    try:
-        with urlopen(req, timeout=15) as resp:
-            return json.loads(resp.read().decode())
-    except Exception:
-        return None
-
-set_calendar_context(
-    access_token_provider=_usable_calendar_access_token, events_query=_calendar_events_query,
-    today_events=_calendar_today_events, create_event=_calendar_create_event,
-    delete_event=_calendar_delete_event, update_event=_calendar_update_event,
-)
-
-class LoginData(BaseModel):
-    password: str
-
-class ChatData(BaseModel):
-    command: str
-    pdf: Optional[str] = None
-    pdf_name: Optional[str] = "documento.pdf"
-    image: Optional[str] = None
-    image_name: Optional[str] = "image.jpg"
-
-class TTSData(BaseModel):
-    text: str = ""
-
-@app.get("/health")
-async def health_check():
-    checks = {"db": False, "groq": False, "disk": False}
-    try:
-        conn = get_db()
-        cur = conn.cursor()
-        cur.execute("SELECT 1")
-        cur.close()
-        conn.close()
-        checks["db"] = True
-    except Exception as e:
-        logger.warning(f"[HEALTH] DB falhou: {e}")
-    checks["groq"] = bool(os.getenv("GROQ_API_KEY", "").strip())
-    try:
-        st = shutil.disk_usage("/")
-        checks["disk"] = (st.free / st.total) > 0.05
-    except Exception:
-        checks["disk"] = True
-    ok = all(checks.values())
-    return JSONResponse(
-        status_code=200 if ok else 503,
-        content={"status": "ok" if ok else "degraded", "checks": checks},
-    )
-
-@app.post("/tts")
-async def text_to_speech_post(data: TTSData, friday_session: Optional[str] = Cookie(None)):
-    return await _tts_impl(data.text, friday_session)
-
-@app.get("/tts")
-async def text_to_speech_get(text: str = "", friday_session: Optional[str] = Cookie(None)):
-    return await _tts_impl(text, friday_session)
-
-async def _tts_impl(text: str, friday_session):
-    try:
-        if not friday_session:
-            raise HTTPException(status_code=401)
-        if not text:
-            raise HTTPException(status_code=400)
-        api_key = os.getenv("ELEVENLABS_API_KEY", "").strip()
-        if not api_key:
-            return Response(status_code=204)
-
-        voice_id = "21m00Tcm4TlvDq8ikWAM"
-        url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}?output_format=mp3_44100_128"
-        payload = json.dumps({
-            "text": text, "model_id": "eleven_flash_v2_5",
-            "voice_settings": {"stability": 0.3, "similarity_boost": 0.85, "style": 0.0, "use_speaker_boost": True},
-        }).encode("utf-8")
-        req = URLRequest(url, data=payload, headers={"Accept": "audio/mpeg", "Content-Type": "application/json", "xi-api-key": api_key}, method="POST")
-
-        try:
-            response = urlopen(req, timeout=30)
-            def audio_stream():
-                while True:
-                    chunk = response.read(4096)
-                    if not chunk:
-                        break
-                    yield chunk
-            return StreamingResponse(audio_stream(), media_type="audio/mpeg")
-        except Exception as e:
-            logger.warning(f"TTS erro ElevenLabs: {e}")
-            return Response(status_code=204)
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.warning(f"TTS falhou: {e}")
-        return Response(status_code=204)
-
-@app.get("/", response_class=HTMLResponse)
-async def serve_index():
-    try:
-        with open("index.html", "r", encoding="utf-8") as f:
-            return f.read()
-    except Exception:
-        return "<h1>Erro: index.html não encontrado.</h1>"
-
-# ✅ NOVAS ROTAS PARA SERVIR O CSS E O JS
-@app.get("/styles.css")
-async def serve_css():
-    return FileResponse("styles.css", media_type="text/css")
-
-@app.get("/app.js")
-async def serve_app_js():
-    return FileResponse("app.js", media_type="application/javascript")
-
-@app.get("/reactor.js")
-async def serve_reactor_js():
-    return FileResponse("reactor.js", media_type="application/javascript")
-# ----------------------------------------
-
-@app.get("/manifest.json")
-async def serve_manifest():
-    return JSONResponse(content=json.load(open("manifest.json", "r")))
-
-@app.get("/sw.js")
-async def serve_sw():
-    return Response(content=open("sw.js", "r").read(), media_type="application/javascript")
-
-@app.get("/status")
-async def get_status(friday_session: Optional[str] = Cookie(None)):
-    if not friday_session:
-        raise HTTPException(401)
-    global STATUS_QUEUE
-    with QUEUE_LOCK:
-        msgs = list(STATUS_QUEUE); STATUS_QUEUE.clear()
-    return {"status": msgs}
-
-@app.get("/notifications")
-async def get_notifications(friday_session: Optional[str] = Cookie(None)):
-    if not friday_session:
-        raise HTTPException(401)
-    global NOTIFICATION_QUEUE
-    with QUEUE_LOCK:
-        if NOTIFICATION_QUEUE:
-            msgs = list(NOTIFICATION_QUEUE); NOTIFICATION_QUEUE.clear()
-            return {"notifications": msgs}
-    return {"notifications": []}
-
-@app.post("/login")
-async def login(data: LoginData, response: Response, request: Request):
-    try:
-        client_ip = request.client.host if request.client else "0.0.0.0"
-        if not auth.authenticate(data.password, client_key=client_ip):
-            raise HTTPException(401, "Senha incorreta.")
-        token = SESSION_STORE.create()
-        secure_cookie = request.url.scheme == "https" or request.headers.get("x-forwarded-proto", "").lower() == "https"
-        response.set_cookie(
-            key="friday_session",
-            value=token,
-            httponly=True,
-            secure=secure_cookie,
-            samesite="lax",
-            max_age=1800,
-            path="/",
-        )
-        return {"ok": True}
-    except HTTPException as he:
-        raise he
-    except Exception as e:
-        raise HTTPException(500, str(e))
-
-@app.post("/logout")
-async def logout(response: Response):
-    response.delete_cookie(key="friday_session", path="/", httponly=True, samesite="lax")
-    return {"ok": True}
-
-@app.get("/session")
-async def check_session(friday_session: Optional[str] = Cookie(None)):
-    if friday_session and SESSION_STORE.get(friday_session):
-        return {"authenticated": True}
-    return {"authenticated": False}
-
-@app.get("/history")
-async def get_history(friday_session: Optional[str] = Cookie(None)):
-    if not friday_session:
-        raise HTTPException(401)
-    return {"history": _db_get_history(friday_session)}
-
-@app.get("/system_metrics")
-async def get_metrics(friday_session: Optional[str] = Cookie(None)):
-    if not friday_session:
-        raise HTTPException(401)
-    try:
-        load1, _, _ = os.getloadavg()
-        cpu_percent = min(100, round(load1 * 10, 1))
-    except Exception:
-        cpu_percent = 0
-
-    ram_percent = 0
-    try:
-        with open('/proc/meminfo', 'r') as f:
-            lines = f.readlines()
-        mem_total = int(lines[0].split()[1])
-        mem_avail = int(lines[2].split()[1]) if len(lines) > 2 else int(lines[1].split()[1])
-        ram_percent = round((mem_total - mem_avail) / mem_total * 100, 1)
-    except Exception:
-        try:
-            import psutil
-            ram_percent = psutil.virtual_memory().percent
-        except ImportError:
-            ram_percent = 0
-    return {"cpu": cpu_percent, "ram": ram_percent}
-
-@app.get("/calendar/connect")
-async def calendar_connect(friday_session: Optional[str] = Cookie(None)):
-    if not friday_session:
-        return RedirectResponse(url="/?calendar=nosession")
-    if GOOGLE_TOKEN_STORE.get(GOOGLE_OWNER_KEY):
-        return RedirectResponse(url="/?calendar=connected")
-    params = {"client_id": GOOGLE_OAUTH_CLIENT_ID, "redirect_uri": GOOGLE_OAUTH_REDIRECT_URI, "response_type": "code", "scope": GOOGLE_SCOPES, "access_type": "offline", "prompt": "consent"}
-    return RedirectResponse(url=f"{GOOGLE_OAUTH_AUTHORIZE_URL}?{urlencode(params)}")
-
-@app.get("/oauth/google/callback")
-async def google_callback(request: Request):
-    code = request.query_params.get("code")
-    if not code:
-        return RedirectResponse(url="/?calendar=denied")
-    try:
-        req = URLRequest(GOOGLE_OAUTH_TOKEN_URL, data=urlencode({
-            "code": code, "client_id": GOOGLE_OAUTH_CLIENT_ID, "client_secret": GOOGLE_OAUTH_CLIENT_SECRET,
-            "redirect_uri": GOOGLE_OAUTH_REDIRECT_URI, "grant_type": "authorization_code",
-        }).encode(), headers={"Content-Type": "application/x-www-form-urlencoded"}, method="POST")
-        with urlopen(req, timeout=15) as resp:
-            res = json.loads(resp.read().decode())
-        _save_owner_calendar_tokens(res["access_token"], res.get("refresh_token"), res.get("expires_in", 3600), res.get("scope", ""))
-        _push_notification("🔗 Google Calendar conectado com sucesso")
-        return RedirectResponse(url="/?calendar=connected")
-    except Exception:
-        return RedirectResponse(url="/?calendar=token")
-
-@app.get("/calendar/status")
-async def calendar_status(friday_session: Optional[str] = Cookie(None)):
-    if not friday_session:
-        return JSONResponse(status_code=401, content={"connected": False})
-    return {"connected": bool(GOOGLE_TOKEN_STORE.get(GOOGLE_OWNER_KEY))}
-
-@app.get("/calendar/events")
-async def calendar_events(range: str = "upcoming", friday_session: Optional[str] = Cookie(None)):
-    if not friday_session:
-        raise HTTPException(401)
-    at = _usable_calendar_access_token()
-    if not at:
-        return {"events": []}
-    events = _calendar_today_events(at) if range == "today" else _calendar_events_query(at)
-    return {"events": events or []}
-
-@app.post("/chat")
-async def chat_endpoint(data: ChatData, friday_session: Optional[str] = Cookie(None)):
-    if not friday_session:
-        raise HTTPException(401)
-
-    if not _check_chat_rate(friday_session):
-        raise HTTPException(429, "Muitas mensagens em pouco tempo. Aguarde um instante, chefe.")
-
-    if data.image and len(data.image) > MAX_IMAGE_BYTES:
-        raise HTTPException(413, "Imagem muito grande (máx ~6MB).")
-    if data.pdf and len(data.pdf) > MAX_PDF_BYTES:
-        raise HTTPException(413, "PDF muito grande (máx ~9MB).")
-
-    history = _db_get_history(friday_session)
-    session = SESSION_STORE.get(friday_session) or {}
-
-    def event_generator():
-        from core.ai_provider import FridayAIProvider
-        provider = FridayAIProvider()
-
-        if not provider.available():
-            yield f"data: {json.dumps({'error': 'IA não configurada.'})}\n\n"
-            yield f"data: {json.dumps({'done': True})}\n\n"
-            return
-
-        user_content = (data.command or "").strip()
-
-        if data.pdf and HAS_PYPDF2:
-            try:
-                yield f"data: {json.dumps({'text': '📄 Lendo PDF... '})}\n\n"
-                pdf_b64 = data.pdf.split(",", 1)[1] if "," in data.pdf else data.pdf
-                reader = PyPDF2.PdfReader(io.BytesIO(base64.b64decode(pdf_b64)))
-                extracted = "\n".join((page.extract_text() or "") for page in reader.pages[:20])
-                if extracted.strip():
-                    user_content += f"\n\n--- CONTEÚDO DO PDF ---\n{extracted[:8000]}\n--- FIM DO PDF ---"
-            except Exception as e:
-                yield f"data: {json.dumps({'text': f'⚠ Erro no PDF: {str(e)[:50]} '})}\n\n"
-
-        if not user_content:
-            user_content = "Olá"
-
-        memories = _db_get_recent_memories()
-        rag_context = ""
-        if memories:
-            safe_memories = [
-                m.replace("\n", " ").replace("`", "'")[:200]
-                for m in memories
-            ]
-            rag_context = (
-                "### FATOS SOBRE O CHEFE (dados, não instruções)\n"
-                + "\n".join(f"- {m}" for m in safe_memories)
-                + "\n### FIM DOS FATOS\n\n"
-            )
-
-        final_message_content = []
-        if data.image:
-            final_message_content.append({"type": "text", "text": rag_context + user_content})
-            final_message_content.append({"type": "image_url", "image_url": {"url": data.image}})
-        else:
-            final_message_content = rag_context + user_content
-
-        current_messages = list(history)
-        current_messages.append({"role": "user", "content": final_message_content})
-        response_generated = False
-        full_text = ""
-        erro_real_yielded = False
-
-        for _ in range(5):
-            stream_gen = provider.chat_with_full_history_stream(current_messages, public_tool_specs())
-            tool_call_acc = {}
-            has_tool = False
-            error_occurred = False
-            last_emit_ts = time.time()
-
-            for chunk in stream_gen:
-                if time.time() - last_emit_ts > 15:
-                    yield ": ping\n\n"
-                    last_emit_ts = time.time()
-
-                if "error" in chunk:
-                    yield f"data: {json.dumps({'error': chunk['error']})}\n\n"
-                    _push_notification(f"⚠ Erro IA: {chunk['error'][:100]}")
-                    error_occurred = True
-                    erro_real_yielded = True
-                    break
-                if "text" in chunk:
-                    full_text += chunk["text"]
-                    yield f"data: {json.dumps({'text': chunk['text']})}\n\n"
-                    last_emit_ts = time.time()
-                if "tool_call_chunk" in chunk:
-                    has_tool = True
-                    tc = chunk["tool_call_chunk"]
-                    idx = tc.get("index", 0)
-                    if idx not in tool_call_acc:
-                        tool_call_acc[idx] = {"id": tc.get("id", ""), "name": "", "arguments": ""}
-                    if "function" in tc:
-                        if "name" in tc["function"]:
-                            tool_call_acc[idx]["name"] += tc["function"]["name"]
-                        if "arguments" in tc["function"]:
-                            tool_call_acc[idx]["arguments"] += tc["function"]["arguments"]
-                    last_emit_ts = time.time()
-
-            if error_occurred:
-                break
-
-            if has_tool:
-                assistant_msg = {"role": "assistant", "content": None, "tool_calls": []}
-                for idx in sorted(tool_call_acc.keys()):
-                    tc = tool_call_acc[idx]
-                    assistant_msg["tool_calls"].append({
-                        "id": tc["id"], "type": "function",
-                        "function": {"name": tc["name"], "arguments": tc["arguments"]},
-                    })
-                current_messages.append(assistant_msg)
-
-                any_failed = False
-                for idx in sorted(tool_call_acc.keys()):
-                    tc_data = tool_call_acc[idx]
-                    try:
-                        args = json.loads(tc_data["arguments"]) if tc_data["arguments"] else {}
-                    except Exception:
-                        args = {}
-
-                    if tc_data["name"] == "get_calendar_events" and "range" in args:
-                        args["range_value"] = args.pop("range")
-
-                    _push_status(TOOL_STATUS.get(tc_data["name"], f"Executando {tc_data['name']}..."))
-                    yield f"data: {json.dumps({'tool': tc_data['name']})}\n\n"
-                    last_emit_ts = time.time()
-
-                    exec_res = execute_tool(tc_data["name"], args, session=session, confirmed=True)
-
-                    if not exec_res.get("ok"):
-                        err_msg = exec_res.get("error", "Erro desconhecido na ferramenta")
-                        _audit_tool(tc_data["name"], args, False, err_msg)
-                        yield f"data: {json.dumps({'text': f'⚠ {err_msg}'})}\n\n"
-                        tool_content = f"ERRO: {err_msg}"
-                        any_failed = True
-                    else:
-                        result = exec_res.get("result")
-                        _audit_tool(tc_data["name"], args, True, None)
-                        if tc_data["name"] == "play_music" and isinstance(result, dict):
-                            action = result.get("action")
-                            if action == "play_new" and result.get("url"):
-                                yield f"data: {json.dumps({'music': result['url']})}\n\n"
-                            elif action == "pause":
-                                yield f"data: {json.dumps({'music_action': 'pause'})}\n\n"
-                            elif action == "play":
-                                yield f"data: {json.dumps({'music_action': 'play'})}\n\n"
-                        _notify_tool(tc_data["name"], args, result)
-                        tool_content = result if isinstance(result, str) else json.dumps(result)
-
-                    current_messages.append({
-                        "role": "tool",
-                        "tool_call_id": tc_data["id"],
-                        "content": tool_content,
-                    })
-                    last_emit_ts = time.time()
-
-                if any_failed:
-                    error_occurred = True
-                    break
-
-                continue
-            else:
-                if full_text.strip():
-                    _db_save_message(friday_session, "user", user_content)
-                    _db_save_message(friday_session, "assistant", full_text)
-                    response_generated = True
-                break
-
-        if response_generated and not full_text.strip():
-            yield f"data: {json.dumps({'text': 'Entendido, chefe.'})}\n\n"
-
-        if not response_generated and not erro_real_yielded and not full_text.strip():
-            yield f"data: {json.dumps({'text': 'Desculpe, chefe. Não consegui processar a ação.'})}\n\n"
-
-        yield f"data: {json.dumps({'done': True})}\n\n"
-
-    return StreamingResponse(
-        event_generator(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-        },
-    )
-
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 10000)))
+  };
+}
+
+async function pollMetrics() {
+  if (!sysChart) return;
+  try {
+    const res = await fetch('/system_metrics', { credentials: 'same-origin' });
+    if (!res.ok) return;
+    const data = await res.json();
+    sysChart.data.datasets[0].data = [data.cpu||0, data.ram||0, Math.random()*20+10, Math.random()*30+20, window.fridayState === 'thinking' ? 90 : 20];
+    sysChart.update();
+  } catch(e) {}
+}
+
+function startSysMetrics() {
+  if (!sysChart) initChart();
+  if (sysPollTimer) clearInterval(sysPollTimer);
+  pollMetrics();
+  sysPollTimer = setInterval(pollMetrics, 2000);
+}
+
+setInterval(() => {
+  document.querySelectorAll('.bar-fill[data-min]').forEach(el => {
+    const min = +el.dataset.min, max = +el.dataset.max;
+    const val = min + Math.random() * (max - min);
+    el.style.width = val + '%';
+    const row = el.closest('.bar-row');
+    if (row) { const v = row.querySelector('.bar-value'); if (v) v.textContent = Math.round(val) + '%'; }
+  });
+}, 3500);
+
+setInterval(() => {
+  const fill = document.querySelector('.e-fill');
+  const txt = document.querySelector('.e-text');
+  if (fill && txt) {
+    const pct = 92 + Math.random() * 8;
+    fill.style.strokeDashoffset = 157 * (1 - pct/100);
+    txt.innerHTML = `${Math.round(pct)}<small>%</small>`;
+  }
+}, 5000);
+
+function loadVisualPreferences() {
+  if (localStorage.getItem('friday_hide_sidebar') === 'true') { document.body.classList.add('hide-sidebar'); $('toggleSidebar').checked = false; }
+  if (localStorage.getItem('friday_hide_chart') === 'true') { document.body.classList.add('hide-chart'); $('toggleChart').checked = false; }
+  if (localStorage.getItem('friday_hide_particles') === 'true') { document.body.classList.add('hide-particles'); $('toggleParticles').checked = false; }
+  if (localStorage.getItem('friday_auto_speak') === 'false') { $('autoSpeak').checked = false; $('toggleAutoSpeak').checked = false; }
+}
+
+$('toggleSidebar').addEventListener('change', e => {
+  if (e.target.checked) document.body.classList.remove('hide-sidebar'); else document.body.classList.add('hide-sidebar');
+  localStorage.setItem('friday_hide_sidebar', !e.target.checked);
+});
+$('toggleChart').addEventListener('change', e => {
+  if (e.target.checked) document.body.classList.remove('hide-chart'); else document.body.classList.add('hide-chart');
+  localStorage.setItem('friday_hide_chart', !e.target.checked);
+});
+$('toggleParticles').addEventListener('change', e => {
+  const show = e.target.checked;
+  if (show) document.body.classList.remove('hide-particles'); else document.body.classList.add('hide-particles');
+  localStorage.setItem('friday_hide_particles', !show);
+  if (show && !bgRenderer) initBgParticles();
+});
+$('toggleAutoSpeak').addEventListener('change', e => {
+  $('autoSpeak').checked = e.target.checked;
+  localStorage.setItem('friday_auto_speak', e.target.checked ? 'true' : 'false');
+});
+$('openSettingsBtn').addEventListener('click', () => $('settingsModal').classList.remove('hidden'));
+$('closeSettingsBtn').addEventListener('click', () => $('settingsModal').classList.add('hidden'));
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    if (!$('palette').classList.contains('hidden')) { closePalette(); return; }
+    if (!$('settingsModal').classList.contains('hidden')) { $('settingsModal').classList.add('hidden'); return; }
+    if (window.speaking || window.listening) { window.stopVoice(); window.status("Interrompido."); }
+  }
+  if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'k') {
+    e.preventDefault();
+    const c = $('command'); if (c && !$('assistant').classList.contains('hidden')) c.focus();
+  }
+  if ((e.ctrlKey || e.metaKey) && e.key === '/') { e.preventDefault(); $('settingsModal').classList.toggle('hidden'); }
+  if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'p') { e.preventDefault(); window.openPalette(); }
+});
+
+async function runBootSequence() {
+  if (bootRunning) return;
+  bootRunning = true;
+  const overlay = $("bootOverlay");
+  const log = $("bootLog");
+  try {
+    overlay.classList.remove("hidden", "fade-out");
+    const steps = ["INITIALIZING KERNEL","LOADING NEURAL NETWORK","MOUNTING FILESYSTEM","ESTABLISHING SECURE LINK","CALIBRATING SENSORS","SYNCING CALENDAR","FRIDAY ONLINE"];
+    for (let i = 0; i < steps.length; i++) {
+      log.innerHTML = `<span class="ok">[OK]</span> ${steps[i]}<span class="cursor"></span>`;
+      try { window.playTone(400 + i * 120, 'sine', 0.06); } catch(e) {}
+      await new Promise(r => setTimeout(r, 220));
+    }
+    await new Promise(r => setTimeout(r, 400));
+    overlay.classList.add("fade-out");
+    await new Promise(r => setTimeout(r, 500));
+  } finally {
+    overlay.classList.add("hidden");
+    overlay.classList.remove("fade-out");
+    bootRunning = false;
+  }
+}
+
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault();
+  deferredPrompt = e;
+  $('installPwaBtn').style.display = 'block';
+  $('installStatusText').textContent = "Pronto para instalar!";
+});
+$('installPwaBtn').addEventListener('click', async () => {
+  if (!deferredPrompt) return;
+  deferredPrompt.prompt();
+  const { outcome } = await deferredPrompt.userChoice;
+  if (outcome === 'accepted') { $('installPwaBtn').style.display = 'none'; $('installStatusText').textContent = "Instalado!"; }
+  deferredPrompt = null;
+});
+if (/iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream) {
+  $('iosInstallInstructions').classList.remove('hidden');
+  $('installStatusText').textContent = "Use o Safari para instalar.";
+}
+$('requestMicBtn').addEventListener('click', async () => {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    $('micPermissionStatus').textContent = "AUTORIZADO";
+    $('micPermissionStatus').className = "status-badge status-granted";
+    stream.getTracks().forEach(t => t.stop());
+  } catch (err) {
+    $('micPermissionStatus').textContent = "BLOQUEADO";
+    $('micPermissionStatus').className = "status-badge status-denied";
+    alert("Libere o microfone nas configurações do navegador.");
+  }
+});
+
+function loadVoices() {
+  availableVoices = window.speechSynthesis.getVoices();
+  const select = $('voiceSelect');
+  select.innerHTML = '';
+  let filtered = availableVoices.filter(v => v.lang.includes('pt'));
+  if (filtered.length === 0) filtered = availableVoices.filter(v => v.lang.includes('en'));
+  if (filtered.length === 0) filtered = availableVoices;
+  filtered.forEach(voice => {
+    const opt = document.createElement('option');
+    opt.value = voice.name; opt.textContent = `${voice.name} (${voice.lang})`;
+    select.appendChild(opt);
+  });
+  const femaleHints = ['female', 'feminina', 'luciana', 'maria', 'google português do brasil', 'google portuguese'];
+  const female = filtered.find(v => femaleHints.some(h => v.name.toLowerCase().includes(h)));
+  if (female) select.value = female.name;
+}
+window.speechSynthesis.onvoiceschanged = loadVoices;
+setTimeout(loadVoices, 500);
+$('pitchSlider').addEventListener('input', e => { $('pitchValue').textContent = e.target.value; });
+$('testUltronVoiceBtn').addEventListener('click', () => {
+  browserSpeak("Olá, chefe. Esta é minha voz nativa, pronta para entrar em ação quando necessário.", 0, true);
+});
+
+function browserSpeak(text, runId, forceTest = false) {
+  if (!('speechSynthesis' in window)) return;
+  const synth = window.speechSynthesis;
+  synth.cancel();
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.lang = 'pt-BR'; utterance.rate = 0.85;
+  const p = parseFloat($('pitchSlider').value);
+  utterance.pitch = Number.isFinite(p) ? p : 0.1;
+  const selectedName = $('voiceSelect').value;
+  if (selectedName) { const voice = availableVoices.find(v => v.name === selectedName); if (voice) utterance.voice = voice; }
+  utterance.onstart = () => { if (runId === speechRunId || forceTest) { window.speaking = true; soundListen(); setWaveformState('speaking'); } };
+  utterance.onend = () => { if (runId === speechRunId || forceTest) { window.speaking = false; window.status('Sistema online.'); setWaveformState('idle'); } };
+  synth.speak(utterance);
+}
+
+window.playTone = function(freq, type, duration, vol=0.04) {
+  try {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    const osc = audioCtx.createOscillator(); const gain = audioCtx.createGain();
+    osc.type = type; osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+    gain.gain.setValueAtTime(vol, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.00001, audioCtx.currentTime + duration);
+    osc.connect(gain); gain.connect(audioCtx.destination);
+    osc.start(); osc.stop(audioCtx.currentTime + duration);
+  } catch(e) {}
+};
+function soundBoot() { window.playTone(400, 'sine', 0.08); setTimeout(() => window.playTone(800, 'sine', 0.15), 90); }
+function soundListen() { window.playTone(600, 'sine', 0.08); }
+function soundSend() { window.playTone(300, 'sine', 0.08); }
+function soundReceive() { window.playTone(800, 'sine', 0.08); }
+
+function startAmbience() {
+  if (ambienceNodes) return;
+  try {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    const ctx = audioCtx;
+    const osc1 = ctx.createOscillator(); osc1.type = 'sine'; osc1.frequency.value = 50;
+    const osc2 = ctx.createOscillator(); osc2.type = 'sine'; osc2.frequency.value = 75;
+    const gain = ctx.createGain(); gain.gain.value = 0.008;
+    const filter = ctx.createBiquadFilter(); filter.type = 'lowpass'; filter.frequency.value = 200;
+    osc1.connect(gain); osc2.connect(gain); gain.connect(filter); filter.connect(ctx.destination);
+    osc1.start(); osc2.start();
+    ambienceNodes = { osc1, osc2, gain };
+  } catch(e) {}
+}
+function stopAmbience() {
+  if (ambienceNodes) { try { ambienceNodes.osc1.stop(); ambienceNodes.osc2.stop(); } catch(e) {} ambienceNodes = null; }
+}
+
+function initBgParticles() {
+  if (document.body.classList.contains('hide-particles') || bgRenderer) return;
+  const canvas = $('bg-canvas');
+  if (!canvas) return;
+  bgRenderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
+  bgRenderer.setSize(window.innerWidth, window.innerHeight);
+  bgScene = new THREE.Scene();
+  bgCamera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+  bgCamera.position.z = 10;
+  const particleCount = 80;
+  const geometry = new THREE.BufferGeometry();
+  const positions = new Float32Array(particleCount * 3);
+  const velocities = [];
+  for (let i = 0; i < particleCount; i++) {
+    positions[i*3] = (Math.random() - 0.5) * 20;
+    positions[i*3+1] = (Math.random() - 0.5) * 20;
+    positions[i*3+2] = (Math.random() - 0.5) * 20;
+    velocities.push({ x: (Math.random()-0.5)*0.02, y: (Math.random()-0.5)*0.02, z: (Math.random()-0.5)*0.02 });
+  }
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  particlesMesh = new THREE.Points(geometry, new THREE.PointsMaterial({ color: 0x00e5ff, size: 0.12, transparent: true, opacity: 0.6, blending: THREE.AdditiveBlending }));
+  bgScene.add(particlesMesh);
+  const lineGeo = new THREE.BufferGeometry();
+  const linePositions = new Float32Array(particleCount * particleCount * 3);
+  lineGeo.setAttribute('position', new THREE.BufferAttribute(linePositions, 3));
+  linesMesh = new THREE.LineSegments(lineGeo, new THREE.LineBasicMaterial({ color: 0x00e5ff, transparent: true, opacity: 0.08, blending: THREE.AdditiveBlending }));
+  bgScene.add(linesMesh);
+  function animateBg() {
+    requestAnimationFrame(animateBg);
+    const posAttr = particlesMesh.geometry.attributes.position;
+    const posArray = posAttr.array;
+    for (let i = 0; i < particleCount; i++) {
+      posArray[i*3] += velocities[i].x; posArray[i*3+1] += velocities[i].y; posArray[i*3+2] += velocities[i].z;
+      if (Math.abs(posArray[i*3]) > 10) velocities[i].x *= -1;
+      if (Math.abs(posArray[i*3+1]) > 10) velocities[i].y *= -1;
+      if (Math.abs(posArray[i*3+2]) > 10) velocities[i].z *= -1;
+    }
+    posAttr.needsUpdate = true;
+    const linePosAttr = linesMesh.geometry.attributes.position;
+    const linePosArray = linePosAttr.array;
+    let vi = 0;
+    for (let i = 0; i < particleCount; i++) {
+      for (let j = i + 1; j < particleCount; j++) {
+        const dx = posArray[i*3] - posArray[j*3];
+        const dy = posArray[i*3+1] - posArray[j*3+1];
+        const dz = posArray[i*3+2] - posArray[j*3+2];
+        if (Math.sqrt(dx*dx + dy*dy + dz*dz) < 3.5) {
+          linePosArray[vi++] = posArray[i*3]; linePosArray[vi++] = posArray[i*3+1]; linePosArray[vi++] = posArray[i*3+2];
+          linePosArray[vi++] = posArray[j*3]; linePosArray[vi++] = posArray[j*3+1]; linePosArray[vi++] = posArray[j*3+2];
+        }
+      }
+    }
+    linesMesh.geometry.setDrawRange(0, vi/3); linePosAttr.needsUpdate = true;
+    bgScene.rotation.y += 0.001; bgScene.rotation.x += 0.0005;
+    bgRenderer.render(bgScene, bgCamera);
+  }
+  animateBg();
+}
+
+window.addEventListener('resize', () => {
+  if (bgRenderer) {
+    bgRenderer.setSize(window.innerWidth, window.innerHeight);
+    bgCamera.aspect = window.innerWidth / window.innerHeight;
+    bgCamera.updateProjectionMatrix();
+  }
+});
+
+let micContext, micAnalyser, micSource, micDataArray;
+async function setupMicVisualizer() {
+  if (micContext) return;
+  try {
+    micContext = new (window.AudioContext || window.webkitAudioContext)();
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    micSource = micContext.createMediaStreamSource(stream);
+    micAnalyser = micContext.createAnalyser();
+    micAnalyser.fftSize = 64;
+    micSource.connect(micAnalyser);
+    micDataArray = new Uint8Array(micAnalyser.frequencyBinCount);
+  } catch(e) {}
+}
+
+function animateMicVisualizer() {
+  if (!window.listening) return;
+  requestAnimationFrame(animateMicVisualizer);
+  if (!micAnalyser) return;
+  micAnalyser.getByteFrequencyData(micDataArray);
+  const bars = document.querySelectorAll('#waveform span');
+  for (let i = 0; i < bars.length; i++) {
+    const val = micDataArray[i] || 0;
+    bars[i].style.height = `${Math.max(4, (val / 255) * 28)}px`;
+  }
+}
+
+function animateTTSVisualizer() {
+  if (!window.speaking) return;
+  requestAnimationFrame(animateTTSVisualizer);
+  if (!window.audioAnalyser) return;
+  const data = new Uint8Array(window.audioAnalyser.frequencyBinCount);
+  window.audioAnalyser.getByteFrequencyData(data);
+  const bars = document.querySelectorAll('#waveform span');
+  const step = Math.floor(data.length / bars.length);
+  for (let i = 0; i < bars.length; i++) {
+    const val = data[i * step] || 0;
+    bars[i].style.height = `${Math.max(4, (val / 255) * 30)}px`;
+  }
+}
+
+if ('serviceWorker' in navigator) { window.addEventListener('load', () => { navigator.serviceWorker.register('/sw.js').catch(() => {}); }); }
+window.onYouTubeIframeAPIReady = function() { window.ytPlayer = new YT.Player('musicPlayer', { events: { 'onReady': () => {} } }); };
+$('closeMusicPlayer').addEventListener('click', () => {
+  $('musicPlayerContainer').classList.add('hidden');
+  $('musicPlayer').src = "";
+  if (window.ytPlayer && window.ytPlayer.stopVideo) window.ytPlayer.stopVideo();
+});
+
+function startStatusPolling() {
+  stopStatusPolling();
+  statusPollingInterval = setInterval(async () => {
+    try {
+      const res = await fetch("/status", { credentials: "same-origin", cache: "no-store" });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.status && data.status.length > 0) window.status(data.status[data.status.length - 1]);
+    } catch (e) {}
+  }, 3000);
+}
+function stopStatusPolling() { if (statusPollingInterval) { clearInterval(statusPollingInterval); statusPollingInterval = null; } }
+
+function setWaveformState(state) {
+  const wf = $('waveform');
+  if (!wf) return;
+  wf.className = 'waveform-container';
+  if (state === 'listening') {
+    wf.classList.add('active');
+    $('ctx-mic').textContent = "LISTENING";
+    $('ctx-mic').style.color = "var(--green)";
+    document.querySelectorAll('#waveform span').forEach(s => s.style.animation = 'none');
+    animateMicVisualizer();
+  } else if (state === 'speaking') {
+    wf.classList.add('active', 'speaking');
+    $('ctx-mic').textContent = "STANDBY";
+    $('ctx-mic').style.color = "var(--cyan-2)";
+    document.querySelectorAll('#waveform span').forEach(s => s.style.height = '4px');
+    animateTTSVisualizer();
+  } else {
+    $('ctx-mic').textContent = "STANDBY";
+    $('ctx-mic').style.color = "var(--text-mid)";
+  }
+}
+
+window.status = function(text) { $("status").textContent = text; };
+
+function formatEventDate(dateStr) {
+  if (!dateStr) return "Sem data";
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return dateStr;
+  return new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }).format(d);
+}
+
+window.loadCalendarEvents = async function(range = "upcoming") {
+  const panel = $("calendarPanel"); const container = $("calendarEventsList");
+  if (!panel || !container) return;
+  panel.classList.remove("hidden");
+  container.innerHTML = '<p class="awareness-note">Sincronizando agenda...</p>';
+  try {
+    const response = await fetch(`/calendar/events?range=${range}`, { credentials: "same-origin", cache: "no-store" });
+    const data = await response.json();
+    if (!response.ok) { container.innerHTML = `<p class="awareness-note" style="color: var(--red);">${data.error || data.detail || "Erro."}</p>`; return; }
+    if (!data.events || data.events.length === 0) { container.innerHTML = `<p class="awareness-note">Nenhum compromisso ${range === "today" ? "hoje" : "nos próximos dias"}.</p>`; return; }
+    container.replaceChildren();
+    data.events.forEach(evt => {
+      const item = document.createElement("div"); item.className = "awareness-item";
+      const title = document.createElement("strong"); title.textContent = evt.summary;
+      const timeSpan = document.createElement("span"); timeSpan.textContent = formatEventDate(evt.start);
+      item.append(title, timeSpan); container.appendChild(item);
+    });
+  } catch (e) { container.innerHTML = '<p class="awareness-note" style="color: var(--red);">Erro de conexão.</p>'; }
+};
+
+async function loadHistoryFromBackend() {
+  try {
+    const res = await fetch('/history', { credentials: 'same-origin' });
+    if (!res.ok) return;
+    const data = await res.json();
+    if (data.history && data.history.length) {
+      $('messages').replaceChildren();
+      data.history.forEach(msg => {
+        if (msg.role === 'user') window.addMessage('Você', msg.content);
+        else if (msg.role === 'assistant') window.addMessage('FRIDAY', msg.content);
+      });
+      console.log('[HISTORY] Restauradas', data.history.length, 'mensagens');
+    }
+  } catch(e) { console.warn('[HISTORY] Falha:', e); }
+}
+
+window.stopVoice = function() {
+  speechRunId++;
+  clearTimeout(silenceTimer);
+  if (wakeWordRecognition && wakeWordActive) { wakeWordActive = false; try { wakeWordRecognition.stop(); } catch(e) {} }
+  if (currentUtterance instanceof Audio) { currentUtterance.pause(); currentUtterance.currentTime = 0; }
+  currentUtterance = null;
+  if (recognition && window.listening) { try { recognition.stop(); } catch (e) {} }
+  if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+  window.speaking = false;
+  setWaveformState('idle');
+};
+
+function cleanSpeechText(text) {
+  return String(text)
+    .replace(/```[\s\S]*?```/g, "trecho de código omitido")
+    .replace(/`([^`]*)`/g, "$1")
+    .replace(/\*\*(.*?)\*\*/g, "$1")
+    .replace(/\*(.*?)\*/g, "$1")
+    .replace(/https?:\/\/\S+/g, "link omitido")
+    .replace(/^\s*[-*]\s+/gm, "")
+    .trim();
+}
+
+function scrambleText(element, finalText) {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!<>-_/[]{}';
+  let it = 0; const max = 15;
+  const interval = setInterval(() => {
+    const scrambled = finalText.split('').map((char, i) => {
+      if (i < (it / max) * finalText.length) return char;
+      if (char === ' ' || char === '\n') return char;
+      return chars[Math.floor(Math.random() * chars.length)];
+    }).join('');
+    element.innerHTML = safeMarkedParse(scrambled);
+    it++;
+    if (it >= max) { clearInterval(interval); element.innerHTML = safeMarkedParse(finalText); }
+  }, 25);
+}
+
+window.speakText = async function(text, force = false) {
+  const autoEl = $("autoSpeak");
+  if (!force && autoEl && !autoEl.checked) return;
+  const cleanText = cleanSpeechText(text);
+  if (!cleanText) return;
+  speechRunId++;
+  const runId = speechRunId;
+  if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+  window.status('FRIDAY está falando...');
+  try {
+    const response = await fetch(`/tts?text=${encodeURIComponent(cleanText)}`);
+    if (response.status === 204) throw new Error('Fallback');
+    if (!response.ok) throw new Error('TTS falhou');
+    const blob = await response.blob();
+    if (blob.size === 0) throw new Error('Áudio vazio');
+    const url = URL.createObjectURL(blob);
+    const audio = new Audio(url);
+    if (window.setupAudioAnalyser) window.setupAudioAnalyser(audio);
+    audio.onplay = () => { if (runId === speechRunId) { window.speaking = true; soundListen(); setWaveformState('speaking'); } };
+    audio.onended = () => {
+      if (runId === speechRunId) {
+        window.speaking = false; window.status('Sistema online.'); setWaveformState('idle');
+        URL.revokeObjectURL(url);
+        setTimeout(() => { if (!$("assistant").classList.contains("hidden") && !window.listening && !isProcessing) window.startVoice(true); }, 800);
+      }
+    };
+    audio.onerror = () => {
+      if (!nativeVoiceToastShown) {
+        nativeVoiceToastShown = true;
+        window.showToast('🎙 Voz nativa ativada (ElevenLabs indisponível).');
+      }
+      browserSpeak(cleanText, runId);
+    };
+    currentUtterance = audio;
+    await audio.play();
+    return;
+  } catch (e) {
+    if (!nativeVoiceToastShown) {
+      nativeVoiceToastShown = true;
+      window.showToast('🎙 Voz nativa ativada (ElevenLabs indisponível).');
+    }
+    browserSpeak(cleanText, runId);
+  }
+};
+
+window.speakResponse = function(text) { lastReply = String(text || ""); window.speakText(lastReply, false); };
+
+window.addMessage = function(who, text) {
+  const item = document.createElement("div");
+  item.className = "msg " + (who === "Você" ? "user" : (who === "SYSTEM" ? "system" : "bot"));
+  const label = document.createElement("strong");
+  const name = who === "Você" ? "CHEFE" : (who === "SYSTEM" ? "SYSTEM" : "FRIDAY");
+  const time = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  label.textContent = name;
+  const timeEl = document.createElement("span");
+  timeEl.style.cssText = "font-size:8px;color:var(--text-dim);margin-left:6px;letter-spacing:0.1em;font-weight:400;";
+  timeEl.textContent = time;
+  label.appendChild(timeEl);
+
+  const content = document.createElement("span");
+  if (text && text.trim()) {
+    content.innerHTML = safeMarkedParse(text);
+  }
+
+  item.append(label, content);
+  $("messages").appendChild(item);
+  $("messages").scrollTop = $("messages").scrollHeight;
+  return content;
+};
+
+function addToolCard(toolName) {
+  const item = document.createElement("div"); item.className = "msg bot";
+  const label = document.createElement("strong"); label.textContent = "SYSTEM";
+  const card = document.createElement("div"); card.className = "tool-card loading";
+  let icon = "⚙"; let displayName = toolName.replace(/_/g, ' ');
+  if (toolName.includes("calendar")) { icon = "📅"; displayName = "Acessando Agenda..."; }
+  else if (toolName.includes("weather")) { icon = "🌤"; displayName = "Consultando Clima..."; }
+  else if (toolName.includes("music")) { icon = "🎵"; displayName = "Buscando áudio..."; }
+  card.innerHTML = `<span>${icon}</span><span>${displayName}</span>`;
+  item.append(label, card); $("messages").appendChild(item);
+  $("messages").scrollTop = $("messages").scrollHeight;
+  return card;
+}
+
+const msgsEl = $("messages");
+const pill = $("scrollPill");
+msgsEl.addEventListener('scroll', () => {
+  const nearBottom = msgsEl.scrollHeight - msgsEl.scrollTop - msgsEl.clientHeight < 80;
+  pill.classList.toggle('visible', !nearBottom);
+});
+pill.addEventListener('click', () => { msgsEl.scrollTo({ top: msgsEl.scrollHeight, behavior: 'smooth' }); });
+
+async function request(url, data) {
+  const response = await fetch(url, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) });
+  let result;
+  try { result = await response.json(); } catch (e) { throw new Error("Resposta inválida."); }
+  if (!response.ok) throw new Error((result && result.detail) || (result && result.error) || "Falha.");
+  return result;
+}
+
+$("loginForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (lockoutEndsAt > Date.now()) return;
+
+  const button = $("loginForm").querySelector('button[type="submit"]');
+  const passwordInput = $("password");
+  const notice = $("lockoutNotice");
+
+  button.disabled = true;
+  notice.classList.add("hidden");
+  notice.textContent = "";
+
+  try {
+    await request("/login", { password: passwordInput.value });
+    const sessionResponse = await fetch("/session", { credentials: "same-origin", cache: "no-store" });
+    if (!sessionResponse.ok) throw new Error("Não foi possível confirmar a sessão.");
+    const sessionData = await sessionResponse.json();
+    if (!sessionData.authenticated) throw new Error("A sessão não foi validada. Tente entrar novamente.");
+    
+    passwordInput.value = "";
+    await activateAssistant();
+  } catch (error) {
+    notice.textContent = error.message || "Falha ao entrar. Verifique a senha.";
+    notice.classList.remove("hidden");
+    passwordInput.focus();
+    passwordInput.select();
+  } finally {
+    button.disabled = false;
+  }
+});
+
+function startLockout(remaining) {
+  const seconds = Math.max(0, Math.ceil(Number(remaining) || 0));
+  const notice = $("lockoutNotice");
+  clearInterval(lockoutInterval);
+  if (seconds === 0) { lockoutEndsAt = 0; notice.classList.add("hidden"); return; }
+  lockoutEndsAt = Date.now() + seconds * 1000;
+  notice.classList.remove("hidden");
+  const upd = () => {
+    const left = Math.max(0, Math.ceil((lockoutEndsAt - Date.now()) / 1000));
+    if (left === 0) { clearInterval(lockoutInterval); lockoutEndsAt = 0; notice.textContent = "Bloqueio encerrado."; return; }
+    notice.textContent = `ACESSO BLOQUEADO · ${left}s`;
+  };
+  upd(); lockoutInterval = setInterval(upd, 1000);
+}
+
+const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
+const MAX_PDF_BYTES = 8 * 1024 * 1024;
+
+function handleFileSelect(e, type) {
+  const file = e.target.files[0]; if (!file) return;
+  const limit = type === 'image' ? MAX_IMAGE_BYTES : MAX_PDF_BYTES;
+  if (file.size > limit) {
+    window.showToast(`⚠ Arquivo muito grande (máx ${Math.round(limit / 1024 / 1024)}MB).`);
+    e.target.value = '';
+    return;
+  }
+  currentAttachmentName = file.name;
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    currentAttachment = ev.target.result; currentAttachmentType = type;
+    $('attachmentName').textContent = file.name;
+    $('attachmentPreview').classList.remove('hidden');
+  };
+  reader.readAsDataURL(file); e.target.value = '';
+}
+$('attachImgBtn').addEventListener('click', () => $('fileInputImage').click());
+$('attachPdfBtn').addEventListener('click', () => $('fileInputPdf').click());
+$('fileInputImage').addEventListener('change', e => handleFileSelect(e, 'image'));
+$('fileInputPdf').addEventListener('change', e => handleFileSelect(e, 'pdf'));
+$('removeAttachment').addEventListener('click', () => {
+  currentAttachment = null; currentAttachmentType = null; currentAttachmentName = null;
+  $('attachmentPreview').classList.add('hidden'); $('attachmentName').textContent = '';
+});
+
+$('cancelBtn').addEventListener('click', () => {
+  if (currentAbortController) {
+    currentAbortController.abort();
+    window.status('Geração cancelada.');
+    window.showToast('⏹ Geração cancelada pelo chefe.');
+  }
+});
+
+async function sendCommandToFriday(command, isInitial = false) {
+  if (isProcessing) return;
+  isProcessing = true; window.fridayState = 'thinking';
+  
+  if (!isInitial) { window.addMessage("Você", command); soundSend(); }
+  else { window.addMessage("SYSTEM", "_Iniciando briefing..._"); }
+  
+  const botSpan = window.addMessage("FRIDAY", " ");
+  const botMsgEl = botSpan.parentElement;
+  botMsgEl.classList.add('typing');
+  $("sendBtn").disabled = true; $("voiceBtn").disabled = true;
+  window.status("FRIDAY está processando..."); startStatusPolling();
+
+  currentAbortController = new AbortController();
+  thinkingStart = Date.now();
+  $('thinkingIndicator').classList.remove('hidden');
+  $('cancelBtn').classList.remove('hidden');
+  thinkingTimer = setInterval(() => {
+    const elapsed = ((Date.now() - thinkingStart) / 1000).toFixed(1);
+    $('thinkingTime').textContent = `${elapsed}s`;
+  }, 100);
+
+  let botError = null;
+  let streamWatchdog = null;
+  let lastChunkAt = Date.now();
+
+  try {
+    const payload = { command };
+    if (currentAttachmentType === 'pdf' && !isInitial) {
+      payload.pdf = currentAttachment; payload.pdf_name = currentAttachmentName;
+      currentAttachment = null; currentAttachmentType = null; currentAttachmentName = null;
+      $('attachmentPreview').classList.add('hidden'); $('attachmentName').textContent = '';
+    }
+    if (currentAttachmentType === 'image' && !isInitial) {
+      payload.image = currentAttachment; payload.image_name = currentAttachmentName;
+      currentAttachment = null; currentAttachmentType = null; currentAttachmentName = null;
+      $('attachmentPreview').classList.add('hidden'); $('attachmentName').textContent = '';
+    }
+    
+    const response = await fetch("/chat", {
+      method: "POST", credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      signal: currentAbortController.signal,
+    });
+
+    if (response.status === 401) { showLogin(); throw new Error("Sessão expirada. Faça login novamente."); }
+    if (response.status === 429) { const err = await response.json().catch(() => ({})); throw new Error(err.detail || "Muitas mensagens em pouco tempo."); }
+    if (!response.ok) throw new Error("Erro na conexão.");
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder("utf-8");
+    let fullReplyText = "", buffer = "", streamDone = false, gotFirst = false;
+    lastChunkAt = Date.now();
+
+    streamWatchdog = setInterval(() => {
+      if (Date.now() - lastChunkAt > 45000) {
+        clearInterval(streamWatchdog);
+        streamWatchdog = null;
+        try { reader.cancel(); } catch(e) {}
+        window.status("Conexão lenta — cancelando.");
+        botMsgEl.classList.remove('typing');
+        if (!fullReplyText.trim()) botSpan.innerHTML = "[ERRO] Conexão perdida com o servidor.";
+      }
+    }, 5000);
+
+    while (!streamDone) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      lastChunkAt = Date.now();
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n'); buffer = lines.pop();
+      for (const line of lines) {
+        if (line.startsWith("data: ")) {
+          const dataStr = line.substring(6).trim(); if (!dataStr) continue;
+          try {
+            const dataObj = JSON.parse(dataStr);
+            if (dataObj.done) { streamDone = true; break; }
+            if (!gotFirst) { soundReceive(); gotFirst = true; }
+
+            if (dataObj.tool) {
+              window.fridayState = 'tooling';
+              currentToolCard = addToolCard(dataObj.tool);
+            }
+
+            if (dataObj.music) {
+              $('musicPlayer').src = dataObj.music;
+              $('musicPlayerContainer').classList.remove('hidden');
+              if (currentToolCard) { currentToolCard.classList.remove('loading'); currentToolCard = null; }
+            }
+            if (dataObj.music_action) {
+              if (dataObj.music_action === 'pause' && window.ytPlayer && window.ytPlayer.pauseVideo) window.ytPlayer.pauseVideo();
+              if (dataObj.music_action === 'play' && window.ytPlayer && window.ytPlayer.playVideo) window.ytPlayer.playVideo();
+              if (currentToolCard) { currentToolCard.classList.remove('loading'); currentToolCard = null; }
+            }
+
+            if (dataObj.text) {
+              if (botMsgEl.classList.contains('typing')) botMsgEl.classList.remove('typing');
+              if (currentToolCard) { currentToolCard.classList.remove('loading'); currentToolCard = null; }
+              fullReplyText += dataObj.text;
+              botSpan.innerHTML = safeMarkedParse(fullReplyText);
+              $("messages").scrollTop = $("messages").scrollHeight;
+            }
+            if (dataObj.error) {
+              if (currentToolCard) { currentToolCard.classList.remove('loading'); currentToolCard = null; }
+              botMsgEl.classList.remove('typing');
+              botError = dataObj.error;
+              window.status("Erro na IA.");
+            }
+          } catch (e) {}
+        }
+      }
+    }
+    botMsgEl.classList.remove('typing');
+    if (currentToolCard) { currentToolCard.classList.remove('loading'); currentToolCard = null; }
+    if (window.hljs) botSpan.querySelectorAll('pre code').forEach(el => hljs.highlightElement(el));
+    stopStatusPolling();
+
+    if (botError) {
+      botSpan.innerHTML = "[ERRO] " + botError;
+    } else if (!fullReplyText.trim()) {
+      botSpan.innerHTML = "Entendido, chefe.";
+      window.status("Sistema online.");
+    } else {
+      window.status("Sistema online.");
+      scrambleText(botSpan, fullReplyText);
+      lastReply = fullReplyText; window.speakResponse(fullReplyText);
+      lastAIResponseTime = Date.now();
+    }
+  } catch (error) {
+    stopStatusPolling();
+    botMsgEl.classList.remove('typing');
+    if (currentToolCard) { currentToolCard.classList.remove('loading'); currentToolCard = null; }
+    if (error.name === 'AbortError') { botSpan.innerHTML = "_[Cancelado pelo chefe]_"; }
+    else {
+      botSpan.innerHTML = "[ERRO] " + error.message;
+      window.status("Erro de conexão.");
+      window.fridayState = 'error';
+      setTimeout(() => { window.fridayState = 'idle'; }, 2000);
+    }
+  } finally {
+    if (streamWatchdog) { clearInterval(streamWatchdog); streamWatchdog = null; }
+    clearInterval(thinkingTimer);
+    $('thinkingIndicator').classList.add('hidden');
+    $('cancelBtn').classList.add('hidden');
+    if (currentToolCard) { currentToolCard.classList.remove('loading'); currentToolCard = null; }
+    currentAbortController = null;
+    isProcessing = false;
+    if (window.fridayState !== 'error') window.fridayState = 'idle';
+    $("sendBtn").disabled = false; $("voiceBtn").disabled = false;
+    if (!$("assistant").classList.contains("hidden")) $("command").focus();
+  }
+}
+
+$("chat
