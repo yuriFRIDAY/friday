@@ -11,6 +11,8 @@ import secrets
 import traceback
 import threading
 import logging
+import queue
+import shutil
 from collections import defaultdict
 from datetime import datetime, timezone, timedelta
 from typing import Optional
@@ -23,6 +25,7 @@ import psycopg2.extras
 
 from fastapi import FastAPI, Request, Response, HTTPException, Cookie
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
+from starlette.middleware.base import BaseHTTPMiddleware
 from pydantic import BaseModel
 
 try:
@@ -47,6 +50,25 @@ if not logger.handlers:
     logger.setLevel(logging.INFO)
 
 # ========================================
+# SENTRY (opcional — só ativa se SENTRY_DSN presente)
+# ========================================
+SENTRY_DSN = os.getenv("SENTRY_DSN", "").strip()
+if SENTRY_DSN:
+    try:
+        import sentry_sdk
+        sentry_sdk.init(
+            dsn=SENTRY_DSN,
+            traces_sample_rate=float(os.getenv("SENTRY_TRACES_RATE", "0.1")),
+            environment=os.getenv("ENV", "production"),
+            send_default_pii=False,
+        )
+        logger.info("Sentry inicializado.")
+    except ImportError:
+        logger.warning("sentry_sdk não instalado — Sentry desativado (pip install sentry-sdk).")
+    except Exception as e:
+        logger.warning(f"Sentry falhou ao inicializar: {e}")
+
+# ========================================
 # CONFIGURAÇÕES INICIAIS
 # ========================================
 app = FastAPI(title="FRIDAY API")
@@ -62,17 +84,13 @@ STATUS_QUEUE = []
 NOTIFICATION_QUEUE = []
 QUEUE_LOCK = threading.Lock()
 
-# Rate limit simples em memória
 _CHAT_RATE = defaultdict(list)
 _RATE_LOCK = threading.Lock()
-
-# Cache de token OAuth (evita refresh concorrente)
 _TOKEN_LOCK = threading.Lock()
 
-MAX_IMAGE_BYTES = 8_000_000   # ~6MB de base64
+MAX_IMAGE_BYTES = 8_000_000
 MAX_PDF_BYTES = 12_000_000
 
-# Mapa tool → status exibido no HUD
 TOOL_STATUS = {
     "get_weather": "🌤 Consultando clima...",
     "get_calendar_events": "📅 Consultando agenda...",
@@ -99,16 +117,63 @@ TOOL_STATUS = {
     "recall_memory": "🧠 Recuperando memória...",
 }
 
+# ========================================
+# VALIDAÇÃO DE ENV (não quebra dev)
+# ========================================
+def _validate_env():
+    """Alerta ENVs faltando. Só falha hard se ENV=production."""
+    strict = os.getenv("ENV", "").lower() == "production"
+    required = ["GROQ_API_KEY"]
+    optional = [
+        "ELEVENLABS_API_KEY", "DATABASE_URL",
+        "GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET", "GOOGLE_OAUTH_REDIRECT_URI",
+        "SENTRY_DSN",
+    ]
+    missing = [k for k in required if not os.getenv(k, "").strip()]
+    if missing:
+        msg = f"ENV faltando obrigatórias: {missing}"
+        if strict:
+            logger.error(msg)
+            raise RuntimeError(msg)
+        else:
+            logger.warning(msg + " (ignorando — ENV != production)")
+    for k in optional:
+        if not os.getenv(k, "").strip():
+            logger.warning(f"ENV opcional ausente: {k} — feature relacionada desativada.")
+
+_validate_env()
+
+# ========================================
+# SECURITY HEADERS
+# ========================================
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        response.headers["Permissions-Policy"] = "geolocation=(), microphone=(self)"
+        if request.url.scheme == "https" or request.headers.get("x-forwarded-proto", "").lower() == "https":
+            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        return response
+
+app.add_middleware(SecurityHeadersMiddleware)
+
+# ========================================
+# FILAS DE STATUS / NOTIFICAÇÃO
+# ========================================
 def _push_status(text):
     global STATUS_QUEUE
-    if not text: return
+    if not text:
+        return
     with QUEUE_LOCK:
         STATUS_QUEUE.append(text)
         if len(STATUS_QUEUE) > 20:
             STATUS_QUEUE.pop(0)
 
 def _push_notification(text):
-    if not text: return
+    if not text:
+        return
     global NOTIFICATION_QUEUE
     with QUEUE_LOCK:
         NOTIFICATION_QUEUE.append(text)
@@ -116,7 +181,7 @@ def _push_notification(text):
             NOTIFICATION_QUEUE.pop(0)
 
 def _check_chat_rate(session_token):
-    """Rate limit generoso: 30 msgs/min por sessão."""
+    """30 msgs/min por sessão."""
     now = time.time()
     with _RATE_LOCK:
         calls = [t for t in _CHAT_RATE[session_token] if now - t < 60]
@@ -128,7 +193,8 @@ def _check_chat_rate(session_token):
         return True
 
 def _notify_tool(tool_name, args, result):
-    if not result: return
+    if not result:
+        return
     try:
         if tool_name == "create_calendar_event" and isinstance(result, dict) and result.get("ok"):
             summary = result.get("summary") or args.get("summary", "evento")
@@ -168,10 +234,12 @@ def init_db():
             cursor.execute("CREATE TABLE IF NOT EXISTS ai_memory (key TEXT PRIMARY KEY, value TEXT)")
             cursor.execute("CREATE TABLE IF NOT EXISTS tasks (id SERIAL PRIMARY KEY, description TEXT, status TEXT)")
             cursor.execute("CREATE TABLE IF NOT EXISTS chat_history (id SERIAL PRIMARY KEY, session_token TEXT, role TEXT, content TEXT, timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
+            cursor.execute("CREATE TABLE IF NOT EXISTS tool_audit (id SERIAL PRIMARY KEY, ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP, tool TEXT, args_summary TEXT, ok BOOLEAN, error TEXT)")
         else:
             cursor.execute("CREATE TABLE IF NOT EXISTS ai_memory (key TEXT PRIMARY KEY, value TEXT)")
             cursor.execute("CREATE TABLE IF NOT EXISTS tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, description TEXT, status TEXT)")
             cursor.execute("CREATE TABLE IF NOT EXISTS chat_history (id INTEGER PRIMARY KEY AUTOINCREMENT, session_token TEXT, role TEXT, content TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)")
+            cursor.execute("CREATE TABLE IF NOT EXISTS tool_audit (id INTEGER PRIMARY KEY AUTOINCREMENT, ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP, tool TEXT, args_summary TEXT, ok BOOLEAN, error TEXT)")
         conn.commit()
         cursor.close()
         conn.close()
@@ -192,6 +260,7 @@ def _prune_old_data():
                     SELECT key FROM ai_memory ORDER BY ctid DESC LIMIT 500
                 )
             """)
+            cursor.execute("DELETE FROM tool_audit WHERE ts < %s", (cutoff,))
         else:
             cursor.execute("DELETE FROM chat_history WHERE timestamp < ?", (cutoff.isoformat(),))
             cursor.execute("""
@@ -199,6 +268,7 @@ def _prune_old_data():
                     SELECT key FROM ai_memory ORDER BY rowid DESC LIMIT 500
                 )
             """)
+            cursor.execute("DELETE FROM tool_audit WHERE ts < ?", (cutoff.isoformat(),))
         conn.commit()
         cursor.close()
         conn.close()
@@ -206,8 +276,37 @@ def _prune_old_data():
     except Exception as e:
         logger.warning(f"Pruning falhou: {e}")
 
+def _audit_tool(tool_name, args, ok, error=None):
+    """Registra execução de ferramenta. Silencioso em falha (nunca quebra o fluxo)."""
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        summary = json.dumps({k: str(v)[:100] for k, v in (args or {}).items()}, ensure_ascii=False)[:500]
+        if DATABASE_URL:
+            cur.execute(
+                "INSERT INTO tool_audit (tool, args_summary, ok, error) VALUES (%s, %s, %s, %s)",
+                (tool_name, summary, bool(ok), (error or "")[:500] or None),
+            )
+        else:
+            cur.execute(
+                "INSERT INTO tool_audit (tool, args_summary, ok, error) VALUES (?, ?, ?, ?)",
+                (tool_name, summary, 1 if ok else 0, (error or "")[:500] or None),
+            )
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        logger.debug(f"[AUDIT] falhou: {e}")
+
+def _schedule_prune():
+    """Roda prune a cada 6h (além do boot)."""
+    while True:
+        time.sleep(6 * 60 * 60)
+        _prune_old_data()
+
 threading.Thread(target=init_db, daemon=True).start()
 threading.Thread(target=_prune_old_data, daemon=True).start()
+threading.Thread(target=_schedule_prune, daemon=True).start()
 
 def _db_save_memory(key, value):
     conn = get_db(); cursor = conn.cursor()
@@ -272,7 +371,6 @@ def _db_save_message(session_token, role, content):
         cursor.close(); conn.close()
 
 def _db_get_history(session_token):
-    """Retorna últimas 100 mensagens, em ordem cronológica."""
     conn = get_db(); cursor = conn.cursor()
     try:
         if DATABASE_URL:
@@ -410,7 +508,7 @@ set_calendar_context(
 )
 
 # ========================================
-# ROTAS DA API
+# MODELOS
 # ========================================
 class LoginData(BaseModel):
     password: str
@@ -425,14 +523,42 @@ class ChatData(BaseModel):
 class TTSData(BaseModel):
     text: str = ""
 
+# ========================================
+# HEALTH CHECK (real)
+# ========================================
+@app.get("/health")
+async def health_check():
+    checks = {"db": False, "groq": False, "disk": False}
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("SELECT 1")
+        cur.close()
+        conn.close()
+        checks["db"] = True
+    except Exception as e:
+        logger.warning(f"[HEALTH] DB falhou: {e}")
+    checks["groq"] = bool(os.getenv("GROQ_API_KEY", "").strip())
+    try:
+        st = shutil.disk_usage("/")
+        checks["disk"] = (st.free / st.total) > 0.05
+    except Exception:
+        checks["disk"] = True  # não pune se o OS não expõe (alguns containers)
+    ok = all(checks.values())
+    return JSONResponse(
+        status_code=200 if ok else 503,
+        content={"status": "ok" if ok else "degraded", "checks": checks},
+    )
+
+# ========================================
+# TTS (POST novo + GET legado)
+# ========================================
 @app.post("/tts")
 async def text_to_speech_post(data: TTSData, friday_session: Optional[str] = Cookie(None)):
-    """TTS via POST (evita texto em logs de URL)."""
     return await _tts_impl(data.text, friday_session)
 
 @app.get("/tts")
 async def text_to_speech_get(text: str = "", friday_session: Optional[str] = Cookie(None)):
-    """Compatibilidade com clientes antigos que usavam GET."""
     return await _tts_impl(text, friday_session)
 
 async def _tts_impl(text: str, friday_session):
@@ -471,6 +597,9 @@ async def _tts_impl(text: str, friday_session):
         logger.warning(f"TTS falhou: {e}")
         return Response(status_code=204)
 
+# ========================================
+# ROTAS ESTÁTICAS
+# ========================================
 @app.get("/", response_class=HTMLResponse)
 async def serve_index():
     try:
@@ -487,10 +616,9 @@ async def serve_manifest():
 async def serve_sw():
     return Response(content=open("sw.js", "r").read(), media_type="application/javascript")
 
-@app.get("/health")
-async def health_check():
-    return {"status": "ok"}
-
+# ========================================
+# STATUS / NOTIFICAÇÕES
+# ========================================
 @app.get("/status")
 async def get_status(friday_session: Optional[str] = Cookie(None)):
     if not friday_session:
@@ -511,6 +639,9 @@ async def get_notifications(friday_session: Optional[str] = Cookie(None)):
             return {"notifications": msgs}
     return {"notifications": []}
 
+# ========================================
+# AUTH
+# ========================================
 @app.post("/login")
 async def login(data: LoginData, response: Response, request: Request):
     try:
@@ -551,6 +682,9 @@ async def get_history(friday_session: Optional[str] = Cookie(None)):
         raise HTTPException(401)
     return {"history": _db_get_history(friday_session)}
 
+# ========================================
+# MÉTRICAS
+# ========================================
 @app.get("/system_metrics")
 async def get_metrics(friday_session: Optional[str] = Cookie(None)):
     if not friday_session:
@@ -576,6 +710,9 @@ async def get_metrics(friday_session: Optional[str] = Cookie(None)):
             ram_percent = 0
     return {"cpu": cpu_percent, "ram": ram_percent}
 
+# ========================================
+# CALENDÁRIO
+# ========================================
 @app.get("/calendar/connect")
 async def calendar_connect(friday_session: Optional[str] = Cookie(None)):
     if not friday_session:
@@ -619,6 +756,9 @@ async def calendar_events(range: str = "upcoming", friday_session: Optional[str]
     events = _calendar_today_events(at) if range == "today" else _calendar_events_query(at)
     return {"events": events or []}
 
+# ========================================
+# CHAT (streaming SSE com heartbeat)
+# ========================================
 @app.post("/chat")
 async def chat_endpoint(data: ChatData, friday_session: Optional[str] = Cookie(None)):
     if not friday_session:
@@ -660,7 +800,6 @@ async def chat_endpoint(data: ChatData, friday_session: Optional[str] = Cookie(N
         if not user_content:
             user_content = "Olá"
 
-        # RAG sanitizado (evita prompt injection em memórias)
         memories = _db_get_recent_memories()
         rag_context = ""
         if memories:
@@ -692,8 +831,14 @@ async def chat_endpoint(data: ChatData, friday_session: Optional[str] = Cookie(N
             tool_call_acc = {}
             has_tool = False
             error_occurred = False
+            last_emit_ts = time.time()
 
             for chunk in stream_gen:
+                # Heartbeat: se >15s sem emitir nada, manda comentário SSE
+                if time.time() - last_emit_ts > 15:
+                    yield ": ping\n\n"
+                    last_emit_ts = time.time()
+
                 if "error" in chunk:
                     yield f"data: {json.dumps({'error': chunk['error']})}\n\n"
                     _push_notification(f"⚠ Erro IA: {chunk['error'][:100]}")
@@ -703,6 +848,7 @@ async def chat_endpoint(data: ChatData, friday_session: Optional[str] = Cookie(N
                 if "text" in chunk:
                     full_text += chunk["text"]
                     yield f"data: {json.dumps({'text': chunk['text']})}\n\n"
+                    last_emit_ts = time.time()
                 if "tool_call_chunk" in chunk:
                     has_tool = True
                     tc = chunk["tool_call_chunk"]
@@ -714,12 +860,12 @@ async def chat_endpoint(data: ChatData, friday_session: Optional[str] = Cookie(N
                             tool_call_acc[idx]["name"] += tc["function"]["name"]
                         if "arguments" in tc["function"]:
                             tool_call_acc[idx]["arguments"] += tc["function"]["arguments"]
+                    last_emit_ts = time.time()
 
             if error_occurred:
                 break
 
             if has_tool:
-                # ✅ Parallel tool calls: envia todos numa única mensagem assistant
                 assistant_msg = {"role": "assistant", "content": None, "tool_calls": []}
                 for idx in sorted(tool_call_acc.keys()):
                     tc = tool_call_acc[idx]
@@ -729,7 +875,6 @@ async def chat_endpoint(data: ChatData, friday_session: Optional[str] = Cookie(N
                     })
                 current_messages.append(assistant_msg)
 
-                # Executa cada tool e injeta os resultados
                 any_failed = False
                 for idx in sorted(tool_call_acc.keys()):
                     tc_data = tool_call_acc[idx]
@@ -743,16 +888,19 @@ async def chat_endpoint(data: ChatData, friday_session: Optional[str] = Cookie(N
 
                     _push_status(TOOL_STATUS.get(tc_data["name"], f"Executando {tc_data['name']}..."))
                     yield f"data: {json.dumps({'tool': tc_data['name']})}\n\n"
+                    last_emit_ts = time.time()
 
                     exec_res = execute_tool(tc_data["name"], args, session=session, confirmed=True)
 
                     if not exec_res.get("ok"):
                         err_msg = exec_res.get("error", "Erro desconhecido na ferramenta")
+                        _audit_tool(tc_data["name"], args, False, err_msg)
                         yield f"data: {json.dumps({'text': f'⚠ {err_msg}'})}\n\n"
                         tool_content = f"ERRO: {err_msg}"
                         any_failed = True
                     else:
                         result = exec_res.get("result")
+                        _audit_tool(tc_data["name"], args, True, None)
                         if tc_data["name"] == "play_music" and isinstance(result, dict):
                             action = result.get("action")
                             if action == "play_new" and result.get("url"):
@@ -769,6 +917,7 @@ async def chat_endpoint(data: ChatData, friday_session: Optional[str] = Cookie(N
                         "tool_call_id": tc_data["id"],
                         "content": tool_content,
                     })
+                    last_emit_ts = time.time()
 
                 if any_failed:
                     error_occurred = True
@@ -790,7 +939,14 @@ async def chat_endpoint(data: ChatData, friday_session: Optional[str] = Cookie(N
 
         yield f"data: {json.dumps({'done': True})}\n\n"
 
-    return StreamingResponse(event_generator(), media_type="text/event-stream")
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",  # desliga buffering do nginx/cloudflare
+        },
+    )
 
 
 if __name__ == "__main__":
