@@ -8,6 +8,8 @@ import urllib.parse
 import smtplib
 import re
 import base64
+import socket
+import ipaddress
 import threading
 import sqlite3
 import xml.etree.ElementTree as ET
@@ -53,7 +55,7 @@ if not logger.handlers:
     logger.setLevel(logging.INFO)
 
 DATA_DIR = os.getenv("DATA_DIR", ".")
-if os.path.exists("/data") and os.access("/data", os.W_OK): 
+if os.path.exists("/data") and os.access("/data", os.W_OK):
     DATA_DIR = "/data"
 DB_PATH = os.path.join(DATA_DIR, "friday.db")
 
@@ -69,19 +71,19 @@ _MEMORY_CONTEXT = {}
 
 def set_calendar_context(access_token_provider, events_query, today_events, create_event, delete_event, update_event):
     _CALENDAR_CONTEXT.update({
-        "access_token_provider": access_token_provider, 
-        "events_query": events_query, 
-        "today_events": today_events, 
-        "create_event": create_event, 
-        "delete_event": delete_event, 
-        "update_event": update_event
+        "access_token_provider": access_token_provider,
+        "events_query": events_query,
+        "today_events": today_events,
+        "create_event": create_event,
+        "delete_event": delete_event,
+        "update_event": update_event,
     })
 
 def set_memory_context(save_func, recall_func, delete_func=None):
     _MEMORY_CONTEXT.update({"save": save_func, "recall": recall_func, "delete": delete_func})
 
 # ========================================
-# CONEXÃO DB LOCAL PARA AS TAREFAS
+# CONEXÃO DB
 # ========================================
 def _get_db():
     if DATABASE_URL and HAS_PSYCOPG2:
@@ -89,7 +91,7 @@ def _get_db():
     return sqlite3.connect(DB_PATH)
 
 # ========================================
-# CACHE SEGURO PARA MULTI-THREAD
+# CACHE SEGURO
 # ========================================
 _CACHE = {}
 _CACHE_LOCK = threading.Lock()
@@ -98,7 +100,7 @@ def _get_cache(key):
     with _CACHE_LOCK:
         if key in _CACHE:
             data, expires = _CACHE[key]
-            if time.time() < expires: 
+            if time.time() < expires:
                 return data
             del _CACHE[key]
     return None
@@ -118,27 +120,27 @@ def _get_tz():
 def _parse_iso(iso_str):
     try:
         dt = datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
-        if dt.tzinfo is None: 
+        if dt.tzinfo is None:
             dt = dt.replace(tzinfo=_get_tz())
         return dt
-    except Exception: 
+    except Exception:
         return None
 
 def _parse_natural_date(text):
-    if not HAS_DATEPARSER: 
+    if not HAS_DATEPARSER:
         return None
     try:
         now = datetime.now(_get_tz())
         return dateparser.parse(
-            text, languages=['pt', 'en'], 
+            text, languages=['pt', 'en'],
             settings={
-                'TIMEZONE': 'America/Sao_Paulo', 
-                'RETURN_AS_TIMEZONE_AWARE': True, 
-                'PREFER_DATES_FROM': 'future', 
-                'RELATIVE_BASE': now
+                'TIMEZONE': 'America/Sao_Paulo',
+                'RETURN_AS_TIMEZONE_AWARE': True,
+                'PREFER_DATES_FROM': 'future',
+                'RELATIVE_BASE': now,
             }
         )
-    except Exception: 
+    except Exception:
         return None
 
 class _HTMLTextExtractor(HTMLParser):
@@ -148,28 +150,28 @@ class _HTMLTextExtractor(HTMLParser):
         self.skip = False
         self.ignore_tags = {'script', 'style', 'nav', 'footer', 'header', 'aside', 'noscript'}
     def handle_starttag(self, tag, attrs):
-        if tag in self.ignore_tags: 
+        if tag in self.ignore_tags:
             self.skip = True
     def handle_endtag(self, tag):
-        if tag in self.ignore_tags: 
+        if tag in self.ignore_tags:
             self.skip = False
     def handle_data(self, data):
         if not self.skip:
             text = data.strip()
-            if text: 
+            if text:
                 self.result.append(text)
-    def get_text(self): 
+    def get_text(self):
         return " ".join(self.result)
 
 def _truncate_text(text, max_len=5000):
-    if not text: 
+    if not text:
         return ""
     text = str(text)
-    if len(text) <= max_len: 
+    if len(text) <= max_len:
         return text
     truncated = text[:max_len]
     last_space = truncated.rfind(' ')
-    if last_space > 0: 
+    if last_space > 0:
         truncated = truncated[:last_space]
     return truncated + "..."
 
@@ -177,8 +179,21 @@ def _format_iso_to_br(iso_str):
     try:
         dt = datetime.fromisoformat(iso_str.replace("Z", "+00:00")).astimezone(_get_tz())
         return dt.strftime("%d/%m/%Y às %H:%M")
-    except Exception: 
+    except Exception:
         return iso_str
+
+def _as_text(value):
+    """Normaliza qualquer retorno de handler em string segura."""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        if value.get("error"):
+            return f"(indisponível: {value['error']})"
+        try:
+            return json.dumps(value, ensure_ascii=False)
+        except Exception:
+            return str(value)
+    return str(value)
 
 def _extract_email_body(payload):
     mime = payload.get("mimeType", "")
@@ -188,7 +203,7 @@ def _extract_email_body(payload):
             try:
                 padded = body_data + "=" * (-len(body_data) % 4)
                 return base64.urlsafe_b64decode(padded).decode("utf-8", errors="replace")
-            except Exception: 
+            except Exception:
                 return ""
     elif mime == "text/html":
         body_data = payload.get("body", {}).get("data", "")
@@ -199,10 +214,34 @@ def _extract_email_body(payload):
                 parser = _HTMLTextExtractor()
                 parser.feed(html)
                 return parser.get_text()
-            except Exception: 
+            except Exception:
                 return ""
     parts = payload.get("parts", [])
     return "\n".join(t for t in (_extract_email_body(p) for p in parts) if t)
+
+# ========================================
+# SEGURANÇA SSRF
+# ========================================
+def _is_safe_url(url):
+    """Bloqueia URLs que apontam para endereços internos (SSRF)."""
+    try:
+        p = urllib.parse.urlparse(url)
+        if p.scheme not in ("http", "https"):
+            return False
+        host = p.hostname
+        if not host:
+            return False
+        for info in socket.getaddrinfo(host, None, proto=socket.IPPROTO_TCP):
+            ip_str = info[4][0]
+            try:
+                ip = ipaddress.ip_address(ip_str)
+            except ValueError:
+                continue
+            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
+                return False
+        return True
+    except Exception:
+        return False
 
 # ========================================
 # HANDLERS: SISTEMA E WEB
@@ -217,173 +256,176 @@ def _handler_get_system_status():
         try:
             load1, load5, load15 = os.getloadavg()
             cpu_info = f"CPU (carga 1m/5m/15m): {load1:.2f} / {load5:.2f} / {load15:.2f}"
-        except OSError: 
+        except OSError:
             cpu_info = "CPU: indisponível"
         try:
-            with open('/proc/meminfo', 'r') as f: 
+            with open('/proc/meminfo', 'r') as f:
                 lines = f.readlines()
             mem_total = int(lines[0].split()[1])
-            mem_free = int(lines[1].split()[1])
-            mem_percent = round((mem_total - mem_free) / mem_total * 100, 1)
-            mem_total_gb = round(mem_total / (1024**2), 2)
+            mem_avail = int(lines[2].split()[1]) if len(lines) > 2 else int(lines[1].split()[1])
+            mem_percent = round((mem_total - mem_avail) / mem_total * 100, 1)
+            mem_total_gb = round(mem_total / (1024 ** 2), 2)
             mem_info = f"RAM: {mem_percent}% em uso (Total: {mem_total_gb} GB)"
-        except Exception: 
+        except Exception:
             mem_info = "RAM: indisponível"
         try:
             total, used, free = shutil.disk_usage("/")
             disk_percent = round((used / total) * 100, 1)
-            disk_total_gb = round(total / (1024**3), 2)
+            disk_total_gb = round(total / (1024 ** 3), 2)
             disk_info = f"Disco: {disk_percent}% em uso (Total: {disk_total_gb} GB)"
-        except Exception: 
+        except Exception:
             disk_info = "Disco: indisponível"
         return f"Status do Servidor:\n- {cpu_info}\n- {mem_info}\n- {disk_info}"
-    except Exception as e: 
+    except Exception as e:
         return {"error": f"Falha ao ler status: {str(e)}"}
 
 def _handler_get_weather(city="São Paulo"):
     cache_key = f"weather_{city}"
     cached = _get_cache(cache_key)
-    if cached: 
+    if cached:
         return cached
-    
+
     city_encoded = urllib.parse.quote(city)
     try:
         req = Request(f"https://wttr.in/{city_encoded}?format=j1&lang=pt", headers={"User-Agent": "FRIDAY/1.0"})
-        with urlopen(req, timeout=10) as response: 
+        with urlopen(req, timeout=10) as response:
             data = json.loads(response.read().decode("utf-8"))
-        
+
         current = data["current_condition"][0]
         temp = current["temp_C"]
         desc = current["lang_pt"][0]["value"] if "lang_pt" in current and current["lang_pt"] else current["weatherDesc"][0]["value"]
         today = (data.get("weather") or [{}])[0]
-        
+
         result = f"Em {city}: {desc}, {temp}°C. Máx {today.get('maxtempC', '?')}°C / Mín {today.get('mintempC', '?')}°C."
         _set_cache(cache_key, result, ttl_seconds=1800)
         return result
-    except Exception as e: 
+    except Exception as e:
         return {"error": f"Falha no clima: {str(e)}"}
 
 def _handler_get_crypto_price(coin="bitcoin"):
     cache_key = f"crypto_{coin}"
     cached = _get_cache(cache_key)
-    if cached: 
+    if cached:
         return cached
-    
+
     try:
         url = f"https://api.coingecko.com/api/v3/simple/price?ids={coin.lower()}&vs_currencies=usd,brl&include_24hr_change=true"
         req = Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with urlopen(req, timeout=10) as response: 
+        with urlopen(req, timeout=10) as response:
             data = json.loads(response.read().decode("utf-8"))
-        
-        if coin.lower() not in data: 
+
+        if coin.lower() not in data:
             return {"error": f"Moeda '{coin}' não encontrada."}
-        
+
         info = data[coin.lower()]
         change = info.get('usd_24h_change', 0)
         direction = "📈" if change > 0 else "📉"
         result = f"{coin.capitalize()}: US$ {info['usd']:,.2f} | R$ {info['brl']:,.2f} ({direction} {change:.1f}% 24h)."
-        
+
         _set_cache(cache_key, result, ttl_seconds=300)
         return result
-    except Exception as e: 
+    except Exception as e:
         return {"error": f"Falha ao buscar cotação: {str(e)}"}
 
 def _handler_get_news(category="mundo"):
     cache_key = f"news_{category}"
     cached = _get_cache(cache_key)
-    if cached: 
+    if cached:
         return cached
-    
+
     try:
         url = f"https://news.google.com/rss/search?q={urllib.parse.quote(category)}&hl=pt-BR&gl=BR&ceid=BR:pt-419"
         req = Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with urlopen(req, timeout=10) as response: 
+        with urlopen(req, timeout=10) as response:
             xml = response.read().decode("utf-8")
-        
+
         root = ET.fromstring(xml)
         items = root.findall(".//item")[:3]
-        
-        if not items: 
+
+        if not items:
             return "Nenhuma notícia encontrada."
-        
+
         news_list = [f"- {item.find('title').text}" for item in items]
         result = "Últimas notícias:\n" + "\n".join(news_list)
-        
+
         _set_cache(cache_key, result, ttl_seconds=3600)
         return result
-    except Exception as e: 
+    except Exception as e:
         return {"error": f"Falha ao buscar notícias: {str(e)}"}
 
 def _handler_search_web(query, max_results=3):
     cache_key = f"search_{query}_{max_results}"
     cached = _get_cache(cache_key)
-    if cached: 
+    if cached:
         return cached
-    
+
     tavily_key = os.getenv("TAVILY_API_KEY", "").strip()
     if tavily_key:
         try:
             payload = json.dumps({"query": query, "search_depth": "basic", "max_results": max_results, "include_answer": False}).encode("utf-8")
             req = Request("https://api.tavily.com/search", data=payload, headers={"Content-Type": "application/json", "Authorization": f"Bearer {tavily_key}"}, method="POST")
-            with urlopen(req, timeout=15) as response: 
+            with urlopen(req, timeout=15) as response:
                 data = json.loads(response.read().decode("utf-8"))
-            
+
             results = [{"title": item.get("title", ""), "url": item.get("url", ""), "snippet": _truncate_text(item.get("content", ""), 500)} for item in data.get("results", [])[:max_results]]
             if results:
                 final = {"query": query, "results": results, "source": "tavily"}
                 _set_cache(cache_key, final, ttl_seconds=600)
                 return final
-        except Exception: 
+        except Exception:
             pass
-    
+
     try:
         params = urllib.parse.urlencode({"q": query, "format": "json", "no_html": 1, "skip_disambig": 1})
         req = Request(f"https://api.duckduckgo.com/?{params}", headers={"User-Agent": "FRIDAY/1.0"})
-        with urlopen(req, timeout=10) as response: 
+        with urlopen(req, timeout=10) as response:
             data = json.loads(response.read().decode("utf-8"))
-        
+
         abstract = data.get("AbstractText") or data.get("Answer")
         if abstract:
             final = {"query": query, "results": [{"title": data.get("Heading", "Resultado"), "url": data.get("AbstractURL", ""), "snippet": _truncate_text(abstract, 800)}], "source": "duckduckgo"}
             _set_cache(cache_key, final, ttl_seconds=600)
             return final
-        
+
         related = data.get("RelatedTopics", [])
         results = [{"title": "Tópico relacionado", "url": t.get("FirstURL", ""), "snippet": _truncate_text(t["Text"], 300)} for t in related[:max_results] if isinstance(t, dict) and "Text" in t]
         if results:
             final = {"query": query, "results": results, "source": "duckduckgo"}
             _set_cache(cache_key, final, ttl_seconds=600)
             return final
-            
+
         return {"error": "Nenhum resultado encontrado."}
-    except Exception as e: 
+    except Exception as e:
         return {"error": f"Falha na pesquisa: {str(e)}"}
 
 def _handler_deep_search(query):
     search = _handler_search_web(query, max_results=3)
-    if "error" in search: 
+    if isinstance(search, dict) and "error" in search:
         return search
-    results = search.get("results", [])
-    if not results: 
+    results = search.get("results", []) if isinstance(search, dict) else []
+    if not results:
         return {"error": "Nenhum resultado encontrado."}
-    
+
     top = results[0]
     top_url = top.get("url", "")
-    if not top_url: 
+    if not top_url:
         return {"query": query, "results": results, "note": "Sem URL para leitura."}
-    
+
     page = _handler_read_webpage(top_url)
     content = page if isinstance(page, str) else ""
     return {"query": query, "top_result": {"title": top.get("title", ""), "url": top_url, "content": content}, "other_results": results[1:]}
 
 def _handler_read_webpage(url):
+    """Leitura de URL com proteção SSRF."""
+    if not _is_safe_url(url):
+        return {"error": "URL bloqueada por política de segurança (endereço interno ou inválido)."}
     try:
         req = Request(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
         with urlopen(req, timeout=15) as response:
             parser = _HTMLTextExtractor()
             parser.feed(response.read().decode("utf-8", errors="replace"))
             return f"Conteúdo de {url}:\n\n{_truncate_text(parser.get_text(), 6000)}"
-    except Exception as e: 
+    except Exception as e:
         return {"error": f"Falha ao ler a página: {str(e)}"}
 
 # ========================================
@@ -394,10 +436,10 @@ def _handler_send_email(to_email, subject, body, attachment_base64=None, attachm
     smtp_port = int(os.getenv("SMTP_PORT", "587"))
     smtp_user = os.getenv("SMTP_USER")
     smtp_pass = os.getenv("SMTP_PASSWORD")
-    
-    if not all([smtp_server, smtp_user, smtp_pass]): 
+
+    if not all([smtp_server, smtp_user, smtp_pass]):
         return {"error": "Credenciais ausentes."}
-    
+
     if attachment_base64 and attachment_name:
         msg = MIMEMultipart()
         msg.attach(MIMEText(body, 'plain', 'utf-8'))
@@ -407,22 +449,22 @@ def _handler_send_email(to_email, subject, body, attachment_base64=None, attachm
             part = MIMEApplication(raw)
             part.add_header('Content-Disposition', 'attachment', filename=attachment_name)
             msg.attach(part)
-        except Exception as e: 
+        except Exception as e:
             return {"error": f"Falha no anexo: {e}"}
-    else: 
+    else:
         msg = MIMEText(body, 'plain', 'utf-8')
-    
+
     msg['Subject'] = subject
     msg['From'] = smtp_user
     msg['To'] = to_email
-    
+
     try:
         with smtplib.SMTP(smtp_server, smtp_port, timeout=15) as server:
             server.starttls()
             server.login(smtp_user, smtp_pass)
             server.send_message(msg)
         return f"E-mail enviado para {to_email}."
-    except Exception as e: 
+    except Exception as e:
         return {"error": f"Falha ao enviar: {str(e)}"}
 
 def _handler_reply_to_email(to_email, subject, in_reply_to="", body=None, original_body=""):
@@ -430,52 +472,52 @@ def _handler_reply_to_email(to_email, subject, in_reply_to="", body=None, origin
     smtp_port = int(os.getenv("SMTP_PORT", "587"))
     smtp_user = os.getenv("SMTP_USER")
     smtp_pass = os.getenv("SMTP_PASSWORD")
-    
-    if not all([smtp_server, smtp_user, smtp_pass]): 
+
+    if not all([smtp_server, smtp_user, smtp_pass]):
         return {"error": "Credenciais ausentes."}
-    
+
     msg = MIMEText(body or f"Respondendo sobre: {original_body[:200]}...", 'plain', 'utf-8')
     msg['Subject'] = f"Re: {subject}" if not subject.lower().startswith("re:") else subject
     msg['From'] = smtp_user
     msg['To'] = to_email
-    
-    if in_reply_to: 
+
+    if in_reply_to:
         msg['In-Reply-To'] = in_reply_to
         msg['References'] = in_reply_to
-        
+
     try:
         with smtplib.SMTP(smtp_server, smtp_port, timeout=15) as server:
             server.starttls()
             server.login(smtp_user, smtp_pass)
             server.send_message(msg)
         return f"Resposta enviada para {to_email}."
-    except Exception as e: 
+    except Exception as e:
         return {"error": f"Falha ao responder: {str(e)}"}
 
 def _handler_read_emails(query="", max_results=5):
     ctx = _CALENDAR_CONTEXT.get("access_token_provider")
-    if not callable(ctx): 
+    if not callable(ctx):
         return {"error": "Google não conectado."}
-        
+
     access_token = ctx()
-    if not access_token: 
+    if not access_token:
         return {"error": "Google não conectado."}
-    
+
     params = {"maxResults": str(max_results), "labelIds": "INBOX"}
-    if query: 
+    if query:
         params["q"] = query
-        
+
     try:
         req = Request("https://gmail.googleapis.com/gmail/v1/users/me/messages?" + urllib.parse.urlencode(params), headers={"Authorization": "Bearer " + access_token})
-        with urlopen(req, timeout=15) as resp: 
+        with urlopen(req, timeout=15) as resp:
             data = json.loads(resp.read().decode("utf-8"))
-    except Exception as e: 
+    except Exception as e:
         return {"error": f"Falha Gmail: {e}"}
-    
+
     messages = data.get("messages", [])
-    if not messages: 
+    if not messages:
         return {"ok": True, "emails": [], "message": "Nenhum e-mail encontrado."}
-        
+
     emails = []
     for msg in messages[:max_results]:
         try:
@@ -488,33 +530,33 @@ def _handler_read_emails(query="", max_results=5):
                 date = next((x["value"] for x in h if x["name"] == "Date"), "")
                 attachments = [p.get("filename") for p in d.get("payload", {}).get("parts", []) if p.get("filename")]
                 emails.append({"id": msg['id'], "subject": subject, "from": sender, "date": date, "thread_id": d.get("threadId"), "attachments": attachments})
-        except Exception: 
+        except Exception:
             pass
-            
+
     return {"ok": True, "emails": emails}
 
 def _handler_read_email_full(message_id):
     ctx = _CALENDAR_CONTEXT.get("access_token_provider")
-    if not callable(ctx): 
+    if not callable(ctx):
         return {"error": "Google não conectado."}
-        
+
     access_token = ctx()
-    if not access_token: 
+    if not access_token:
         return {"error": "Google não conectado."}
-        
+
     try:
         req = Request(f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{message_id}?format=full", headers={"Authorization": "Bearer " + access_token})
-        with urlopen(req, timeout=15) as resp: 
+        with urlopen(req, timeout=15) as resp:
             data = json.loads(resp.read().decode("utf-8"))
-    except Exception as e: 
+    except Exception as e:
         return {"error": f"Falha e-mail: {e}"}
-    
+
     headers = data.get("payload", {}).get("headers", [])
     subject = next((x["value"] for x in headers if x["name"] == "Subject"), "(sem assunto)")
     sender = next((x["value"] for x in headers if x["name"] == "From"), "")
     body_text = _extract_email_body(data.get("payload", {}))
     attachments_text = ""
-    
+
     if HAS_PYPDF2:
         for part in data.get("payload", {}).get("parts", []):
             if part.get("mimeType") == "application/pdf":
@@ -528,31 +570,31 @@ def _handler_read_email_full(message_id):
                             reader = PyPDF2.PdfReader(io.BytesIO(base64.b64decode(raw_b64)))
                             attachments_text += f"\n\n--- Anexo PDF ({part.get('filename')}) ---\n"
                             attachments_text += "\n".join((p.extract_text() or "") for p in reader.pages[:5])
-                    except Exception as e: 
+                    except Exception as e:
                         attachments_text += f"\n[Falha ao ler anexo: {e}]"
-                    
+
     return {"subject": subject, "from": sender, "body": _truncate_text(body_text + attachments_text, 15000)}
 
 def _handler_get_email_thread(thread_id):
     ctx = _CALENDAR_CONTEXT.get("access_token_provider")
-    if not callable(ctx): 
+    if not callable(ctx):
         return {"error": "Google não conectado."}
-        
+
     access_token = ctx()
-    if not access_token: 
+    if not access_token:
         return {"error": "Google não conectado."}
-        
+
     try:
         req = Request(f"https://gmail.googleapis.com/gmail/v1/users/me/threads/{thread_id}?format=metadata", headers={"Authorization": "Bearer " + access_token})
-        with urlopen(req, timeout=15) as resp: 
+        with urlopen(req, timeout=15) as resp:
             data = json.loads(resp.read().decode("utf-8"))
         msgs = data.get("messages", [])
         return {"thread_id": thread_id, "history": "\n".join([f"Data: {m.get('snippet')}" for m in msgs])}
-    except Exception as e: 
+    except Exception as e:
         return {"error": str(e)}
 
 # ========================================
-# HANDLERS: TAREFAS (POSTGRESQL / SQLITE)
+# HANDLERS: TAREFAS
 # ========================================
 def _handler_create_task(description):
     conn = _get_db()
@@ -564,7 +606,7 @@ def _handler_create_task(description):
             cursor.execute("INSERT INTO tasks (description, status) VALUES (?, 'pending')", (description,))
         conn.commit()
         return f"Tarefa criada: {description}"
-    except Exception as e: 
+    except Exception as e:
         return {"error": str(e)}
     finally:
         cursor.close()
@@ -574,15 +616,12 @@ def _handler_list_tasks():
     conn = _get_db()
     cursor = conn.cursor()
     try:
-        if DATABASE_URL and HAS_PSYCOPG2:
-            cursor.execute("SELECT id, description FROM tasks WHERE status = 'pending'")
-        else:
-            cursor.execute("SELECT id, description FROM tasks WHERE status = 'pending'")
+        cursor.execute("SELECT id, description FROM tasks WHERE status = 'pending'")
         rows = cursor.fetchall()
-        if not rows: 
+        if not rows:
             return "Nenhuma tarefa pendente."
         return "Tarefas pendentes:\n" + "\n".join(f"[{r[0]}] {r[1]}" for r in rows)
-    except Exception as e: 
+    except Exception as e:
         return {"error": str(e)}
     finally:
         cursor.close()
@@ -598,7 +637,7 @@ def _handler_complete_task(task_id):
             cursor.execute("UPDATE tasks SET status = 'done' WHERE id = ?", (task_id,))
         conn.commit()
         return f"Tarefa {task_id} concluída."
-    except Exception as e: 
+    except Exception as e:
         return {"error": str(e)}
     finally:
         cursor.close()
@@ -609,93 +648,96 @@ def _handler_complete_task(task_id):
 # ========================================
 def _handler_save_memory(key, value):
     save_func = _MEMORY_CONTEXT.get("save")
-    if not callable(save_func): 
+    if not callable(save_func):
         return {"error": "Memória indisponível."}
     save_func(key, value)
     return f"Memória salva: {key} = {value}"
 
 def _handler_recall_memory(key):
     recall = _MEMORY_CONTEXT.get("recall")
-    if not callable(recall): 
+    if not callable(recall):
         return {"error": "Memória indisponível."}
     return recall(key) or "Nada encontrado."
 
 def _handler_delete_memory(key):
     del_func = _MEMORY_CONTEXT.get("delete")
-    if not callable(del_func): 
+    if not callable(del_func):
         return {"error": "Memória indisponível."}
     return "Removida." if del_func(key) else "Não encontrada."
 
 def _handler_play_music(query):
-    if query.lower() in ["pause", "pausar", "para"]: 
+    if query.lower() in ["pause", "pausar", "para"]:
         return {"action": "pause"}
-    if query.lower() in ["play", "tocar", "continuar"]: 
+    if query.lower() in ["play", "tocar", "continuar"]:
         return {"action": "play"}
-    
+
     try:
         req = Request(f"https://www.youtube.com/results?search_query={urllib.parse.quote(query)}", headers={"User-Agent": "Mozilla/5.0"})
         with urlopen(req, timeout=10) as response:
             m = re.search(r'"videoId":"([a-zA-Z0-9_-]{11})"', response.read().decode("utf-8"))
-        if m: 
+        if m:
             return {"action": "play_new", "url": f"https://www.youtube.com/embed/{m.group(1)}?autoplay=1&enablejsapi=1"}
         return {"error": "Vídeo não encontrado."}
-    except Exception as e: 
+    except Exception as e:
         return {"error": str(e)}
 
 def _handler_get_morning_briefing(city="Criciúma"):
-    briefing = [_handler_get_weather(city)]
+    """Briefing matinal. Usa `_as_text` para não estourar com dict de erro."""
+    briefing = [_as_text(_handler_get_weather(city))]
     agenda = _handler_get_calendar_events("today")
     if isinstance(agenda, dict) and agenda.get("events"):
-        briefing.append(f"Agenda: {len(agenda['events'])} compromissos. Primeiro: '{agenda['events'][0]['summary']}'.")
-    else: 
+        briefing.append(
+            f"Agenda: {len(agenda['events'])} compromissos. Primeiro: '{agenda['events'][0]['summary']}'."
+        )
+    else:
         briefing.append("Agenda livre.")
-    briefing.append(_handler_get_news())
+    briefing.append(_as_text(_handler_get_news()))
     return " ".join(briefing)
 
 def _handler_get_calendar_events(range_value="upcoming"):
     ctx = _CALENDAR_CONTEXT.get("access_token_provider")
-    if not callable(ctx): 
+    if not callable(ctx):
         return {"error": "Calendar indisponível."}
-        
+
     access_token = ctx()
-    if not access_token: 
+    if not access_token:
         return {"error": "Calendar indisponível."}
-        
+
     query = _CALENDAR_CONTEXT.get("events_query")
     today = _CALENDAR_CONTEXT.get("today_events")
-    
+
     if range_value == "today" and callable(today):
         events = today(access_token)
     elif callable(query):
         events = query(access_token, max_results=10)
     else:
         events = None
-        
-    if not events: 
+
+    if not events:
         return {"events": []}
-        
+
     return {"range": range_value, "events": [{"id": e.get("id"), "summary": e.get("summary"), "start": _format_iso_to_br(e.get("start")), "hangoutLink": e.get("hangoutLink")} for e in events]}
 
 def _handler_create_calendar_event(summary, start_natural, end_natural=None):
     start_dt = _parse_natural_date(start_natural)
-    if not start_dt: 
+    if not start_dt:
         return {"error": "Data de início inválida."}
-        
+
     end_dt = _parse_natural_date(end_natural) if end_natural else start_dt + timedelta(hours=1)
-    
+
     ctx = _CALENDAR_CONTEXT.get("access_token_provider")
     create = _CALENDAR_CONTEXT.get("create_event")
-    
-    if not callable(ctx) or not callable(create): 
+
+    if not callable(ctx) or not callable(create):
         return {"error": "Calendar indisponível."}
-        
+
     access_token = ctx()
-    if not access_token: 
+    if not access_token:
         return {"error": "Calendar indisponível (Token inválido ou expirado)."}
-        
+
     payload = {"summary": summary, "start": {"dateTime": start_dt.isoformat(), "timeZone": "America/Sao_Paulo"}, "end": {"dateTime": end_dt.isoformat(), "timeZone": "America/Sao_Paulo"}}
     res = create(access_token, payload)
-    
+
     if res:
         return {"ok": True, "summary": summary, "start": start_dt.isoformat()}
     return {"error": "O Google recusou a criação do evento."}
@@ -703,14 +745,14 @@ def _handler_create_calendar_event(summary, start_natural, end_natural=None):
 def _handler_delete_calendar_event(event_id):
     ctx = _CALENDAR_CONTEXT.get("access_token_provider")
     delete = _CALENDAR_CONTEXT.get("delete_event")
-    
-    if not callable(ctx) or not callable(delete): 
+
+    if not callable(ctx) or not callable(delete):
         return {"error": "Calendar indisponível."}
-        
+
     access_token = ctx()
-    if not access_token: 
+    if not access_token:
         return {"error": "Calendar indisponível."}
-        
+
     if delete(access_token, event_id):
         return {"ok": True}
     return {"error": "Falha ao deletar."}
@@ -718,32 +760,32 @@ def _handler_delete_calendar_event(event_id):
 def _handler_update_calendar_event(event_id, summary=None, start_natural=None, end_natural=None, description=None):
     start_dt = _parse_natural_date(start_natural) if start_natural else None
     end_dt = _parse_natural_date(end_natural) if end_natural else None
-    
+
     ctx = _CALENDAR_CONTEXT.get("access_token_provider")
     update = _CALENDAR_CONTEXT.get("update_event")
-    
-    if not callable(ctx) or not callable(update): 
+
+    if not callable(ctx) or not callable(update):
         return {"error": "Calendar indisponível."}
-        
+
     access_token = ctx()
-    if not access_token: 
+    if not access_token:
         return {"error": "Calendar indisponível."}
-        
+
     payload = {}
-    if summary: 
+    if summary:
         payload["summary"] = summary
-    if start_dt: 
+    if start_dt:
         payload["start"] = {"dateTime": start_dt.isoformat(), "timeZone": "America/Sao_Paulo"}
-    if end_dt: 
+    if end_dt:
         payload["end"] = {"dateTime": end_dt.isoformat(), "timeZone": "America/Sao_Paulo"}
-    if description: 
+    if description:
         payload["description"] = description
-        
-    if not payload: 
+
+    if not payload:
         return {"error": "Nenhum campo para atualizar."}
-        
+
     res = update(access_token, event_id, payload)
-    
+
     if res:
         return {"ok": True, "updated": True}
     return {"error": "Falha ao atualizar."}
@@ -751,302 +793,311 @@ def _handler_update_calendar_event(event_id, summary=None, start_natural=None, e
 def _handler_find_free_slots(date_iso):
     ctx = _CALENDAR_CONTEXT.get("access_token_provider")
     query = _CALENDAR_CONTEXT.get("events_query")
-    
-    if not callable(ctx) or not callable(query): 
+
+    if not callable(ctx) or not callable(query):
         return {"error": "Calendar indisponível."}
-        
+
     access_token = ctx()
-    if not access_token: 
+    if not access_token:
         return {"error": "Calendar indisponível."}
-        
+
     target = _parse_iso(date_iso) or _parse_natural_date(date_iso)
-    if not target: 
+    if not target:
         return {"error": f"Data inválida: {date_iso}"}
-        
+
     target = target.astimezone(_get_tz())
     start_of_day = target.replace(hour=0, minute=0, second=0, microsecond=0)
     end_of_day = start_of_day + timedelta(days=1)
-    
+
     events = query(access_token, time_min=start_of_day.isoformat(), time_max=end_of_day.isoformat(), max_results=50)
-    if events is None: 
+    if events is None:
         return {"error": "Falha ao consultar agenda."}
-        
+
     work_start = start_of_day.replace(hour=8)
     work_end = start_of_day.replace(hour=20)
-    
+
     busy = []
     for evt in events:
-        try: 
+        try:
             busy.append((_parse_iso(evt["start"]).astimezone(_get_tz()), _parse_iso(evt["end"]).astimezone(_get_tz())))
-        except Exception: 
+        except Exception:
             continue
-            
+
     busy.sort(key=lambda x: x[0])
     duration_minutes = 60
     limit = 3
     slots = []
     current = work_start
-    
+
     for s, e in busy:
         if s > current and (s - current).total_seconds() >= duration_minutes * 60:
             slots.append(current)
-            if len(slots) >= limit: 
+            if len(slots) >= limit:
                 break
-        if e > current: 
+        if e > current:
             current = e
-            
+
     if len(slots) < limit and current < work_end and (work_end - current).total_seconds() >= duration_minutes * 60:
         slots.append(current)
-        
+
     return {"date": start_of_day.strftime("%Y-%m-%d"), "free_slots": [s.strftime("%H:%M") for s in slots[:limit]]}
 
 # ========================================
-# REGISTRO DE FERRAMENTAS (SEM CONFIRMAÇÃO)
+# FERRAMENTAS QUE EXIGEM CONFIRMAÇÃO
+# ========================================
+REQUIRES_CONFIRMATION = {
+    "send_email",
+    "reply_to_email",
+    "delete_calendar_event",
+}
+
+# ========================================
+# REGISTRO DE FERRAMENTAS
 # ========================================
 TOOL_REGISTRY = {
     "get_current_time": {
-        "description": "Retorna data e hora.", 
-        "handler": _handler_get_current_time, 
-        "parameters": {"type": "object", "properties": {}}
+        "description": "Retorna data e hora.",
+        "handler": _handler_get_current_time,
+        "parameters": {"type": "object", "properties": {}},
     },
     "get_system_status": {
-        "description": "Status da CPU/RAM/Disco.", 
-        "handler": _handler_get_system_status, 
-        "parameters": {"type": "object", "properties": {}}
+        "description": "Status da CPU/RAM/Disco.",
+        "handler": _handler_get_system_status,
+        "parameters": {"type": "object", "properties": {}},
     },
     "get_weather": {
-        "description": "Consulta o clima.", 
-        "handler": _handler_get_weather, 
+        "description": "Consulta o clima.",
+        "handler": _handler_get_weather,
         "parameters": {
-            "type": "object", 
-            "properties": {"city": {"type": "string", "description": "Nome da cidade"}}, 
-            "required": ["city"]
-        }
+            "type": "object",
+            "properties": {"city": {"type": "string", "description": "Nome da cidade"}},
+            "required": ["city"],
+        },
     },
     "get_crypto_price": {
-        "description": "Cotações de cripto (bitcoin, ethereum).", 
-        "handler": _handler_get_crypto_price, 
+        "description": "Cotações de cripto (bitcoin, ethereum).",
+        "handler": _handler_get_crypto_price,
         "parameters": {
-            "type": "object", 
-            "properties": {"coin": {"type": "string", "description": "Nome da criptomoeda"}}, 
-            "required": ["coin"]
-        }
+            "type": "object",
+            "properties": {"coin": {"type": "string", "description": "Nome da criptomoeda"}},
+            "required": ["coin"],
+        },
     },
     "get_news": {
-        "description": "Lê as últimas notícias (mundo, tecnologia, etc).", 
-        "handler": _handler_get_news, 
+        "description": "Lê as últimas notícias (mundo, tecnologia, etc).",
+        "handler": _handler_get_news,
         "parameters": {
-            "type": "object", 
-            "properties": {"category": {"type": "string", "description": "Categoria da notícia"}}, 
-            "required": ["category"]
-        }
+            "type": "object",
+            "properties": {"category": {"type": "string", "description": "Categoria da notícia"}},
+            "required": ["category"],
+        },
     },
     "search_web": {
-        "description": "Pesquisa na web.", 
-        "handler": _handler_search_web, 
+        "description": "Pesquisa na web.",
+        "handler": _handler_search_web,
         "parameters": {
-            "type": "object", 
-            "properties": {"query": {"type": "string", "description": "Termo de pesquisa"}}, 
-            "required": ["query"]
-        }
+            "type": "object",
+            "properties": {"query": {"type": "string", "description": "Termo de pesquisa"}},
+            "required": ["query"],
+        },
     },
     "deep_search": {
-        "description": "Pesquisa e lê o conteúdo completo do primeiro resultado.", 
-        "handler": _handler_deep_search, 
+        "description": "Pesquisa e lê o conteúdo completo do primeiro resultado.",
+        "handler": _handler_deep_search,
         "parameters": {
-            "type": "object", 
-            "properties": {"query": {"type": "string", "description": "Termo de pesquisa"}}, 
-            "required": ["query"]
-        }
+            "type": "object",
+            "properties": {"query": {"type": "string", "description": "Termo de pesquisa"}},
+            "required": ["query"],
+        },
     },
     "read_webpage": {
-        "description": "Lê uma URL.", 
-        "handler": _handler_read_webpage, 
+        "description": "Lê uma URL.",
+        "handler": _handler_read_webpage,
         "parameters": {
-            "type": "object", 
-            "properties": {"url": {"type": "string", "description": "URL da página"}}, 
-            "required": ["url"]
-        }
+            "type": "object",
+            "properties": {"url": {"type": "string", "description": "URL da página"}},
+            "required": ["url"],
+        },
     },
     "send_email": {
-        "description": "Envia e-mail.", 
-        "handler": _handler_send_email, 
+        "description": "Envia e-mail.",
+        "handler": _handler_send_email,
         "parameters": {
-            "type": "object", 
+            "type": "object",
             "properties": {
                 "to_email": {"type": "string", "description": "E-mail do destinatário"},
                 "subject": {"type": "string", "description": "Assunto do e-mail"},
-                "body": {"type": "string", "description": "Corpo do e-mail"}
-            }, 
-            "required": ["to_email", "subject", "body"]
-        }
+                "body": {"type": "string", "description": "Corpo do e-mail"},
+            },
+            "required": ["to_email", "subject", "body"],
+        },
     },
     "reply_to_email": {
-        "description": "Responde e-mail.", 
-        "handler": _handler_reply_to_email, 
+        "description": "Responde e-mail.",
+        "handler": _handler_reply_to_email,
         "parameters": {
-            "type": "object", 
+            "type": "object",
             "properties": {
                 "to_email": {"type": "string", "description": "E-mail do destinatário"},
                 "subject": {"type": "string", "description": "Assunto do e-mail"},
-                "body": {"type": "string", "description": "Corpo da resposta"}
-            }, 
-            "required": ["to_email", "subject", "body"]
-        }
+                "body": {"type": "string", "description": "Corpo da resposta"},
+            },
+            "required": ["to_email", "subject", "body"],
+        },
     },
     "read_emails": {
-        "description": "Lê e-mails recentes.", 
-        "handler": _handler_read_emails, 
+        "description": "Lê e-mails recentes.",
+        "handler": _handler_read_emails,
         "parameters": {
-            "type": "object", 
+            "type": "object",
             "properties": {
                 "query": {"type": "string", "description": "Filtro de busca"},
-                "max_results": {"type": "integer", "description": "Número máximo de e-mails"}
-            }
-        }
+                "max_results": {"type": "integer", "description": "Número máximo de e-mails"},
+            },
+        },
     },
     "read_email_full": {
-        "description": "Lê o corpo e anexos de um e-mail.", 
-        "handler": _handler_read_email_full, 
+        "description": "Lê o corpo e anexos de um e-mail.",
+        "handler": _handler_read_email_full,
         "parameters": {
-            "type": "object", 
-            "properties": {"message_id": {"type": "string", "description": "ID da mensagem"}}, 
-            "required": ["message_id"]
-        }
+            "type": "object",
+            "properties": {"message_id": {"type": "string", "description": "ID da mensagem"}},
+            "required": ["message_id"],
+        },
     },
     "get_email_thread": {
-        "description": "Lê a conversa de e-mail.", 
-        "handler": _handler_get_email_thread, 
+        "description": "Lê a conversa de e-mail.",
+        "handler": _handler_get_email_thread,
         "parameters": {
-            "type": "object", 
-            "properties": {"thread_id": {"type": "string", "description": "ID da thread"}}, 
-            "required": ["thread_id"]
-        }
+            "type": "object",
+            "properties": {"thread_id": {"type": "string", "description": "ID da thread"}},
+            "required": ["thread_id"],
+        },
     },
     "create_task": {
-        "description": "Cria uma tarefa (to-do) na lista de tarefas.", 
-        "handler": _handler_create_task, 
+        "description": "Cria uma tarefa (to-do) na lista de tarefas.",
+        "handler": _handler_create_task,
         "parameters": {
-            "type": "object", 
-            "properties": {"description": {"type": "string", "description": "Descrição da tarefa"}}, 
-            "required": ["description"]
-        }
+            "type": "object",
+            "properties": {"description": {"type": "string", "description": "Descrição da tarefa"}},
+            "required": ["description"],
+        },
     },
     "list_tasks": {
-        "description": "Lista tarefas pendentes.", 
-        "handler": _handler_list_tasks, 
-        "parameters": {"type": "object", "properties": {}}
+        "description": "Lista tarefas pendentes.",
+        "handler": _handler_list_tasks,
+        "parameters": {"type": "object", "properties": {}},
     },
     "complete_task": {
-        "description": "Conclui uma tarefa.", 
-        "handler": _handler_complete_task, 
+        "description": "Conclui uma tarefa.",
+        "handler": _handler_complete_task,
         "parameters": {
-            "type": "object", 
-            "properties": {"task_id": {"type": "integer", "description": "ID da tarefa"}}, 
-            "required": ["task_id"]
-        }
+            "type": "object",
+            "properties": {"task_id": {"type": "integer", "description": "ID da tarefa"}},
+            "required": ["task_id"],
+        },
     },
     "save_memory": {
-        "description": "Salva memória.", 
-        "handler": _handler_save_memory, 
+        "description": "Salva memória.",
+        "handler": _handler_save_memory,
         "parameters": {
-            "type": "object", 
+            "type": "object",
             "properties": {
                 "key": {"type": "string", "description": "Chave da memória"},
-                "value": {"type": "string", "description": "Valor da memória"}
-            }, 
-            "required": ["key", "value"]
-        }
+                "value": {"type": "string", "description": "Valor da memória"},
+            },
+            "required": ["key", "value"],
+        },
     },
     "recall_memory": {
-        "description": "Recupera memória.", 
-        "handler": _handler_recall_memory, 
+        "description": "Recupera memória.",
+        "handler": _handler_recall_memory,
         "parameters": {
-            "type": "object", 
-            "properties": {"key": {"type": "string", "description": "Chave da memória"}}, 
-            "required": ["key"]
-        }
+            "type": "object",
+            "properties": {"key": {"type": "string", "description": "Chave da memória"}},
+            "required": ["key"],
+        },
     },
     "delete_memory": {
-        "description": "Apaga memória.", 
-        "handler": _handler_delete_memory, 
+        "description": "Apaga memória.",
+        "handler": _handler_delete_memory,
         "parameters": {
-            "type": "object", 
-            "properties": {"key": {"type": "string", "description": "Chave da memória"}}, 
-            "required": ["key"]
-        }
+            "type": "object",
+            "properties": {"key": {"type": "string", "description": "Chave da memória"}},
+            "required": ["key"],
+        },
     },
     "play_music": {
-        "description": "Toca ou controla música (pause, play, nome da música).", 
-        "handler": _handler_play_music, 
+        "description": "Toca ou controla música (pause, play, nome da música).",
+        "handler": _handler_play_music,
         "parameters": {
-            "type": "object", 
-            "properties": {"query": {"type": "string", "description": "Nome da música ou comando"}}, 
-            "required": ["query"]
-        }
+            "type": "object",
+            "properties": {"query": {"type": "string", "description": "Nome da música ou comando"}},
+            "required": ["query"],
+        },
     },
     "get_morning_briefing": {
-        "description": "Resumo matinal.", 
-        "handler": _handler_get_morning_briefing, 
+        "description": "Resumo matinal.",
+        "handler": _handler_get_morning_briefing,
         "parameters": {
-            "type": "object", 
-            "properties": {"city": {"type": "string", "description": "Nome da cidade"}}, 
-            "required": ["city"]
-        }
+            "type": "object",
+            "properties": {"city": {"type": "string", "description": "Nome da cidade"}},
+            "required": ["city"],
+        },
     },
     "get_calendar_events": {
-        "description": "Consulta agenda.", 
-        "handler": _handler_get_calendar_events, 
+        "description": "Consulta agenda.",
+        "handler": _handler_get_calendar_events,
         "parameters": {
-            "type": "object", 
-            "properties": {"range": {"type": "string", "enum": ["today", "upcoming"]}}, 
-            "required": ["range"]
-        }
+            "type": "object",
+            "properties": {"range": {"type": "string", "enum": ["today", "upcoming"]}},
+            "required": ["range"],
+        },
     },
     "create_calendar_event": {
-        "description": "Cria um evento na agenda do Google Calendar.", 
-        "handler": _handler_create_calendar_event, 
+        "description": "Cria um evento na agenda do Google Calendar.",
+        "handler": _handler_create_calendar_event,
         "parameters": {
-            "type": "object", 
+            "type": "object",
             "properties": {
                 "summary": {"type": "string", "description": "Título do evento"},
                 "start_natural": {"type": "string", "description": "Data/hora de início (ex: 'amanhã às 14h')"},
-                "end_natural": {"type": "string", "description": "Data/hora de término"}
-            }, 
-            "required": ["summary", "start_natural"]
-        }
+                "end_natural": {"type": "string", "description": "Data/hora de término"},
+            },
+            "required": ["summary", "start_natural"],
+        },
     },
     "delete_calendar_event": {
-        "description": "Exclui evento do calendário.", 
-        "handler": _handler_delete_calendar_event, 
+        "description": "Exclui evento do calendário.",
+        "handler": _handler_delete_calendar_event,
         "parameters": {
-            "type": "object", 
-            "properties": {"event_id": {"type": "string", "description": "ID do evento"}}, 
-            "required": ["event_id"]
-        }
+            "type": "object",
+            "properties": {"event_id": {"type": "string", "description": "ID do evento"}},
+            "required": ["event_id"],
+        },
     },
     "update_calendar_event": {
-        "description": "Atualiza evento do calendário.", 
-        "handler": _handler_update_calendar_event, 
+        "description": "Atualiza evento do calendário.",
+        "handler": _handler_update_calendar_event,
         "parameters": {
-            "type": "object", 
+            "type": "object",
             "properties": {
                 "event_id": {"type": "string", "description": "ID do evento"},
                 "summary": {"type": "string", "description": "Novo título"},
                 "start_natural": {"type": "string", "description": "Nova data de início"},
-                "end_natural": {"type": "string", "description": "Nova data de término"}
-            }, 
-            "required": ["event_id"]
-        }
+                "end_natural": {"type": "string", "description": "Nova data de término"},
+            },
+            "required": ["event_id"],
+        },
     },
     "find_free_slots": {
-        "description": "Encontra horários livres na agenda.", 
-        "handler": _handler_find_free_slots, 
+        "description": "Encontra horários livres na agenda.",
+        "handler": _handler_find_free_slots,
         "parameters": {
-            "type": "object", 
-            "properties": {"date_iso": {"type": "string", "description": "Data (YYYY-MM-DD)"}}, 
-            "required": ["date_iso"]
-        }
+            "type": "object",
+            "properties": {"date_iso": {"type": "string", "description": "Data (YYYY-MM-DD)"}},
+            "required": ["date_iso"],
+        },
     },
 }
 
@@ -1054,11 +1105,19 @@ def public_tool_specs():
     return {name: {k: v for k, v in spec.items() if k != "handler"} for name, spec in TOOL_REGISTRY.items()}
 
 def execute_tool(tool_name, arguments, user_role="owner", session=None, confirmed=False):
+    """Executa ferramenta e PROPAGA erros corretamente (fix crítico)."""
     tool = TOOL_REGISTRY.get(tool_name)
-    if not tool: 
-        return {"error": "Ferramenta não encontrada."}
-        
+    if not tool:
+        return {"ok": False, "error": "Ferramenta não encontrada."}
+
+    if tool_name in REQUIRES_CONFIRMATION and not confirmed:
+        return {"ok": False, "error": "Confirmação necessária para executar esta ação."}
+
     try:
-        return {"ok": True, "result": tool["handler"](**arguments)}
+        result = tool["handler"](**arguments)
+        if isinstance(result, dict) and result.get("error"):
+            return {"ok": False, "error": result["error"]}
+        return {"ok": True, "result": result}
     except Exception as e:
-        return {"error": f"Falha: {str(e)}"}
+        logger.exception(f"Falha ao executar ferramenta {tool_name}")
+        return {"ok": False, "error": f"Falha: {e}"}
