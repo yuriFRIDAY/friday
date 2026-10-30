@@ -368,10 +368,31 @@ async def login(data: LoginData, response: Response, request: Request):
         client_ip = request.client.host if request.client else "0.0.0.0"
         if not auth.authenticate(data.password, client_key=client_ip): raise HTTPException(401, "Senha incorreta.")
         token = SESSION_STORE.create()
-        response.set_cookie(key="friday_session", value=token, httponly=True, samesite="lax", max_age=1800)
+        secure_cookie = request.url.scheme == "https" or request.headers.get("x-forwarded-proto", "").lower() == "https"
+        response.set_cookie(
+            key="friday_session",
+            value=token,
+            httponly=True,
+            secure=secure_cookie,
+            samesite="lax",
+            max_age=1800,
+            path="/",
+        )
         return {"ok": True}
     except HTTPException as he: raise he
     except Exception as e: raise HTTPException(500, str(e))
+
+
+
+@app.post("/logout")
+async def logout(response: Response):
+    response.delete_cookie(
+        key="friday_session",
+        path="/",
+        httponly=True,
+        samesite="lax",
+    )
+    return {"ok": True}
 
 @app.get("/session")
 async def check_session(friday_session: Optional[str] = Cookie(None)):
