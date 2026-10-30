@@ -62,7 +62,6 @@ window.initReactor = function() {
   const container = document.getElementById('reactorStage');
   if (!canvasEl || !container) return;
   
-  // Trava de segurança para não renderizar com tamanho zero
   if (container.clientWidth < 10 || container.clientHeight < 10) {
     reactorInitAttempts++;
     if (reactorInitAttempts < 100) setTimeout(window.initReactor, 100);
@@ -471,14 +470,14 @@ function handleReactorClick() {
   if (!reactorRaycaster || !reactorMouseVec) return;
   reactorRaycaster.setFromCamera(reactorMouseVec, camera);
   const nodeHits = reactorRaycaster.intersectObjects(subsystemNodes.map(n => n.sphere), false);
-  if (nodeHits.length > 0) { activateNode(nodeHits[0].object.userData.entry); dimReactorHint(); return; }
+  if (nodeHits.length > 0) { activateNode(nodeHits[0].object.userData.entry); window.dimReactorHint(); return; }
   const coreHits = reactorRaycaster.intersectObject(coreMesh, false);
   if (coreHits.length > 0) {
     if (!window.listening && !window.speaking) { if (window.startVoice) window.startVoice(false); }
     else { if (window.stopVoice) window.stopVoice(); }
     spawnRipple(new THREE.Vector3(0, -1.6, 0), 0x00e5ff);
     try { if (window.playTone) window.playTone(660, 'sine', 0.08, 0.05); } catch(e) {}
-    dimReactorHint(); return;
+    window.dimReactorHint(); return;
   }
   const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 1.6);
   const hit = new THREE.Vector3();
@@ -487,7 +486,7 @@ function handleReactorClick() {
     spawnRipple(hit, 0x00e5ff);
     try { if (window.playTone) window.playTone(400, 'sine', 0.05, 0.03); } catch(e) {}
   }
-  dimReactorHint();
+  window.dimReactorHint();
 }
 
 function activateNode(entry) {
@@ -508,7 +507,7 @@ function activateNode(entry) {
       if (window.loadCalendarEvents) {
         document.getElementById('calendarPanel').classList.remove('hidden'); 
         window.loadCalendarEvents('upcoming'); 
-        if (window.status) window.status('Sincronizando agenda...'); 
+        if (window.setStatus) window.setStatus('Sincronizando agenda...'); 
       }
       break;
     case 'music': {
@@ -516,13 +515,13 @@ function activateNode(entry) {
       if (container && !container.classList.contains('hidden')) {
         container.classList.add('hidden');
         if (window.ytPlayer && window.ytPlayer.pauseVideo) window.ytPlayer.pauseVideo();
-        if (window.status) window.status('Música pausada.');
+        if (window.setStatus) window.setStatus('Música pausada.');
       } else if (container) {
         container.classList.remove('hidden');
         if (window.ytPlayer && window.ytPlayer.playVideo) window.ytPlayer.playVideo();
-        if (window.status) window.status('Música retomada.');
+        if (window.setStatus) window.setStatus('Música retomada.');
       } else { 
-        if (window.status) window.status('Nenhuma música carregada.'); 
+        if (window.setStatus) window.setStatus('Nenhuma música carregada.'); 
         if (window.addMessage) window.addMessage('FRIDAY', '🎵 Nenhuma faixa carregada. Peça uma música no chat.'); 
       }
       break;
@@ -532,17 +531,17 @@ function activateNode(entry) {
       el.style.transition = 'all 0.3s';
       el.style.background = 'rgba(0,229,255,0.15)';
       setTimeout(() => { el.style.background = ''; }, 900);
-      if (window.status) window.status('Diagnóstico: 8 subsistemas operacionais.');
+      if (window.setStatus) window.setStatus('Diagnóstico: 8 subsistemas operacionais.');
       if (window.showToast) window.showToast('DIAGNÓSTICO · 8 subsistemas online');
       break;
     }
     case 'chat': 
       document.getElementById('command').focus(); 
-      if (window.status) window.status('Canal de comando ativo.'); 
+      if (window.setStatus) window.setStatus('Canal de comando ativo.'); 
       break;
     case 'stop': 
       if (window.stopVoice) window.stopVoice(); 
-      if (window.status) window.status('Processos de áudio interrompidos.'); 
+      if (window.setStatus) window.setStatus('Processos de áudio interrompidos.'); 
       break;
     case 'settings': 
       document.getElementById('settingsModal').classList.remove('hidden'); 
