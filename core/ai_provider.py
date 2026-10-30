@@ -21,7 +21,6 @@ if not logger.handlers:
 logger.propagate = False
 
 MAX_HISTORY_MESSAGES = 20
-MAX_TOKENS_PER_MESSAGE = 4000
 
 
 class FridayAIProvider:
@@ -50,8 +49,9 @@ class FridayAIProvider:
         dias = ["segunda-feira", "terça-feira", "quarta-feira", "quinta-feira", "sexta-feira", "sábado", "domingo"]
         return f"Hoje é {dias[now.weekday()]}, {now.strftime('%d/%m/%Y')} e agora são {now.strftime('%H:%M')} (Horário de Brasília)."
 
-    def _get_system_prompt(self, history_context=""):
-        return f"""
+    def _get_system_prompt(self):
+        """Prompt ESTÁVEL (sem hora). Isso permite caching no Groq."""
+        return """
 Você é FRIDAY, a IA pessoal do Chefe, inspirada no JARVIS.
 Personalidade: formal, leal, proativa, precisa e levemente espirituosa.
 Trate o usuário por "chefe" ou "senhor".
@@ -65,23 +65,32 @@ DIRETRIZES:
 5. Analise imagens enviadas pelo Chefe.
 6. Nunca afirme sucesso se uma ferramenta falhou.
 
-CONTEXTO DE TEMPO:
-{self._get_current_time_context()}
-
-{history_context}
+O contexto de tempo atual será informado no início da mensagem do usuário, entre colchetes.
 """.strip()
 
     def _trim_history(self, messages):
-        """Mantém apenas as N últimas mensagens + a atual (controla custo)."""
         if not messages:
             return messages
         if len(messages) <= MAX_HISTORY_MESSAGES:
             return messages
         tail = messages[-MAX_HISTORY_MESSAGES:]
-        # Remove mensagens 'tool' órfãs do começo (podem quebrar a API do Groq)
         while tail and tail[0].get("role") == "tool":
             tail.pop(0)
         return tail
+
+    def _inject_time_context(self, messages):
+        """Injeta hora na última mensagem do user (mantém system prompt cacheável).
+        Não mexe em mensagens com content do tipo lista (vision)."""
+        if not messages:
+            return messages
+        msgs = list(messages)
+        for i in range(len(msgs) - 1, -1, -1):
+            if msgs[i].get("role") == "user":
+                content = msgs[i].get("content")
+                if isinstance(content, str) and not content.startswith("[Hoje é"):
+                    msgs[i] = {**msgs[i], "content": f"[{self._get_current_time_context()}]\n\n{content}"}
+                return msgs
+        return msgs
 
     def chat_with_full_history_stream(self, messages, tools):
         if not self.available():
@@ -96,6 +105,11 @@ CONTEXTO DE TEMPO:
         is_vision = isinstance(last_msg, list) and any(
             isinstance(item, dict) and item.get("type") == "image_url" for item in last_msg
         )
+
+        # Só injeta hora em texto puro (não vision)
+        if not is_vision:
+            trimmed = self._inject_time_context(trimmed)
+
         formatted_tools = [
             {"type": "function", "function": {
                 "name": name,
@@ -119,7 +133,6 @@ CONTEXTO DE TEMPO:
 
         body_bytes = json.dumps(payload).encode("utf-8")
 
-        # Retry apenas ANTES do stream começar (stream é irrecuperável)
         response = None
         last_err = None
         for attempt in range(3):
