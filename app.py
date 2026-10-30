@@ -520,7 +520,6 @@ async def chat_endpoint(data: ChatData, friday_session: Optional[str] = Cookie(N
 
                 result = exec_res.get("result")
                 
-                # --- NOVO: INTERCEPTAR AÇÃO DE MÚSICA ---
                 if tc_data["name"] == "play_music" and isinstance(result, dict):
                     action = result.get("action")
                     if action == "play_new" and result.get("url"):
@@ -529,12 +528,14 @@ async def chat_endpoint(data: ChatData, friday_session: Optional[str] = Cookie(N
                         yield f"data: {json.dumps({'music_action': 'pause'})}\n\n"
                     elif action == "play":
                         yield f"data: {json.dumps({'music_action': 'play'})}\n\n"
-                # ----------------------------------------
 
                 _notify_tool(tc_data["name"], args, result)
 
                 current_messages.append({"role": "assistant", "content": None, "tool_calls": [{"id": tc_data["id"], "type": "function", "function": {"name": tc_data["name"], "arguments": tc_data["arguments"]}}]})
-                current_messages.append({"role": "tool", "tool_call_id": tc_data["id"], "content": json.dumps(result)})
+                
+                # ✅ CORREÇÃO: Se o resultado for uma string, envia como string pura para a IA não se confundir com aspas.
+                tool_content = result if isinstance(result, str) else json.dumps(result)
+                current_messages.append({"role": "tool", "tool_call_id": tc_data["id"], "content": tool_content})
                 continue
             else:
                 if full_text.strip():
