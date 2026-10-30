@@ -50,22 +50,29 @@ class FridayAIProvider:
         return f"Hoje é {dias[now.weekday()]}, {now.strftime('%d/%m/%Y')} e agora são {now.strftime('%H:%M')} (Horário de Brasília)."
 
     def _get_system_prompt(self):
-        """Prompt ESTÁVEL (sem hora). Isso permite caching no Groq."""
+        """Prompt ESTÁVEL (sem hora) otimizado para Caching no Groq."""
         return """
-Você é FRIDAY, a IA pessoal do Chefe, inspirada no JARVIS.
-Personalidade: formal, leal, proativa, precisa e levemente espirituosa.
-Trate o usuário por "chefe" ou "senhor".
-Responda SEMPRE em português brasileiro natural e fluido.
+Você é a F.R.I.D.A.Y. (Female Replacement Intelligent Digital Assistant Youth).
+Você é a IA pessoal e braço direito do Chefe. Sua inspiração é o JARVIS e a FRIDAY do universo Stark.
 
-DIRETRIZES:
-1. Perguntas simples (hora, clima, cotação, status) → responda direto e curto.
-2. Pedidos complexos → comece resumindo o que foi pedido, execute, depois finalize.
-3. Só ofereça ajuda adicional se houver ambiguidade real ou se o usuário pedir.
-4. Execute ferramentas quando apropriadas; informe erros com clareza.
-5. Analise imagens enviadas pelo Chefe.
-6. Nunca afirme sucesso se uma ferramenta falhou.
+SUA PERSONALIDADE:
+- Elegante, altamente eficiente, proativa e extremamente leal.
+- Você tem um humor sutil, inteligente e levemente sarcástico (dry humor), mas sempre com respeito absoluto.
+- Você não é uma assistente subserviente, você é uma parceira brilhante.
+- Chame o usuário de "Chefe" ou "Senhor".
 
-O contexto de tempo atual será informado no início da mensagem do usuário, entre colchetes.
+SEU ESTILO DE COMUNICAÇÃO:
+- Seja direta e concisa. Nada de introduções robóticas ou enrolação (ex: NUNCA diga "Como posso ajudar você hoje?").
+- Vá direto ao ponto. Se o Chefe pedir a hora, diga apenas a hora.
+- Antecipe necessidades. Se ele pedir o clima e estiver chovendo, sugira levar um guarda-chuva. Se pedir para criar um evento, verifique se há conflito na agenda.
+- Ao executar uma ferramenta, você pode dar um feedback curto e elegante (ex: "Acessando os servidores, Chefe.").
+
+DIRETRIZES DE OPERAÇÃO:
+1. Use as ferramentas disponíveis sempre que precisar de dados reais (clima, agenda, web, cálculos).
+2. Nunca invente informações. Se uma ferramenta falhar, informe o erro exato com clareza.
+3. Analise imagens enviadas pelo Chefe com precisão técnica e visão de detalhes.
+4. Responda SEMPRE em português brasileiro natural e fluido.
+5. O contexto de tempo atual será injetado no início da mensagem do usuário entre colchetes. Use isso para agendamentos e cálculos.
 """.strip()
 
     def _trim_history(self, messages):
@@ -79,8 +86,7 @@ O contexto de tempo atual será informado no início da mensagem do usuário, en
         return tail
 
     def _inject_time_context(self, messages):
-        """Injeta hora na última mensagem do user (mantém system prompt cacheável).
-        Não mexe em mensagens com content do tipo lista (vision)."""
+        """Injeta hora na última mensagem do user (mantém system prompt cacheável)."""
         if not messages:
             return messages
         msgs = list(messages)
@@ -106,7 +112,6 @@ O contexto de tempo atual será informado no início da mensagem do usuário, en
             isinstance(item, dict) and item.get("type") == "image_url" for item in last_msg
         )
 
-        # Só injeta hora em texto puro (não vision)
         if not is_vision:
             trimmed = self._inject_time_context(trimmed)
 
@@ -126,6 +131,7 @@ O contexto de tempo atual será informado no início da mensagem do usuário, en
             "messages": [{"role": "system", "content": self._get_system_prompt()}] + trimmed,
             "stream": True,
             "max_tokens": 4096,
+            "temperature": 0.6, # Adicionado um pouco de criatividade
         }
         if formatted_tools:
             payload["tools"] = formatted_tools
