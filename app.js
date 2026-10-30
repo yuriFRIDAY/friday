@@ -915,10 +915,10 @@ async function sendCommandToFriday(command, isInitial = false) {
 
     if (botError) {
       botSpan.innerHTML = "[ERRO] " + botError;
-    } else if (!fullReplyText.trim()) {
-      botSpan.innerHTML = "Entendido, chefe.";
+   } else if (!fullReplyText.trim()) {
+      botSpan.innerHTML = "Desculpe, chefe. Não obtive resposta do núcleo neural.";
       window.setStatus("Sistema online.");
-    } else {
+   } else {
       window.setStatus("Sistema online.");
       scrambleText(botSpan, fullReplyText);
       lastReply = fullReplyText; window.speakResponse(fullReplyText);
