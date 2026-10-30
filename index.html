@@ -2024,6 +2024,8 @@ async function sendCommandToFriday(command, isInitial = false) {
   }, 100);
 
   let botError = null;
+  let streamWatchdog = null;
+  let lastChunkAt = Date.now();
 
   try {
     const payload = { command };
@@ -2059,9 +2061,24 @@ async function sendCommandToFriday(command, isInitial = false) {
     const reader = response.body.getReader();
     const decoder = new TextDecoder("utf-8");
     let fullReplyText = "", buffer = "", streamDone = false, gotFirst = false;
+    lastChunkAt = Date.now();
+
+    // ✅ Watchdog: se >45s sem chunks, cancela e avisa
+    streamWatchdog = setInterval(() => {
+      if (Date.now() - lastChunkAt > 45000) {
+        clearInterval(streamWatchdog);
+        streamWatchdog = null;
+        try { reader.cancel(); } catch(e) {}
+        status("Conexão lenta — cancelando.");
+        botMsgEl.classList.remove('typing');
+        if (!fullReplyText.trim()) botSpan.innerHTML = "[ERRO] Conexão perdida com o servidor.";
+      }
+    }, 5000);
+
     while (!streamDone) {
       const { done, value } = await reader.read();
       if (done) break;
+      lastChunkAt = Date.now();
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split('\n'); buffer = lines.pop();
       for (const line of lines) {
@@ -2133,6 +2150,7 @@ async function sendCommandToFriday(command, isInitial = false) {
       setTimeout(() => { window.fridayState = 'idle'; }, 2000);
     }
   } finally {
+    if (streamWatchdog) { clearInterval(streamWatchdog); streamWatchdog = null; }
     clearInterval(thinkingTimer);
     $('thinkingIndicator').classList.add('hidden');
     $('cancelBtn').classList.add('hidden');
