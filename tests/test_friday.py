@@ -1,17 +1,7 @@
-"""Testes mínimos para proteger os fixes recentes.
-
-Rodar:
-    pip install pytest httpx
-    pytest tests/ -v
-
-Cobre:
-- SSRF blocked/allowed
-- execute_tool propaga erro / requer confirmação
-- /health retorna estrutura válida
-"""
+"""Testes mínimos para proteger os fixes recentes."""
 import os
 
-# Env mínimo ANTES de importar main
+# Env mínimo ANTES de importar o app
 os.environ.setdefault("GROQ_API_KEY", "test-key-for-ci")
 os.environ.setdefault("DATA_DIR", "/tmp/friday_test")
 os.environ.setdefault("ENV", "test")
@@ -19,7 +9,9 @@ os.environ.setdefault("ENV", "test")
 import pytest
 from fastapi.testclient import TestClient
 
-from core import friday_tools
+# Importa o execute_tool e a função de segurança do lugar correto
+from core.friday_tools import execute_tool
+from core.friday_tools.utils import _is_safe_url
 import app as friday_main
 
 client = TestClient(friday_main.app)
@@ -27,33 +19,33 @@ client = TestClient(friday_main.app)
 
 # ---------- SSRF ----------
 def test_ssrf_localhost_blocked():
-    assert not friday_tools._is_safe_url("http://localhost:6379")
-    assert not friday_tools._is_safe_url("http://127.0.0.1/")
-    assert not friday_tools._is_safe_url("http://[::1]/")
+    assert not _is_safe_url("http://localhost:6379")
+    assert not _is_safe_url("http://127.0.0.1/")
+    assert not _is_safe_url("http://[::1]/")
 
 def test_ssrf_metadata_blocked():
-    assert not friday_tools._is_safe_url("http://169.254.169.254/latest/meta-data")
-    assert not friday_tools._is_safe_url("http://10.0.0.1/")
-    assert not friday_tools._is_safe_url("http://192.168.0.1/")
+    assert not _is_safe_url("http://169.254.169.254/latest/meta-data")
+    assert not _is_safe_url("http://10.0.0.1/")
+    assert not _is_safe_url("http://192.168.0.1/")
 
 def test_ssrf_public_allowed():
-    assert friday_tools._is_safe_url("https://google.com")
-    assert friday_tools._is_safe_url("https://api.github.com")
+    assert _is_safe_url("https://google.com")
+    assert _is_safe_url("https://api.github.com")
 
 def test_ssrf_blocks_non_http():
-    assert not friday_tools._is_safe_url("ftp://example.com")
-    assert not friday_tools._is_safe_url("file:///etc/passwd")
-    assert not friday_tools._is_safe_url("javascript:alert(1)")
+    assert not _is_safe_url("ftp://example.com")
+    assert not _is_safe_url("file:///etc/passwd")
+    assert not _is_safe_url("javascript:alert(1)")
 
 
 # ---------- execute_tool ----------
 def test_execute_tool_unknown():
-    r = friday_tools.execute_tool("nonexistent_tool", {}, confirmed=True)
+    r = execute_tool("nonexistent_tool", {}, confirmed=True)
     assert r["ok"] is False
     assert "não encontrada" in r["error"].lower() or "encontrada" in r["error"].lower()
 
 def test_execute_tool_requires_confirmation():
-    r = friday_tools.execute_tool(
+    r = execute_tool(
         "send_email",
         {"to_email": "x@y.com", "subject": "s", "body": "b"},
         confirmed=False,
@@ -63,7 +55,7 @@ def test_execute_tool_requires_confirmation():
 
 def test_execute_tool_propagates_handler_error():
     # URL interna → handler retorna {"error": ...} → execute_tool deve propagar
-    r = friday_tools.execute_tool("read_webpage", {"url": "http://localhost/"}, confirmed=True)
+    r = execute_tool("read_webpage", {"url": "http://localhost/"}, confirmed=True)
     assert r["ok"] is False
     assert r["error"]
 
@@ -81,10 +73,12 @@ def test_health_endpoint_structure():
 
 # ---------- auth ----------
 def test_session_requires_auth():
+    client.cookies.clear() # Garante que não há sessão ativa
     r = client.get("/session")
     assert r.status_code == 200
     assert r.json()["authenticated"] is False
 
 def test_chat_requires_auth():
+    client.cookies.clear() # Garante que o cookie não vaze de outros testes
     r = client.post("/chat", json={"command": "oi"})
     assert r.status_code == 401
