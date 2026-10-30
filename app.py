@@ -11,7 +11,6 @@ import secrets
 import traceback
 import threading
 import logging
-import queue
 import shutil
 from collections import defaultdict
 from datetime import datetime, timezone, timedelta
@@ -24,7 +23,7 @@ import psycopg2
 import psycopg2.extras
 
 from fastapi import FastAPI, Request, Response, HTTPException, Cookie
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse, FileResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from pydantic import BaseModel
 
@@ -49,9 +48,6 @@ if not logger.handlers:
     logger.addHandler(handler)
     logger.setLevel(logging.INFO)
 
-# ========================================
-# SENTRY (opcional — só ativa se SENTRY_DSN presente)
-# ========================================
 SENTRY_DSN = os.getenv("SENTRY_DSN", "").strip()
 if SENTRY_DSN:
     try:
@@ -68,9 +64,6 @@ if SENTRY_DSN:
     except Exception as e:
         logger.warning(f"Sentry falhou ao inicializar: {e}")
 
-# ========================================
-# CONFIGURAÇÕES INICIAIS
-# ========================================
 app = FastAPI(title="FRIDAY API")
 auth = FridayAuth()
 SESSION_STORE = SessionStore(ttl_seconds=1800)
@@ -117,11 +110,7 @@ TOOL_STATUS = {
     "recall_memory": "🧠 Recuperando memória...",
 }
 
-# ========================================
-# VALIDAÇÃO DE ENV (não quebra dev)
-# ========================================
 def _validate_env():
-    """Alerta ENVs faltando. Só falha hard se ENV=production."""
     strict = os.getenv("ENV", "").lower() == "production"
     required = ["GROQ_API_KEY"]
     optional = [
@@ -143,9 +132,6 @@ def _validate_env():
 
 _validate_env()
 
-# ========================================
-# SECURITY HEADERS
-# ========================================
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         response = await call_next(request)
@@ -159,9 +145,6 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 app.add_middleware(SecurityHeadersMiddleware)
 
-# ========================================
-# FILAS DE STATUS / NOTIFICAÇÃO
-# ========================================
 def _push_status(text):
     global STATUS_QUEUE
     if not text:
@@ -181,7 +164,6 @@ def _push_notification(text):
             NOTIFICATION_QUEUE.pop(0)
 
 def _check_chat_rate(session_token):
-    """30 msgs/min por sessão."""
     now = time.time()
     with _RATE_LOCK:
         calls = [t for t in _CHAT_RATE[session_token] if now - t < 60]
@@ -215,9 +197,6 @@ def _notify_tool(tool_name, args, result):
     except Exception as e:
         logger.warning(f"[NOTIFY] Falha: {e}")
 
-# ========================================
-# BANCO DE DADOS
-# ========================================
 def get_db():
     if not DATABASE_URL:
         import sqlite3
@@ -248,7 +227,6 @@ def init_db():
         logger.warning(f"AVISO: Erro ao inicializar DB: {e}")
 
 def _prune_old_data():
-    """Remove dados antigos para manter o DB saudável."""
     try:
         conn = get_db()
         cursor = conn.cursor()
@@ -277,7 +255,6 @@ def _prune_old_data():
         logger.warning(f"Pruning falhou: {e}")
 
 def _audit_tool(tool_name, args, ok, error=None):
-    """Registra execução de ferramenta. Silencioso em falha (nunca quebra o fluxo)."""
     try:
         conn = get_db()
         cur = conn.cursor()
@@ -299,13 +276,15 @@ def _audit_tool(tool_name, args, ok, error=None):
         logger.debug(f"[AUDIT] falhou: {e}")
 
 def _schedule_prune():
-    """Roda prune a cada 6h (além do boot)."""
     while True:
         time.sleep(6 * 60 * 60)
         _prune_old_data()
 
-threading.Thread(target=init_db, daemon=True).start()
-threading.Thread(target=_prune_old_data, daemon=True).start()
+def _bootstrap_db():
+    init_db()
+    _prune_old_data()
+
+threading.Thread(target=_bootstrap_db, daemon=True).start()
 threading.Thread(target=_schedule_prune, daemon=True).start()
 
 def _db_save_memory(key, value):
@@ -394,9 +373,6 @@ def _db_get_history(session_token):
 
 set_memory_context(save_func=_db_save_memory, recall_func=_db_recall_memory, delete_func=_db_delete_memory)
 
-# ========================================
-# GOOGLE OAUTH
-# ========================================
 GOOGLE_OAUTH_AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_OAUTH_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GOOGLE_SCOPES = "https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/gmail.readonly"
@@ -507,9 +483,6 @@ set_calendar_context(
     delete_event=_calendar_delete_event, update_event=_calendar_update_event,
 )
 
-# ========================================
-# MODELOS
-# ========================================
 class LoginData(BaseModel):
     password: str
 
@@ -523,9 +496,6 @@ class ChatData(BaseModel):
 class TTSData(BaseModel):
     text: str = ""
 
-# ========================================
-# HEALTH CHECK (real)
-# ========================================
 @app.get("/health")
 async def health_check():
     checks = {"db": False, "groq": False, "disk": False}
@@ -543,16 +513,13 @@ async def health_check():
         st = shutil.disk_usage("/")
         checks["disk"] = (st.free / st.total) > 0.05
     except Exception:
-        checks["disk"] = True  # não pune se o OS não expõe (alguns containers)
+        checks["disk"] = True
     ok = all(checks.values())
     return JSONResponse(
         status_code=200 if ok else 503,
         content={"status": "ok" if ok else "degraded", "checks": checks},
     )
 
-# ========================================
-# TTS (POST novo + GET legado)
-# ========================================
 @app.post("/tts")
 async def text_to_speech_post(data: TTSData, friday_session: Optional[str] = Cookie(None)):
     return await _tts_impl(data.text, friday_session)
@@ -597,9 +564,6 @@ async def _tts_impl(text: str, friday_session):
         logger.warning(f"TTS falhou: {e}")
         return Response(status_code=204)
 
-# ========================================
-# ROTAS ESTÁTICAS
-# ========================================
 @app.get("/", response_class=HTMLResponse)
 async def serve_index():
     try:
@@ -607,6 +571,20 @@ async def serve_index():
             return f.read()
     except Exception:
         return "<h1>Erro: index.html não encontrado.</h1>"
+
+# ✅ NOVAS ROTAS PARA SERVIR O CSS E O JS
+@app.get("/styles.css")
+async def serve_css():
+    return FileResponse("styles.css", media_type="text/css")
+
+@app.get("/app.js")
+async def serve_app_js():
+    return FileResponse("app.js", media_type="application/javascript")
+
+@app.get("/reactor.js")
+async def serve_reactor_js():
+    return FileResponse("reactor.js", media_type="application/javascript")
+# ----------------------------------------
 
 @app.get("/manifest.json")
 async def serve_manifest():
@@ -616,9 +594,6 @@ async def serve_manifest():
 async def serve_sw():
     return Response(content=open("sw.js", "r").read(), media_type="application/javascript")
 
-# ========================================
-# STATUS / NOTIFICAÇÕES
-# ========================================
 @app.get("/status")
 async def get_status(friday_session: Optional[str] = Cookie(None)):
     if not friday_session:
@@ -639,9 +614,6 @@ async def get_notifications(friday_session: Optional[str] = Cookie(None)):
             return {"notifications": msgs}
     return {"notifications": []}
 
-# ========================================
-# AUTH
-# ========================================
 @app.post("/login")
 async def login(data: LoginData, response: Response, request: Request):
     try:
@@ -682,9 +654,6 @@ async def get_history(friday_session: Optional[str] = Cookie(None)):
         raise HTTPException(401)
     return {"history": _db_get_history(friday_session)}
 
-# ========================================
-# MÉTRICAS
-# ========================================
 @app.get("/system_metrics")
 async def get_metrics(friday_session: Optional[str] = Cookie(None)):
     if not friday_session:
@@ -710,9 +679,6 @@ async def get_metrics(friday_session: Optional[str] = Cookie(None)):
             ram_percent = 0
     return {"cpu": cpu_percent, "ram": ram_percent}
 
-# ========================================
-# CALENDÁRIO
-# ========================================
 @app.get("/calendar/connect")
 async def calendar_connect(friday_session: Optional[str] = Cookie(None)):
     if not friday_session:
@@ -756,9 +722,6 @@ async def calendar_events(range: str = "upcoming", friday_session: Optional[str]
     events = _calendar_today_events(at) if range == "today" else _calendar_events_query(at)
     return {"events": events or []}
 
-# ========================================
-# CHAT (streaming SSE com heartbeat)
-# ========================================
 @app.post("/chat")
 async def chat_endpoint(data: ChatData, friday_session: Optional[str] = Cookie(None)):
     if not friday_session:
@@ -834,7 +797,6 @@ async def chat_endpoint(data: ChatData, friday_session: Optional[str] = Cookie(N
             last_emit_ts = time.time()
 
             for chunk in stream_gen:
-                # Heartbeat: se >15s sem emitir nada, manda comentário SSE
                 if time.time() - last_emit_ts > 15:
                     yield ": ping\n\n"
                     last_emit_ts = time.time()
@@ -944,7 +906,7 @@ async def chat_endpoint(data: ChatData, friday_session: Optional[str] = Cookie(N
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",  # desliga buffering do nginx/cloudflare
+            "X-Accel-Buffering": "no",
         },
     )
 
