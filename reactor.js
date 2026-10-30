@@ -29,7 +29,6 @@ let reactorContainerEls = { labels: null };
 let reactorInitAttempts = 0;
 let lastEffectiveState = 'idle';
 const _tmpColor = new THREE.Color();
-const _tmpColor2 = new THREE.Color();
 
 let cursorTargetX = -100, cursorTargetY = -100;
 let cursorX = -100, cursorY = -100;
@@ -62,11 +61,14 @@ window.initReactor = function() {
   const canvasEl = document.getElementById('three-reactor');
   const container = document.getElementById('reactorStage');
   if (!canvasEl || !container) return;
-  if (container.clientWidth < 20 || container.clientHeight < 20) {
+  
+  // Trava de segurança para não renderizar com tamanho zero
+  if (container.clientWidth < 10 || container.clientHeight < 10) {
     reactorInitAttempts++;
-    if (reactorInitAttempts < 50) setTimeout(window.initReactor, 100);
+    if (reactorInitAttempts < 100) setTimeout(window.initReactor, 100);
     return;
   }
+  
   reactorStageEl = container; reactorContainerEl = canvasEl;
   hudCursorEl = document.getElementById('hud-cursor'); reactorHintEl = document.getElementById('reactorHint');
   reactorContainerEls.labels = document.getElementById('nodeLabels');
