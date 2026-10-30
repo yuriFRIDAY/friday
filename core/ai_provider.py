@@ -1,11 +1,9 @@
 import json
 import logging
 import os
-import time
-import sqlite3
 from datetime import datetime, timezone, timedelta
 from urllib.request import Request, urlopen
-from urllib.error import URLError, HTTPError
+from urllib.error import HTTPError
 
 try:
     from zoneinfo import ZoneInfo
@@ -15,7 +13,6 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
-
 if not logger.handlers:
     handler = logging.StreamHandler()
     handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
@@ -25,7 +22,7 @@ logger.propagate = False
 
 class FridayAIProvider:
     def __init__(self):
-        self.api_key = os.getenv("GROQ_API_KEY", "")
+        self.api_key = os.getenv("GROQ_API_KEY", "").strip()
         self.base_url = "https://api.groq.com/openai/v1"
         self.smtp_user = os.getenv("SMTP_USER", "")
         self.data_dir = os.getenv("DATA_DIR", ".")
@@ -34,7 +31,7 @@ class FridayAIProvider:
         self.db_path = os.path.join(self.data_dir, "friday.db")
 
     def available(self):
-        return bool(self.api_key.strip())
+        return bool(self.api_key)
 
     def _get_model(self, is_vision=False):
         if is_vision:
@@ -43,136 +40,113 @@ class FridayAIProvider:
 
     def _get_current_time_context(self):
         try:
-            if HAS_ZONEINFO:
-                now = datetime.now(ZoneInfo("America/Sao_Paulo"))
-            else:
-                now = datetime.now(timezone(timedelta(hours=-3)))
+            now = datetime.now(ZoneInfo("America/Sao_Paulo")) if HAS_ZONEINFO else datetime.now(timezone(timedelta(hours=-3)))
         except Exception:
             now = datetime.now(timezone(timedelta(hours=-3)))
-        dias = ["segunda-feira", "terça-feira", "quarta-feira", "quinta-feira",
-                "sexta-feira", "sábado", "domingo"]
-        return (f"Hoje é {dias[now.weekday()]}, {now.strftime('%d/%m/%Y')} "
-                f"e agora são {now.strftime('%H:%M')} (Horário de Brasília).")
+        dias = ["segunda-feira", "terça-feira", "quarta-feira", "quinta-feira", "sexta-feira", "sábado", "domingo"]
+        return f"Hoje é {dias[now.weekday()]}, {now.strftime('%d/%m/%Y')} e agora são {now.strftime('%H:%M')} (Horário de Brasília)."
 
-    # ✅ CORRIGIDO: método agora é irmão de _get_current_time_context (indentação correta)
     def _get_system_prompt(self, history_context=""):
-        time_context = self._get_current_time_context()
         return f"""
 Você é FRIDAY, a IA pessoal do Chefe, inspirada no JARVIS.
 Personalidade: formal, leal, proativa, precisa e levemente espirituosa.
 Trate o usuário por "chefe" ou "senhor".
 Responda SEMPRE em português brasileiro natural e fluido.
 
-REGRAS DE COMPORTAMENTO (MUITO IMPORTANTE):
-1. NUNCA peça permissão para usar ferramentas ou executar ações (ex: criar eventos, enviar e-mails). Execute-as imediatamente e apenas informe o que foi feito.
-2. SEMPRE comece suas respostas resumindo o que o Chefe pediu.
-3. SEMPRE finalize CADA resposta oferecendo ajuda adicional proativamente.
-4. NUNCA traduza expressões do inglês de forma literal.
-5. Se o chefe enviar uma imagem, analise-a detalhadamente e responda sobre o conteúdo dela.
-6. Se a ferramenta retornar um erro, avise o chefe sobre o erro de forma clara e NUNCA minta dizendo que a ação foi concluída com sucesso.
+REGRAS:
+1. Execute ferramentas quando forem apropriadas e autorizadas.
+2. Comece resumindo o que o Chefe pediu.
+3. Finalize oferecendo ajuda adicional de forma breve.
+4. Não traduza expressões do inglês literalmente.
+5. Analise imagens enviadas pelo Chefe.
+6. Informe erros de ferramentas com clareza; nunca afirme sucesso se houve falha.
 
 CONTEXTO DE TEMPO:
-{time_context}
+{self._get_current_time_context()}
 
 CONTEXTO DA CONVERSA:
 {history_context}
-
-FERRAMENTAS DISPONÍVEIS:
-1. get_current_time, get_weather, get_system_status, get_crypto_price, get_news, search_web, deep_search, read_webpage
-2. send_email, reply_to_email, read_emails, read_email_full, get_email_thread
-3. create_task, list_tasks, complete_task
-4. save_memory, recall_memory, delete_memory
-5. play_music, get_morning_briefing
-6. get_calendar_events, create_calendar_event, update_calendar_event, delete_calendar_event, find_free_slots
 """
 
     def _summarize_history(self, history):
-        if len(history) <= 8:
-            return history
-        return history[-8:]
+        return history if len(history) <= 8 else history[-8:]
 
     def _build_messages(self, message, history=None):
-        summary_context = ""
-        if history:
-            history = self._summarize_history(history)
-
-        messages = [{"role": "system", "content": self._get_system_prompt(summary_context).strip()}]
-
-        if history:
-            for item in history[-8:]:
-                if isinstance(item, dict) and item.get("role") in ("user", "assistant"):
-                    if isinstance(item.get("content"), str):
-                        messages.append({"role": item["role"], "content": item["content"][:4000]})
-
+        messages = [{"role": "system", "content": self._get_system_prompt().strip()}]
+        for item in self._summarize_history(history or []):
+            if isinstance(item, dict) and item.get("role") in ("user", "assistant") and isinstance(item.get("content"), str):
+                messages.append({"role": item["role"], "content": item["content"][:4000]})
         messages.append({"role": "user", "content": message})
         return messages
 
     def chat_with_full_history_stream(self, messages, tools):
         if not self.available():
-            yield {"error": "IA indisponível."}
+            yield {"error": "IA indisponível: configure GROQ_API_KEY."}
+            return
+        if not messages:
+            yield {"error": "A conversa está vazia."}
             return
 
-        # Detecta se há imagem (payload de visão)
-        is_vision = False
         last_msg = messages[-1].get("content", "")
-        if isinstance(last_msg, list) and any(m.get("type") == "image_url" for m in last_msg):
-            is_vision = True
-
+        is_vision = isinstance(last_msg, list) and any(
+            isinstance(item, dict) and item.get("type") == "image_url" for item in last_msg
+        )
         formatted_tools = [
             {"type": "function", "function": {
-                "name": n,
-                "description": s.get("description", ""),
-                "parameters": s.get("parameters", {})
-            }} for n, s in tools.items()
+                "name": name,
+                "description": spec.get("description", ""),
+                "parameters": spec.get("parameters", {})
+            }}
+            for name, spec in (tools or {}).items()
         ]
-
-        # Modelos de visão da Groq não suportam tools em stream
         if is_vision:
             formatted_tools = []
 
-        full_messages = [{"role": "system", "content": self._get_system_prompt().strip()}] + messages
-        model = self._get_model(is_vision)
-
-        payload = {"model": model, "messages": full_messages, "stream": True, "max_tokens": 4096}
+        payload = {
+            "model": self._get_model(is_vision),
+            "messages": [{"role": "system", "content": self._get_system_prompt().strip()}] + messages,
+            "stream": True,
+            "max_tokens": 4096
+        }
         if formatted_tools:
             payload["tools"] = formatted_tools
             payload["tool_choice"] = "auto"
 
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.api_key}",
-            "User-Agent": "Mozilla/5.0"
-        }
-        req = Request(f"{self.base_url}/chat/completions",
-                      data=json.dumps(payload).encode("utf-8"),
-                      headers=headers, method="POST")
+        req = Request(
+            f"{self.base_url}/chat/completions",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json", "Authorization": f"Bearer {self.api_key}", "User-Agent": "FRIDAY/1.0"},
+            method="POST"
+        )
 
         try:
-            with urlopen(req, timeout=60) as response:
+            with urlopen(req, timeout=90) as response:
                 while True:
                     line = response.readline()
                     if not line:
                         break
-                    line = line.decode("utf-8").strip()
-                    if line.startswith("data: "):
-                        data_str = line[6:]
-                        if data_str == "[DONE]":
-                            break
-                        try:
-                            chunk_data = json.loads(data_str)
-                            choices = chunk_data.get("choices", [])
-                            if choices:
-                                delta = choices[0].get("delta", {})
-                                if "tool_calls" in delta:
-                                    # ✅ Yield ALL tool call chunks (suporta multi-tool)
-                                    for tc in delta["tool_calls"]:
-                                        yield {"tool_call_chunk": tc}
-                                elif "content" in delta and delta["content"]:
-                                    yield {"text": delta["content"]}
-                        except json.JSONDecodeError:
-                            pass
-        except HTTPError as e:
-            err_body = e.read().decode("utf-8", errors="replace")
-            yield {"error": f"Groq HTTP {e.code}: {err_body[:200]}"}
-        except Exception as e:
-            yield {"error": f"Erro no streaming: {str(e)}"}
+                    line = line.decode("utf-8", errors="replace").strip()
+                    if not line.startswith("data:"):
+                        continue
+                    data_str = line[5:].strip()
+                    if data_str == "[DONE]":
+                        break
+                    try:
+                        chunk_data = json.loads(data_str)
+                    except json.JSONDecodeError:
+                        continue
+                    choices = chunk_data.get("choices") or []
+                    if not choices:
+                        continue
+                    delta = choices[0].get("delta") or {}
+                    if delta.get("content"):
+                        yield {"text": delta["content"]}
+                    for tool_call in delta.get("tool_calls") or []:
+                        yield {"tool_call_chunk": tool_call}
+        except HTTPError as error:
+            body = error.read().decode("utf-8", errors="replace")
+            logger.exception("Groq HTTP error %s", error.code)
+            yield {"error": f"Groq HTTP {error.code}: {body[:500]}"}
+        except Exception as error:
+            logger.exception("Erro no streaming da FRIDAY")
+            yield {"error": f"Erro no streaming: {str(error)[:300]}"}
