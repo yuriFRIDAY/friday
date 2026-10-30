@@ -242,7 +242,7 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
     if (!$('palette').classList.contains('hidden')) { closePalette(); return; }
     if (!$('settingsModal').classList.contains('hidden')) { $('settingsModal').classList.add('hidden'); return; }
-    if (window.speaking || window.listening) { window.stopVoice(); window.status("Interrompido."); }
+    if (window.speaking || window.listening) { window.stopVoice(); window.setStatus("Interrompido."); }
   }
   if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'k') {
     e.preventDefault();
@@ -339,7 +339,7 @@ function browserSpeak(text, runId, forceTest = false) {
   const selectedName = $('voiceSelect').value;
   if (selectedName) { const voice = availableVoices.find(v => v.name === selectedName); if (voice) utterance.voice = voice; }
   utterance.onstart = () => { if (runId === speechRunId || forceTest) { window.speaking = true; soundListen(); setWaveformState('speaking'); } };
-  utterance.onend = () => { if (runId === speechRunId || forceTest) { window.speaking = false; window.status('Sistema online.'); setWaveformState('idle'); } };
+  utterance.onend = () => { if (runId === speechRunId || forceTest) { window.speaking = false; window.setStatus('Sistema online.'); setWaveformState('idle'); } };
   synth.speak(utterance);
 }
 
@@ -501,7 +501,7 @@ function startStatusPolling() {
       const res = await fetch("/status", { credentials: "same-origin", cache: "no-store" });
       if (!res.ok) return;
       const data = await res.json();
-      if (data.status && data.status.length > 0) window.status(data.status[data.status.length - 1]);
+      if (data.status && data.status.length > 0) window.setStatus(data.status[data.status.length - 1]);
     } catch (e) {}
   }, 3000);
 }
@@ -529,7 +529,7 @@ function setWaveformState(state) {
   }
 }
 
-window.status = function(text) { $("status").textContent = text; };
+window.setStatus = function(text) { $("status").textContent = text; };
 
 function formatEventDate(dateStr) {
   if (!dateStr) return "Sem data";
@@ -620,7 +620,7 @@ window.speakText = async function(text, force = false) {
   speechRunId++;
   const runId = speechRunId;
   if ('speechSynthesis' in window) window.speechSynthesis.cancel();
-  window.status('FRIDAY está falando...');
+  window.setStatus('FRIDAY está falando...');
   try {
     const response = await fetch(`/tts?text=${encodeURIComponent(cleanText)}`);
     if (response.status === 204) throw new Error('Fallback');
@@ -633,7 +633,7 @@ window.speakText = async function(text, force = false) {
     audio.onplay = () => { if (runId === speechRunId) { window.speaking = true; soundListen(); setWaveformState('speaking'); } };
     audio.onended = () => {
       if (runId === speechRunId) {
-        window.speaking = false; window.status('Sistema online.'); setWaveformState('idle');
+        window.speaking = false; window.setStatus('Sistema online.'); setWaveformState('idle');
         URL.revokeObjectURL(url);
         setTimeout(() => { if (!$("assistant").classList.contains("hidden") && !window.listening && !isProcessing) window.startVoice(true); }, 800);
       }
@@ -790,7 +790,7 @@ $('removeAttachment').addEventListener('click', () => {
 $('cancelBtn').addEventListener('click', () => {
   if (currentAbortController) {
     currentAbortController.abort();
-    window.status('Geração cancelada.');
+    window.setStatus('Geração cancelada.');
     window.showToast('⏹ Geração cancelada pelo chefe.');
   }
 });
@@ -806,7 +806,7 @@ async function sendCommandToFriday(command, isInitial = false) {
   const botMsgEl = botSpan.parentElement;
   botMsgEl.classList.add('typing');
   $("sendBtn").disabled = true; $("voiceBtn").disabled = true;
-  window.status("FRIDAY está processando..."); startStatusPolling();
+  window.setStatus("FRIDAY está processando..."); startStatusPolling();
 
   currentAbortController = new AbortController();
   thinkingStart = Date.now();
@@ -855,7 +855,7 @@ async function sendCommandToFriday(command, isInitial = false) {
         clearInterval(streamWatchdog);
         streamWatchdog = null;
         try { reader.cancel(); } catch(e) {}
-        window.status("Conexão lenta — cancelando.");
+        window.setStatus("Conexão lenta — cancelando.");
         botMsgEl.classList.remove('typing');
         if (!fullReplyText.trim()) botSpan.innerHTML = "[ERRO] Conexão perdida com o servidor.";
       }
@@ -902,7 +902,7 @@ async function sendCommandToFriday(command, isInitial = false) {
               if (currentToolCard) { currentToolCard.classList.remove('loading'); currentToolCard = null; }
               botMsgEl.classList.remove('typing');
               botError = dataObj.error;
-              window.status("Erro na IA.");
+              window.setStatus("Erro na IA.");
             }
           } catch (e) {}
         }
@@ -917,9 +917,9 @@ async function sendCommandToFriday(command, isInitial = false) {
       botSpan.innerHTML = "[ERRO] " + botError;
     } else if (!fullReplyText.trim()) {
       botSpan.innerHTML = "Entendido, chefe.";
-      window.status("Sistema online.");
+      window.setStatus("Sistema online.");
     } else {
-      window.status("Sistema online.");
+      window.setStatus("Sistema online.");
       scrambleText(botSpan, fullReplyText);
       lastReply = fullReplyText; window.speakResponse(fullReplyText);
       lastAIResponseTime = Date.now();
@@ -931,7 +931,7 @@ async function sendCommandToFriday(command, isInitial = false) {
     if (error.name === 'AbortError') { botSpan.innerHTML = "_[Cancelado pelo chefe]_"; }
     else {
       botSpan.innerHTML = "[ERRO] " + error.message;
-      window.status("Erro de conexão.");
+      window.setStatus("Erro de conexão.");
       window.fridayState = 'error';
       setTimeout(() => { window.fridayState = 'idle'; }, 2000);
     }
@@ -957,10 +957,9 @@ $("chatForm").addEventListener("submit", async (event) => {
   sendCommandToFriday(command, false);
 });
 
-/* ---------- VOZ (SPEECH RECOGNITION) ---------- */
 window.startVoice = function(isContinuous = false) {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SR) { window.status("Reconhecimento indisponível."); return; }
+  if (!SR) { window.setStatus("Reconhecimento indisponível."); return; }
   if (window.listening && recognition) { recognition.stop(); return; }
   window.stopVoice();
   
@@ -972,19 +971,19 @@ window.startVoice = function(isContinuous = false) {
     window.listening = true; setupMicVisualizer();
     $("voiceBtn").classList.add("listening"); soundListen(); setWaveformState('listening');
     $("voiceBtn").textContent = "⏹";
-    window.status(isContinuous ? "Aguardando continuação..." : "Estou ouvindo, chefe...");
+    window.setStatus(isContinuous ? "Aguardando continuação..." : "Estou ouvindo, chefe...");
     clearTimeout(silenceTimer);
-    if (isContinuous) silenceTimer = setTimeout(() => { if (window.listening && recognition) { recognition.stop(); window.status("Escuta encerrada."); } }, 5000);
+    if (isContinuous) silenceTimer = setTimeout(() => { if (window.listening && recognition) { recognition.stop(); window.setStatus("Escuta encerrada."); } }, 5000);
   };
   
   recognition.onresult = (event) => {
     clearTimeout(silenceTimer);
     $("command").value = event.results[0][0].transcript;
-    window.status("Voz reconhecida.");
+    window.setStatus("Voz reconhecida.");
     $("chatForm").requestSubmit();
   };
   
-  recognition.onerror = (event) => { clearTimeout(silenceTimer); window.status("Falha no mic: " + event.error); setWaveformState('idle'); };
+  recognition.onerror = (event) => { clearTimeout(silenceTimer); window.setStatus("Falha no mic: " + event.error); setWaveformState('idle'); };
   
   recognition.onend = () => {
     clearTimeout(silenceTimer); window.listening = false;
@@ -993,12 +992,11 @@ window.startVoice = function(isContinuous = false) {
     setTimeout(() => { if (!$("assistant").classList.contains("hidden") && !window.speaking && !isProcessing) startWakeWordListener(); }, isContinuous ? 3000 : 1000);
   };
   
-  try { recognition.start(); } catch (e) { window.status("Não foi possível iniciar o mic."); setWaveformState('idle'); }
+  try { recognition.start(); } catch (e) { window.setStatus("Não foi possível iniciar o mic."); setWaveformState('idle'); }
 };
 
 $("voiceBtn").addEventListener("click", () => window.startVoice(false));
 
-/* ---------- CALENDÁRIO: CONTROLES ---------- */
 async function checkCalendarConnection() {
   try {
     const res = await fetch("/calendar/status", { credentials: "same-origin", cache: "no-store" });
@@ -1014,9 +1012,8 @@ async function checkCalendarConnection() {
 $("calendarConnect").addEventListener("click", () => { window.location.href = "/calendar/connect"; });
 $("refreshCalendarTodayBtn").addEventListener("click", () => window.loadCalendarEvents("today"));
 $("refreshCalendarBtn").addEventListener("click", () => window.loadCalendarEvents("upcoming"));
-$("stopSpeakTop").addEventListener("click", () => { window.stopVoice(); window.status("Fala interrompida."); });
+$("stopSpeakTop").addEventListener("click", () => { window.stopVoice(); window.setStatus("Fala interrompida."); });
 
-/* ---------- WAKE WORD ---------- */
 function startWakeWordListener() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR || wakeWordActive) return;
@@ -1048,13 +1045,12 @@ function startWakeWordListener() {
   try { wakeWordRecognition.start(); wakeWordActive = true; } catch (e) {}
 }
 
-/* ---------- LOGIN / LOGOUT ---------- */
 function showLogin() {
   window.stopVoice(); stopStatusPolling(); stopAmbience();
   $("assistant").classList.add("hidden"); $("login").classList.remove("hidden");
   $("messages").replaceChildren(); $("settingsModal").classList.add("hidden");
   $("calendarPanel").classList.add("hidden"); $('musicPlayerContainer').classList.add('hidden');
-  $('musicPlayer').src = ""; window.status("Aguardando autenticação");
+  $('musicPlayer').src = ""; window.setStatus("Aguardando autenticação");
   document.body.dataset.state = 'idle';
   assistantActivated = false;
 }
@@ -1065,7 +1061,6 @@ $("logout").addEventListener("click", async () => {
   showLogin();
 });
 
-/* ---------- ATIVAÇÃO ---------- */
 async function activateAssistant() {
   if (assistantActivated) return;
   assistantActivated = true;
@@ -1074,7 +1069,7 @@ async function activateAssistant() {
     $("login").classList.add("hidden");
     await runBootSequence();
     $("assistant").classList.remove("hidden");
-    window.status("Sessão ativa. FRIDAY online.");
+    window.setStatus("Sessão ativa. FRIDAY online.");
     startAmbience();
 
     $("messages").replaceChildren();
@@ -1082,7 +1077,6 @@ async function activateAssistant() {
 
     startSysMetrics();
     
-    // Chama o Reactor externo
     if (window.initReactor) window.initReactor();
 
     sendCommandToFriday(
@@ -1099,11 +1093,10 @@ async function activateAssistant() {
     const notice = $("lockoutNotice");
     notice.textContent = "Não foi possível iniciar a interface: " + (error.message || "erro desconhecido");
     notice.classList.remove("hidden");
-    window.status("Falha ao iniciar a FRIDAY.");
+    window.setStatus("Falha ao iniciar a FRIDAY.");
   }
 }
 
-/* ---------- SESSÃO ---------- */
 async function checkSession() {
   try {
     const res = await fetch("/session", { credentials: "same-origin", cache: "no-store" });
@@ -1117,16 +1110,15 @@ async function checkSession() {
     };
     if (data.authenticated) await activateAssistant();
     if (msgMap[calendarState]) {
-      window.status(msgMap[calendarState]);
+      window.setStatus(msgMap[calendarState]);
       history.replaceState({}, "", location.pathname);
     }
   } catch (error) {
     console.error("FRIDAY session check:", error);
-    window.status("Não foi possível verificar a sessão.");
+    window.setStatus("Não foi possível verificar a sessão.");
   }
 }
 
-/* ---------- ALERTAS DE AGENDA / NOTIFICAÇÕES ---------- */
 setInterval(async () => {
   if ($("assistant").classList.contains("hidden")) return;
   try {
@@ -1167,7 +1159,6 @@ setInterval(async () => {
   } catch (e) {}
 }, 15000);
 
-/* ---------- COMMAND PALETTE ---------- */
 const PALETTE_COMMANDS = [
   { name: 'Focar input', shortcut: 'Ctrl+K', action: () => $('command').focus() },
   { name: 'Configurações', shortcut: 'Ctrl+/', action: () => $('settingsModal').classList.remove('hidden') },
@@ -1204,7 +1195,6 @@ function renderPaletteItems(query) {
 $('paletteInput')?.addEventListener('input', e => renderPaletteItems(e.target.value));
 $('palette')?.addEventListener('click', e => { if (e.target.id === 'palette') closePalette(); });
 
-/* ---------- BOOT ---------- */
 loadVisualPreferences();
 checkSession();
 
