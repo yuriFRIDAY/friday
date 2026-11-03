@@ -1,5 +1,5 @@
 /* ============================================================
-   FRIDAY — App (Frontend lógica principal e Olho de Deus)
+   FRIDAY — App (Frontend completo, Olho de Deus e Correções)
    ============================================================ */
 
 const $ = (id) => document.getElementById(id);
@@ -34,6 +34,7 @@ let bgScene, bgCamera, bgRenderer, particlesMesh, linesMesh;
 
 // Variáveis do Olho de Deus
 let eyeScene, eyeCamera, eyeRenderer, earthMesh, pointsGroup;
+let currentMinMagnitude = 4; // Slider de terremotos
 
 const MONTHS_PT = ['JAN','FEV','MAR','ABR','MAI','JUN','JUL','AGO','SET','OUT','NOV','DEZ'];
 const WEEKDAYS_PT = ['DOM','SEG','TER','QUA','QUI','SEX','SÁB'];
@@ -489,7 +490,6 @@ function animateTTSVisualizer() {
   }
 }
 
-if ('serviceWorker' in navigator) { window.addEventListener('load', () => { navigator.serviceWorker.register('/sw.js').catch(() => {}); }); }
 window.onYouTubeIframeAPIReady = function() { window.ytPlayer = new YT.Player('musicPlayer', { events: { 'onReady': () => {} } }); };
 $('closeMusicPlayer').addEventListener('click', () => {
   $('musicPlayerContainer').classList.add('hidden');
@@ -652,6 +652,7 @@ window.speakText = async function(text, force = false) {
     await audio.play();
     return;
   } catch (e) {
+    // Silencia erro de console
     if (!nativeVoiceToastShown) {
       nativeVoiceToastShown = true;
       window.showToast('🎙 Voz nativa ativada (ElevenLabs indisponível).');
@@ -1218,7 +1219,7 @@ window.addEventListener('load', () => {
 });
 
 /* ============================================================
-   OLHO DE DEUS — Globo 3D Embutido
+   OLHO DE DEUS — Globo 3D e Toggles Funcionais
    ============================================================ */
 
 function latLngToVector3(lat, lng, radius = 100) {
@@ -1236,7 +1237,6 @@ window.initEyeOfGodGlobe = function() {
 
   eyeScene = new THREE.Scene();
   
-  // Espera a animação de fade-in terminar para pegar o tamanho real do canvas
   setTimeout(() => {
     const w = window.innerWidth;
     const h = window.innerHeight;
@@ -1247,41 +1247,34 @@ window.initEyeOfGodGlobe = function() {
     eyeRenderer.setSize(w, h);
     eyeRenderer.setPixelRatio(window.devicePixelRatio);
 
-    // 1. Esfera Sólida (Cor Escura para dar profundidade)
+    // 1. Esfera com Textura Real (Continentes)
     const earthGeo = new THREE.SphereGeometry(100, 64, 64);
+    const textureLoader = new THREE.TextureLoader();
+    textureLoader.crossOrigin = 'anonymous';
+    
+    // Usando uma textura de alta qualidade e com continentes visíveis
     const earthMat = new THREE.MeshPhongMaterial({
-      color: 0x001a22,
-      emissive: 0x000a10,
+      map: textureLoader.load('https://unpkg.com/three-globe/example/img/earth-night.jpg'),
+      bumpScale: 0.5,
       specular: new THREE.Color('cyan'),
-      shininess: 10,
-      transparent: true,
-      opacity: 0.8
+      shininess: 15
     });
+    
     earthMesh = new THREE.Mesh(earthGeo, earthMat);
     eyeScene.add(earthMesh);
 
-    // 2. Wireframe Neon por cima (Visual "Olho de Deus")
-    const wireMat = new THREE.MeshBasicMaterial({
-      color: 0x00e5ff,
-      wireframe: true,
-      transparent: true,
-      opacity: 0.15
-    });
-    const wireMesh = new THREE.Mesh(earthGeo, wireMat);
-    eyeScene.add(wireMesh);
-
-    // 3. Iluminação
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+    // 2. Iluminação
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
     eyeScene.add(ambientLight);
-    const dirLight = new THREE.DirectionalLight(0x00e5ff, 1);
+    const dirLight = new THREE.DirectionalLight(0x00e5ff, 1.2);
     dirLight.position.set(5, 3, 5);
     eyeScene.add(dirLight);
 
-    // 4. Grupo de Pontos
+    // 3. Grupo de Pontos
     pointsGroup = new THREE.Group();
     eyeScene.add(pointsGroup);
 
-    // 5. Controles
+    // 4. Controles
     const controls = new THREE.OrbitControls(eyeCamera, eyeRenderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.05;
@@ -1290,7 +1283,7 @@ window.initEyeOfGodGlobe = function() {
     controls.autoRotate = true;
     controls.autoRotateSpeed = 0.8;
 
-    // 6. Loop de Animação
+    // 5. Loop de Animação
     function animateEye() {
       requestAnimationFrame(animateEye);
       controls.update();
@@ -1298,10 +1291,50 @@ window.initEyeOfGodGlobe = function() {
     }
     animateEye();
 
-    // 7. Buscar dados reais
+    // 6. Buscar dados e configurar UI
     fetchEarthquakes();
+    setupEyeUI();
   }, 100);
 };
+
+function setupEyeUI() {
+    // Toggle Terremotos
+    const eqToggle = document.getElementById('toggle-earthquakes');
+    if (eqToggle) {
+        eqToggle.addEventListener('change', (e) => {
+            if (pointsGroup) pointsGroup.visible = e.target.checked;
+        });
+    }
+
+    // Slider de Magnitude
+    const eqSlider = document.getElementById('eq-slider');
+    const eqVal = document.getElementById('eq-val');
+    if (eqSlider) {
+        eqSlider.addEventListener('input', (e) => {
+            currentMinMagnitude = parseFloat(e.target.value);
+            if (eqVal) eqVal.textContent = currentMinMagnitude;
+            
+            if (pointsGroup) {
+                pointsGroup.children.forEach(mesh => {
+                    if (mesh.userData.mag !== undefined) {
+                        mesh.visible = mesh.userData.mag >= currentMinMagnitude;
+                    }
+                });
+            }
+        });
+    }
+
+    // Toggles vazios (apenas visuais por enquanto)
+    const otherToggles = ['toggle-cyclones', 'toggle-fires'];
+    otherToggles.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+            el.addEventListener('change', (e) => {
+                window.showToast(e.target.checked ? `Camada ${id.split('-')[1]} ativada (dados em breve)` : `Camada ${id.split('-')[1]} desativada`);
+            });
+        }
+    });
+}
 
 async function fetchEarthquakes() {
   try {
@@ -1329,6 +1362,9 @@ async function fetchEarthquakes() {
       const pointMesh = new THREE.Mesh(pointGeo, pointMat);
       
       pointMesh.position.copy(pos);
+      pointMesh.userData.mag = mag; // Salva a magnitude para o filtro
+      pointMesh.visible = mag >= currentMinMagnitude; // Aplica o filtro inicial
+      
       pointsGroup.add(pointMesh);
     });
 
@@ -1346,7 +1382,6 @@ window.addEventListener('resize', () => {
   }
 });
 
-/* ---------- CHAMADA DO OLHO DE DEUS ---------- */
 window.openEyeOfGod = function() {
   document.body.classList.add('hide-sidebar');
   
@@ -1363,11 +1398,8 @@ window.openEyeOfGod = function() {
       overlay.classList.remove('hidden');
       void overlay.offsetWidth; 
       overlay.classList.add('active');
-      
-      // Inicializa o globo
       if (window.initEyeOfGodGlobe) window.initEyeOfGodGlobe();
 
-      // Adiciona a funcionalidade de clicar nas abas laterais
       document.querySelectorAll('.eye-menu-btn').forEach(btn => {
         btn.onclick = () => {
           document.querySelectorAll('.eye-menu-btn').forEach(b => b.classList.remove('active'));
