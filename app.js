@@ -880,6 +880,12 @@ async function sendCommandToFriday(command, isInitial = false) {
               currentToolCard = addToolCard(dataObj.tool);
             }
 
+            // ---- NOVO: GATILHO DO OLHO DE DEUS ----
+            if (dataObj.action === 'open_eye_of_god') {
+              window.openEyeOfGod();
+            }
+            // --------------------------------------
+
             if (dataObj.music) {
               $('musicPlayer').src = dataObj.music;
               $('musicPlayerContainer').classList.remove('hidden');
@@ -915,10 +921,10 @@ async function sendCommandToFriday(command, isInitial = false) {
 
     if (botError) {
       botSpan.innerHTML = "[ERRO] " + botError;
-   } else if (!fullReplyText.trim()) {
+    } else if (!fullReplyText.trim()) {
       botSpan.innerHTML = "Desculpe, chefe. Não obtive resposta do núcleo neural.";
       window.setStatus("Sistema online.");
-   } else {
+    } else {
       window.setStatus("Sistema online.");
       scrambleText(botSpan, fullReplyText);
       lastReply = fullReplyText; window.speakResponse(fullReplyText);
@@ -1212,10 +1218,8 @@ window.addEventListener('load', () => {
 
 /* ---------- OLHO DE DEUS ---------- */
 window.openEyeOfGod = function() {
-  // 1. Fecha as abas laterais e o chat
   document.body.classList.add('hide-sidebar');
   
-  // 2. Efeito de Zoom no Reator (simula a câmera indo pra frente)
   const stage = document.getElementById('reactorStage');
   if (stage) {
     stage.style.transition = 'transform 2s cubic-bezier(0.4, 0, 0.2, 1), opacity 2s';
@@ -1223,24 +1227,21 @@ window.openEyeOfGod = function() {
     stage.style.opacity = '0';
   }
 
-  // 3. Ativa o overlay do Olho de Deus
   setTimeout(() => {
     const overlay = document.getElementById('eyeOfGod');
-    overlay.classList.remove('hidden');
-    // Força o navegador a renderizar antes de mudar a opacidade para a transição funcionar
-    void overlay.offsetWidth; 
-    overlay.classList.add('active');
-    
-    // Opcional: Chamar o script do globo 3D aqui
-    if (window.initEyeOfGodGlobe) window.initEyeOfGodGlobe();
-  }, 1000); // 1 segundo de delay enquanto o reator "se aproxima"
+    if (overlay) {
+      overlay.classList.remove('hidden');
+      void overlay.offsetWidth; 
+      overlay.classList.add('active');
+      if (window.initEyeOfGodGlobe) window.initEyeOfGodGlobe();
+    }
+  }, 1000);
 };
 
 document.getElementById('closeEyeBtn')?.addEventListener('click', () => {
   const overlay = document.getElementById('eyeOfGod');
-  overlay.classList.remove('active');
+  if (overlay) overlay.classList.remove('active');
   
-  // Restaura o reator
   const stage = document.getElementById('reactorStage');
   if (stage) {
     stage.style.transform = 'scale(1)';
@@ -1248,10 +1249,9 @@ document.getElementById('closeEyeBtn')?.addEventListener('click', () => {
     setTimeout(() => stage.style.transition = '', 2000);
   }
   
-  // Restaura as abas laterais se o usuário quiser
   document.body.classList.remove('hide-sidebar');
 
   setTimeout(() => {
-    overlay.classList.add('hidden');
+    if (overlay) overlay.classList.add('hidden');
   }, 1500);
 });
