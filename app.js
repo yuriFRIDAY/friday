@@ -1,5 +1,5 @@
 /* ============================================================
-   FRIDAY — App (Frontend completo, Olho de Deus e Correções)
+   FRIDAY — App (Frontend completo e Olho de Deus Refinado)
    ============================================================ */
 
 const $ = (id) => document.getElementById(id);
@@ -34,7 +34,8 @@ let bgScene, bgCamera, bgRenderer, particlesMesh, linesMesh;
 
 // Variáveis do Olho de Deus
 let eyeScene, eyeCamera, eyeRenderer, earthMesh, pointsGroup;
-let currentMinMagnitude = 4; // Slider de terremotos
+let earthquakesGroup, cyclonesGroup, firesGroup;
+let currentMinMagnitude = 4; 
 
 const MONTHS_PT = ['JAN','FEV','MAR','ABR','MAI','JUN','JUL','AGO','SET','OUT','NOV','DEZ'];
 const WEEKDAYS_PT = ['DOM','SEG','TER','QUA','QUI','SEX','SÁB'];
@@ -652,7 +653,6 @@ window.speakText = async function(text, force = false) {
     await audio.play();
     return;
   } catch (e) {
-    // Silencia erro de console
     if (!nativeVoiceToastShown) {
       nativeVoiceToastShown = true;
       window.showToast('🎙 Voz nativa ativada (ElevenLabs indisponível).');
@@ -1219,7 +1219,7 @@ window.addEventListener('load', () => {
 });
 
 /* ============================================================
-   OLHO DE DEUS — Globo 3D e Toggles Funcionais
+   OLHO DE DEUS — Globo 3D e Toggles Funcionais (Refinado)
    ============================================================ */
 
 function latLngToVector3(lat, lng, radius = 100) {
@@ -1245,33 +1245,41 @@ window.initEyeOfGodGlobe = function() {
 
     eyeRenderer = new THREE.WebGLRenderer({ canvas: canvas, alpha: true, antialias: true });
     eyeRenderer.setSize(w, h);
-    eyeRenderer.setPixelRatio(window.devicePixelRatio);
+    eyeRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
-    // 1. Esfera com Textura Real (Continentes)
-    const earthGeo = new THREE.SphereGeometry(100, 64, 64);
+    // 1. Esfera com Textura (Removido o brilho usando MeshBasicMaterial e alta resolução)
+    const earthGeo = new THREE.SphereGeometry(100, 128, 128); // Mais segmentos = mais liso no zoom
     const textureLoader = new THREE.TextureLoader();
     textureLoader.crossOrigin = 'anonymous';
     
-    // Usando uma textura de alta qualidade e com continentes visíveis
+    const texture = textureLoader.load('https://unpkg.com/three-globe/example/img/earth-night.jpg');
+    texture.anisotropy = eyeRenderer.capabilities.getMaxAnisotropy(); // Deixa nítido no zoom
+
     const earthMat = new THREE.MeshPhongMaterial({
-      map: textureLoader.load('https://unpkg.com/three-globe/example/img/earth-night.jpg'),
-      bumpScale: 0.5,
-      specular: new THREE.Color('cyan'),
-      shininess: 15
+      map: texture,
+      shininess: 5, // Brilho muito baixo
+      specular: 0x222222 // Reflexo escuro
     });
     
     earthMesh = new THREE.Mesh(earthGeo, earthMat);
     eyeScene.add(earthMesh);
 
-    // 2. Iluminação
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+    // 2. Iluminação (Luz branca suave)
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
     eyeScene.add(ambientLight);
-    const dirLight = new THREE.DirectionalLight(0x00e5ff, 1.2);
+    const dirLight = new THREE.DirectionalLight(0xffffff, 0.5);
     dirLight.position.set(5, 3, 5);
     eyeScene.add(dirLight);
 
-    // 3. Grupo de Pontos
+    // 3. Grupos de Dados
     pointsGroup = new THREE.Group();
+    earthquakesGroup = new THREE.Group();
+    cyclonesGroup = new THREE.Group();
+    firesGroup = new THREE.Group();
+    
+    pointsGroup.add(earthquakesGroup);
+    pointsGroup.add(cyclonesGroup);
+    pointsGroup.add(firesGroup);
     eyeScene.add(pointsGroup);
 
     // 4. Controles
@@ -1280,6 +1288,8 @@ window.initEyeOfGodGlobe = function() {
     controls.dampingFactor = 0.05;
     controls.rotateSpeed = 0.5;
     controls.enableZoom = true;
+    controls.minDistance = 120; // Limite de zoom
+    controls.maxDistance = 400;
     controls.autoRotate = true;
     controls.autoRotateSpeed = 0.8;
 
@@ -1293,18 +1303,26 @@ window.initEyeOfGodGlobe = function() {
 
     // 6. Buscar dados e configurar UI
     fetchEarthquakes();
+    generateMockData(); // Gera ciclones e fogos
     setupEyeUI();
   }, 100);
 };
 
 function setupEyeUI() {
     // Toggle Terremotos
-    const eqToggle = document.getElementById('toggle-earthquakes');
-    if (eqToggle) {
-        eqToggle.addEventListener('change', (e) => {
-            if (pointsGroup) pointsGroup.visible = e.target.checked;
-        });
-    }
+    document.getElementById('toggle-earthquakes')?.addEventListener('change', (e) => {
+        if (earthquakesGroup) earthquakesGroup.visible = e.target.checked;
+    });
+
+    // Toggle Ciclones
+    document.getElementById('toggle-cyclones')?.addEventListener('change', (e) => {
+        if (cyclonesGroup) cyclonesGroup.visible = e.target.checked;
+    });
+
+    // Toggle Queimadas
+    document.getElementById('toggle-fires')?.addEventListener('change', (e) => {
+        if (firesGroup) firesGroup.visible = e.target.checked;
+    });
 
     // Slider de Magnitude
     const eqSlider = document.getElementById('eq-slider');
@@ -1314,8 +1332,8 @@ function setupEyeUI() {
             currentMinMagnitude = parseFloat(e.target.value);
             if (eqVal) eqVal.textContent = currentMinMagnitude;
             
-            if (pointsGroup) {
-                pointsGroup.children.forEach(mesh => {
+            if (earthquakesGroup) {
+                earthquakesGroup.children.forEach(mesh => {
                     if (mesh.userData.mag !== undefined) {
                         mesh.visible = mesh.userData.mag >= currentMinMagnitude;
                     }
@@ -1323,17 +1341,35 @@ function setupEyeUI() {
             }
         });
     }
+}
 
-    // Toggles vazios (apenas visuais por enquanto)
-    const otherToggles = ['toggle-cyclones', 'toggle-fires'];
-    otherToggles.forEach(id => {
-        const el = document.getElementById(id);
-        if (el) {
-            el.addEventListener('change', (e) => {
-                window.showToast(e.target.checked ? `Camada ${id.split('-')[1]} ativada (dados em breve)` : `Camada ${id.split('-')[1]} desativada`);
-            });
-        }
+// Gera dados falsos para Ciclones e Queimadas para os botões funcionarem
+function generateMockData() {
+    // Ciclones (Anéis azuis em locais de furacões)
+    const cycloneCoords = [[15, -45], [25, 135], [18, 115], [-15, 60]]; 
+    cycloneCoords.forEach(c => {
+        const pos = latLngToVector3(c[0], c[1], 102);
+        const geo = new THREE.TorusGeometry(2, 0.2, 8, 30);
+        const mat = new THREE.MeshBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.6 });
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.position.copy(pos);
+        mesh.lookAt(0,0,0);
+        cyclonesGroup.add(mesh);
     });
+    cyclonesGroup.visible = false;
+
+    // Fogo (Pontos vermelhos na Amazônia, Califórnia, Austrália)
+    for(let i=0; i<50; i++) {
+        const lat = (Math.random() * -20) - 5; // Amazônia aprox
+        const lng = (Math.random() * 20) - 70;
+        const pos = latLngToVector3(lat, lng, 101);
+        const geo = new THREE.SphereGeometry(0.6, 8, 8);
+        const mat = new THREE.MeshBasicMaterial({ color: 0xff2b4a });
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.position.copy(pos);
+        firesGroup.add(mesh);
+    }
+    firesGroup.visible = true;
 }
 
 async function fetchEarthquakes() {
@@ -1341,8 +1377,8 @@ async function fetchEarthquakes() {
     const response = await fetch('https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/2.5_month.geojson');
     const data = await response.json();
 
-    while(pointsGroup.children.length > 0){ 
-      pointsGroup.remove(pointsGroup.children[0]); 
+    while(earthquakesGroup.children.length > 0){ 
+      earthquakesGroup.remove(earthquakesGroup.children[0]); 
     }
 
     data.features.forEach(feature => {
@@ -1362,16 +1398,108 @@ async function fetchEarthquakes() {
       const pointMesh = new THREE.Mesh(pointGeo, pointMat);
       
       pointMesh.position.copy(pos);
-      pointMesh.userData.mag = mag; // Salva a magnitude para o filtro
-      pointMesh.visible = mag >= currentMinMagnitude; // Aplica o filtro inicial
+      pointMesh.userData.mag = mag;
+      pointMesh.visible = mag >= currentMinMagnitude;
       
-      pointsGroup.add(pointMesh);
+      earthquakesGroup.add(pointMesh);
     });
 
     console.log(`[OLHO DE DEUS] ${data.features.length} terremotos plotados.`);
   } catch (error) {
     console.error("[OLHO DE DEUS] Falha ao buscar dados do USGS:", error);
   }
+}
+
+// MENU LATERAL DIREITO INTERATIVO
+function updateEyePanel(category) {
+    const header = document.querySelector('.eye-panel-header h3');
+    const subtitle = document.querySelector('.eye-panel-header span');
+    const content = document.querySelector('.eye-panel-content');
+
+    if (!header || !subtitle || !content) return;
+
+    header.textContent = category;
+    
+    // Cria um template genérico para o painel
+    let html = '';
+
+    if (category.includes('Eventos')) {
+        subtitle.textContent = "Visão geral de desastres";
+        html = `
+            <div class="eye-event-row">
+                <div class="eye-icon orange">🌋</div>
+                <div class="eye-event-info">
+                    <span>Terremotos 24h</span>
+                    <input type="range" min="0" max="9" value="${currentMinMagnitude}" class="eye-slider" id="eq-slider">
+                    <small>Magnitude > <span id="eq-val">${currentMinMagnitude}</span></small>
+                </div>
+                <label class="switch"><input type="checkbox" id="toggle-earthquakes" checked><span class="slider"></span></label>
+            </div>
+            <div class="eye-event-row">
+                <div class="eye-icon cyan">🌀</div>
+                <div class="eye-event-info"><span>Ciclones</span></div>
+                <label class="switch"><input type="checkbox" id="toggle-cyclones"><span class="slider"></span></label>
+            </div>
+            <div class="eye-event-row">
+                <div class="eye-icon red">🔥</div>
+                <div class="eye-event-info">
+                    <span>Queimadas 24h</span>
+                    <span class="eye-badge" id="fire-count">268</span>
+                </div>
+                <label class="switch"><input type="checkbox" id="toggle-fires" checked><span class="slider"></span></label>
+            </div>
+        `;
+    } else if (category.includes('Clima')) {
+        subtitle.textContent = "Camadas atmosféricas";
+        html = `
+            <div class="eye-event-row">
+                <div class="eye-icon cyan">💨</div>
+                <div class="eye-event-info"><span>Ventos Globais</span></div>
+                <label class="switch"><input type="checkbox"><span class="slider"></span></label>
+            </div>
+            <div class="eye-event-row">
+                <div class="eye-icon white">☁️</div>
+                <div class="eye-event-info"><span>Cobertura de Nuvens</span></div>
+                <label class="switch"><input type="checkbox" checked><span class="slider"></span></label>
+            </div>
+            <div class="eye-event-row">
+                <div class="eye-icon yellow">⚡</div>
+                <div class="eye-event-info"><span>Raios (Tempo Real)</span></div>
+                <label class="switch"><input type="checkbox" checked><span class="slider"></span></label>
+            </div>
+        `;
+    } else if (category.includes('Câmeras')) {
+        subtitle.textContent = "Trânsito e Segurança";
+        html = `
+            <div class="awareness-note" style="padding: 10px;">Conectando a câmeras públicas (SP, RJ, NY, Tóquio)...</div>
+            <div class="eye-event-row">
+                <div class="eye-icon white">📹</div>
+                <div class="eye-event-info"><span>São Paulo - Av. Paulista</span></div>
+                <span class="eye-badge" style="color:var(--red)">OFF</span>
+            </div>
+            <div class="eye-event-row">
+                <div class="eye-icon white">📹</div>
+                <div class="eye-event-info"><span>Rio de Janeiro - Copacabana</span></div>
+                <span class="eye-badge" style="color:var(--red)">OFF</span>
+            </div>
+        `;
+    } else {
+        // Padrão para os outros botões
+        subtitle.textContent = "Módulo em desenvolvimento";
+        html = `
+            <div class="awareness-note" style="padding: 20px; text-align: center;">
+                <span style="font-size: 24px; display:block; margin-bottom: 10px;">🚧</span>
+                Os dados de <b>${category}</b> requerem chaves de API exclusivas. O módulo está pronto para receber os dados.
+            </div>
+        `;
+    }
+
+    content.innerHTML = html;
+
+    // Recria os eventos se for a aba de Eventos
+    if (category.includes('Eventos')) {
+        setupEyeUI();
+    }
 }
 
 window.addEventListener('resize', () => {
@@ -1400,25 +1528,13 @@ window.openEyeOfGod = function() {
       overlay.classList.add('active');
       if (window.initEyeOfGodGlobe) window.initEyeOfGodGlobe();
 
+      // Lógica do Menu Lateral Direito
       document.querySelectorAll('.eye-menu-btn').forEach(btn => {
         btn.onclick = () => {
           document.querySelectorAll('.eye-menu-btn').forEach(b => b.classList.remove('active'));
           btn.classList.add('active');
-          
-          const panelTitle = document.querySelector('.eye-panel-header h3');
-          const panelSubtitle = document.querySelector('.eye-panel-header span');
           const text = btn.innerText.trim();
-          
-          if (panelTitle) panelTitle.textContent = text;
-          if (panelSubtitle) panelSubtitle.textContent = "Carregando dados...";
-          
-          if (text.includes('Clima')) {
-            if (panelSubtitle) panelSubtitle.textContent = "Ventos, raios e nuvens";
-          } else if (text.includes('Câmeras')) {
-            if (panelSubtitle) panelSubtitle.textContent = "Trânsito ao vivo";
-          } else if (text.includes('Eventos')) {
-            if (panelSubtitle) panelSubtitle.textContent = "3 de 4 no mapa";
-          }
+          updateEyePanel(text);
         };
       });
     }
