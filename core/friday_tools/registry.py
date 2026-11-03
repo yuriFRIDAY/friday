@@ -1,8 +1,7 @@
 import json
 import logging
 
-# Importa todos os handlers modulares
-from .utils import _as_text # Apenas para checar se importa certo
+from .utils import _as_text
 from .web import _handler_get_weather, _handler_get_news, _handler_search_web, _handler_deep_search, _handler_read_webpage
 from .calendar import _handler_get_calendar_events, _handler_create_calendar_event, _handler_delete_calendar_event, _handler_update_calendar_event, _handler_find_free_slots
 from .email import _handler_send_email, _handler_reply_to_email, _handler_read_emails, _handler_read_email_full, _handler_get_email_thread
@@ -13,7 +12,6 @@ from .context import _MEMORY_CONTEXT
 
 logger = logging.getLogger("friday.tools")
 
-# Funções de memória que dependem do contexto injetado pelo app.py
 def _handler_save_memory(key, value):
     save_func = _MEMORY_CONTEXT.get("save")
     if not callable(save_func): return {"error": "Memória indisponível."}
@@ -54,6 +52,9 @@ def _handler_get_crypto_price(coin="bitcoin"):
         return result
     except Exception as e: return {"error": f"Falha ao buscar cotação: {str(e)}"}
 
+def _handler_open_eye_of_god():
+    return {"action": "open_eye_of_god", "status": "ativando"}
+
 REQUIRES_CONFIRMATION = {"send_email", "reply_to_email", "delete_calendar_event"}
 
 TOOL_REGISTRY = {
@@ -83,11 +84,12 @@ TOOL_REGISTRY = {
     "delete_calendar_event": {"description": "Exclui evento do calendário.", "handler": _handler_delete_calendar_event, "parameters": {"type": "object", "properties": {"event_id": {"type": "string", "description": "ID do evento"}}, "required": ["event_id"]}},
     "update_calendar_event": {"description": "Atualiza evento do calendário.", "handler": _handler_update_calendar_event, "parameters": {"type": "object", "properties": {"event_id": {"type": "string", "description": "ID do evento"}, "summary": {"type": "string", "description": "Novo título"}, "start_natural": {"type": "string", "description": "Nova data de início"}, "end_natural": {"type": "string", "description": "Nova data de término"}}, "required": ["event_id"]}},
     "find_free_slots": {"description": "Encontra horários livres na agenda.", "handler": _handler_find_free_slots, "parameters": {"type": "object", "properties": {"date_iso": {"type": "string", "description": "Data (YYYY-MM-DD)"}}, "required": ["date_iso"]}},
+    # ---- NOVA FERRAMENTA ----
     "open_eye_of_god": {
-    "description": "Ativa a interface global de monitoramento 'Olho de Deus' no painel do usuário.",
-    "handler": lambda: {"action": "open_eye_of_god"},
-    "parameters": {"type": "object", "properties": {}},
-    },
+        "description": "Ativa a interface global de monitoramento 'Olho de Deus' no painel do usuário.",
+        "handler": _handler_open_eye_of_god,
+        "parameters": {"type": "object", "properties": {}}
+    }
 }
 
 def public_tool_specs():
