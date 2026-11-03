@@ -309,6 +309,106 @@ input:checked + .slider:before{transform:translateX(18px);background:var(--cyan)
 
 @media (max-width:1100px){.hud-main{grid-template-columns:240px 1fr 260px}}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:0.01ms !important;transition-duration:0.01ms !important}}
+
+/* =========================================
+   OLHO DE DEUS (EYE OF GOD)
+   ========================================= */
+.eye-of-god-overlay {
+    position: fixed; inset: 0; z-index: 10000;
+    background: #00050a;
+    opacity: 0; transition: opacity 1.5s ease;
+    overflow: hidden;
+}
+.eye-of-god-overlay.active { opacity: 1; }
+#eye-canvas { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 1; }
+
+.eye-top-bar {
+    position: absolute; top: 20px; left: 50%; transform: translateX(-50%);
+    width: 90%; max-width: 1200px; z-index: 10;
+    display: flex; justify-content: space-between; align-items: center;
+    opacity: 0; transform: translateY(-20px); transition: all 1s ease 1s;
+}
+.eye-of-god-overlay.active .eye-top-bar { opacity: 1; transform: translateY(0); }
+
+.eye-search {
+    flex: 1; max-width: 600px;
+    background: rgba(0, 20, 40, 0.6); border: 1px solid rgba(0, 229, 255, 0.3);
+    border-radius: 30px; padding: 10px 20px;
+    display: flex; align-items: center; gap: 10px;
+    font-family: var(--font-mono); font-size: 14px; color: var(--cyan-2);
+    backdrop-filter: blur(10px);
+}
+.eye-search input {
+    flex: 1; background: transparent; border: none; outline: none;
+    color: var(--text-bright); font-family: var(--font-mono); font-size: 14px;
+}
+.eye-shortcut {
+    background: rgba(255, 255, 255, 0.1); padding: 2px 8px; border-radius: 4px;
+    font-size: 10px; color: var(--text-mid);
+}
+.eye-close-btn {
+    background: rgba(255, 43, 74, 0.2); border: 1px solid var(--red);
+    color: var(--red); padding: 10px 20px; border-radius: 30px;
+    font-family: var(--font-mono); cursor: pointer; transition: all 0.3s;
+    backdrop-filter: blur(10px);
+}
+.eye-close-btn:hover { background: var(--red); color: #fff; box-shadow: 0 0 20px var(--red); }
+
+.eye-panel-left {
+    position: absolute; top: 80px; left: 20px; width: 320px; z-index: 10;
+    background: rgba(0, 15, 30, 0.8); border: 1px solid rgba(0, 229, 255, 0.2);
+    border-radius: 12px; backdrop-filter: blur(15px);
+    opacity: 0; transform: translateX(-30px); transition: all 1s ease 1.2s;
+}
+.eye-of-god-overlay.active .eye-panel-left { opacity: 1; transform: translateX(0); }
+
+.eye-panel-header {
+    padding: 15px 20px; border-bottom: 1px solid rgba(0, 229, 255, 0.1);
+    display: flex; flex-direction: column; gap: 5px;
+}
+.eye-panel-header h3 { margin: 0; color: var(--text-bright); font-family: var(--font-title); font-size: 14px; }
+.eye-panel-header span { color: var(--text-mid); font-family: var(--font-mono); font-size: 10px; }
+
+.eye-panel-content { padding: 10px; display: flex; flex-direction: column; gap: 5px; }
+.eye-event-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px; border-radius: 8px; background: rgba(0, 0, 0, 0.3);
+    transition: background 0.2s;
+}
+.eye-event-row:hover { background: rgba(0, 229, 255, 0.05); }
+.eye-icon {
+    width: 32px; height: 32px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center; font-size: 16px;
+}
+.eye-icon.orange { background: rgba(255, 140, 0, 0.2); border: 1px solid var(--orange); }
+.eye-icon.cyan { background: rgba(0, 229, 255, 0.2); border: 1px solid var(--cyan); }
+.eye-icon.red { background: rgba(255, 43, 74, 0.2); border: 1px solid var(--red); }
+
+.eye-event-info { flex: 1; margin-left: 15px; display: flex; flex-direction: column; gap: 4px; }
+.eye-event-info span { color: var(--text-bright); font-family: var(--font-tech); font-size: 13px; font-weight: 500; }
+.eye-event-info small { color: var(--text-mid); font-family: var(--font-mono); font-size: 9px; }
+.eye-badge { color: var(--cyan) !important; font-family: var(--font-mono); font-size: 11px; align-self: flex-end; }
+
+.eye-slider { width: 100%; accent-color: var(--orange); height: 4px; }
+
+.eye-menu-right {
+    position: absolute; right: 20px; top: 50%; transform: translateY(-50%); z-index: 10;
+    display: flex; flex-direction: column; gap: 8px;
+    opacity: 0; transition: all 1s ease 1.4s;
+}
+.eye-of-god-overlay.active .eye-menu-right { opacity: 1; }
+.eye-menu-btn {
+    background: rgba(0, 15, 30, 0.6); border: 1px solid rgba(0, 229, 255, 0.1);
+    color: var(--text-mid); width: 80px; height: 70px; border-radius: 12px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px;
+    font-family: var(--font-mono); font-size: 9px; cursor: pointer;
+    backdrop-filter: blur(10px); transition: all 0.2s;
+}
+.eye-menu-btn span { font-size: 20px; }
+.eye-menu-btn:hover, .eye-menu-btn.active {
+    border-color: var(--cyan); color: var(--cyan); box-shadow: 0 0 15px rgba(0,229,255,0.2);
+    background: rgba(0, 229, 255, 0.1);
+}
 </style>
 </head>
 <body data-state="idle">
