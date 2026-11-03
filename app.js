@@ -882,37 +882,74 @@ async function sendCommandToFriday(command, isInitial = false) {
 
             // ---- NOVO: GATILHO DO OLHO DE DEUS ----
             if (dataObj.action === 'open_eye_of_god') {
-              window.openEyeOfGod();
-            }
-            // --------------------------------------
+              /* ---------- OLHO DE DEUS ---------- */
+window.openEyeOfGod = function() {
+  document.body.classList.add('hide-sidebar');
+  
+  const stage = document.getElementById('reactorStage');
+  if (stage) {
+    stage.style.transition = 'transform 2s cubic-bezier(0.4, 0, 0.2, 1), opacity 2s';
+    stage.style.transform = 'scale(3)';
+    stage.style.opacity = '0';
+  }
 
-            if (dataObj.music) {
-              $('musicPlayer').src = dataObj.music;
-              $('musicPlayerContainer').classList.remove('hidden');
-              if (currentToolCard) { currentToolCard.classList.remove('loading'); currentToolCard = null; }
-            }
-            if (dataObj.music_action) {
-              if (dataObj.music_action === 'pause' && window.ytPlayer && window.ytPlayer.pauseVideo) window.ytPlayer.pauseVideo();
-              if (dataObj.music_action === 'play' && window.ytPlayer && window.ytPlayer.playVideo) window.ytPlayer.playVideo();
-              if (currentToolCard) { currentToolCard.classList.remove('loading'); currentToolCard = null; }
-            }
+  setTimeout(() => {
+    const overlay = document.getElementById('eyeOfGod');
+    if (overlay) {
+      overlay.classList.remove('hidden');
+      void overlay.offsetWidth; 
+      overlay.classList.add('active');
+      
+      // Inicializa o globo
+      if (window.initEyeOfGodGlobe) window.initEyeOfGodGlobe();
 
-            if (dataObj.text) {
-              if (botMsgEl.classList.contains('typing')) botMsgEl.classList.remove('typing');
-              if (currentToolCard) { currentToolCard.classList.remove('loading'); currentToolCard = null; }
-              fullReplyText += dataObj.text;
-              botSpan.innerHTML = safeMarkedParse(fullReplyText);
-              $("messages").scrollTop = $("messages").scrollHeight;
-            }
-            if (dataObj.error) {
-              if (currentToolCard) { currentToolCard.classList.remove('loading'); currentToolCard = null; }
-              botMsgEl.classList.remove('typing');
-              botError = dataObj.error;
-              window.setStatus("Erro na IA.");
-            }
-          } catch (e) {}
-        }
-      }
+      // Adiciona a funcionalidade de clicar nas abas laterais
+      document.querySelectorAll('.eye-menu-btn').forEach(btn => {
+        btn.onclick = () => {
+          // Remove 'active' de todos
+          document.querySelectorAll('.eye-menu-btn').forEach(b => b.classList.remove('active'));
+          // Adiciona no clicado
+          btn.classList.add('active');
+          
+          // Muda o título do painel esquerdo baseado na aba
+          const panelTitle = document.querySelector('.eye-panel-header h3');
+          const panelSubtitle = document.querySelector('.eye-panel-header span');
+          const text = btn.innerText.trim();
+          
+          if (panelTitle) panelTitle.textContent = text;
+          if (panelSubtitle) panelSubtitle.textContent = "Carregando dados...";
+          
+          // Aqui no futuro vamos chamar as APIs específicas de cada aba
+          if (text.includes('Clima')) {
+            if (panelSubtitle) panelSubtitle.textContent = "Ventos, raios e nuvens";
+          } else if (text.includes('Câmeras')) {
+            if (panelSubtitle) panelSubtitle.textContent = "Trânsito ao vivo";
+          } else if (text.includes('Eventos')) {
+            if (panelSubtitle) panelSubtitle.textContent = "3 de 4 no mapa";
+          }
+        };
+      });
+    }
+  }, 1000); 
+};
+
+document.getElementById('closeEyeBtn')?.addEventListener('click', () => {
+  const overlay = document.getElementById('eyeOfGod');
+  if (overlay) overlay.classList.remove('active');
+  
+  const stage = document.getElementById('reactorStage');
+  if (stage) {
+    stage.style.transform = 'scale(1)';
+    stage.style.opacity = '1';
+    setTimeout(() => stage.style.transition = '', 2000);
+  }
+  
+  document.body.classList.remove('hide-sidebar');
+
+  setTimeout(() => {
+    if (overlay) overlay.classList.add('hidden');
+  }, 1500);
+});
     }
     botMsgEl.classList.remove('typing');
     if (currentToolCard) { currentToolCard.classList.remove('loading'); currentToolCard = null; }
