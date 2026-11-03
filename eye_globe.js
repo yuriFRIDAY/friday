@@ -1,6 +1,7 @@
 /* ============================================================
    FRIDAY — Olho de Deus (Globo 3D e Dados Reais)
-============================================================ */
+   ============================================================ */
+
 let eyeScene, eyeCamera, eyeRenderer, earthMesh, pointsGroup;
 
 function latLngToVector3(lat, lng, radius = 100) {
@@ -18,7 +19,6 @@ window.initEyeOfGodGlobe = function() {
   if (eyeRenderer) return;
 
   eyeScene = new THREE.Scene();
-  // Ajustar a câmera para o tamanho real do container no momento em que abre
   setTimeout(() => {
     const w = window.innerWidth;
     const h = window.innerHeight;
@@ -29,7 +29,6 @@ window.initEyeOfGodGlobe = function() {
     eyeRenderer.setSize(w, h);
     eyeRenderer.setPixelRatio(window.devicePixelRatio);
 
-    // 1. Globo Base (Wireframe Neon)
     const geometry = new THREE.SphereGeometry(100, 64, 64);
     const wireframeMat = new THREE.MeshBasicMaterial({
       color: 0x00e5ff,
@@ -40,13 +39,11 @@ window.initEyeOfGodGlobe = function() {
     earthMesh = new THREE.Mesh(geometry, wireframeMat);
     eyeScene.add(earthMesh);
 
-    // 2. Tentar carregar a textura da Terra (com fallback em caso de erro)
     const textureLoader = new THREE.TextureLoader();
     textureLoader.crossOrigin = 'anonymous';
     textureLoader.load(
       'https://unpkg.com/three-globe/example/img/earth-night.jpg',
       (texture) => {
-        // Se carregar, aplica a textura e remove o wireframe
         const material = new THREE.MeshPhongMaterial({
           map: texture,
           bumpScale: 0.5,
@@ -55,7 +52,6 @@ window.initEyeOfGodGlobe = function() {
         });
         earthMesh.material = material;
         
-        // Adicionar luzes para a textura aparecer
         const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
         eyeScene.add(ambientLight);
         const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
@@ -87,12 +83,11 @@ window.initEyeOfGodGlobe = function() {
     animateEye();
 
     fetchEarthquakes();
-  }, 100); // Pequeno delay para garantir que o canvas já tem tamanho
+  }, 100);
 };
 
 async function fetchEarthquakes() {
   try {
-    // Puxa terremotos de magnitude 2.5+ no último mês
     const response = await fetch('https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/2.5_month.geojson');
     const data = await response.json();
 
@@ -101,16 +96,16 @@ async function fetchEarthquakes() {
     }
 
     data.features.forEach(feature => {
-      const coords = feature.geometry.coordinates; // [longitude, latitude, depth]
+      const coords = feature.geometry.coordinates;
       const mag = feature.properties.mag;
       const lng = coords[0];
       const lat = coords[1];
 
-      const pos = latLngToVector3(lat, lng, 101); // Um pouco acima da superfície
+      const pos = latLngToVector3(lat, lng, 101);
 
-      let color = 0x00ffff; // Ciano
-      if (mag >= 5) color = 0xff0000; // Vermelho
-      else if (mag >= 4) color = 0xffaa00; // Laranja
+      let color = 0x00ffff;
+      if (mag >= 5) color = 0xff0000;
+      else if (mag >= 4) color = 0xffaa00;
 
       const pointGeo = new THREE.SphereGeometry(0.5 + (mag * 0.2), 8, 8);
       const pointMat = new THREE.MeshBasicMaterial({ color: color });
