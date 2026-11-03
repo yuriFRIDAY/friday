@@ -457,6 +457,13 @@ async def serve_reactor_js():
     try: return FileResponse(os.path.join(BASE_DIR, "reactor.js"), media_type="application/javascript")
     except Exception: return Response(status_code=404)
 
+# --- NOVO: Liberar o arquivo do Olho de Deus ---
+@app.get("/eye_globe.js")
+async def serve_eye_globe_js():
+    try: return FileResponse(os.path.join(BASE_DIR, "eye_globe.js"), media_type="application/javascript")
+    except Exception: return Response(status_code=404)
+# -----------------------------------------------
+
 @app.get("/manifest.json")
 async def serve_manifest():
     return JSONResponse(content=json.load(open(os.path.join(BASE_DIR, "manifest.json"), "r")))
