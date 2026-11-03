@@ -12,6 +12,7 @@ import traceback
 import threading
 import logging
 import shutil
+import urllib.parse
 from collections import defaultdict
 from datetime import datetime, timezone, timedelta
 from typing import Optional
@@ -457,13 +458,6 @@ async def serve_reactor_js():
     try: return FileResponse(os.path.join(BASE_DIR, "reactor.js"), media_type="application/javascript")
     except Exception: return Response(status_code=404)
 
-# --- NOVO: Liberar o arquivo do Olho de Deus ---
-@app.get("/eye_globe.js")
-async def serve_eye_globe_js():
-    try: return FileResponse(os.path.join(BASE_DIR, "eye_globe.js"), media_type="application/javascript")
-    except Exception: return Response(status_code=404)
-# -----------------------------------------------
-
 @app.get("/manifest.json")
 async def serve_manifest():
     return JSONResponse(content=json.load(open(os.path.join(BASE_DIR, "manifest.json"), "r")))
@@ -471,6 +465,40 @@ async def serve_manifest():
 @app.get("/sw.js")
 async def serve_sw():
     return Response(content=open(os.path.join(BASE_DIR, "sw.js"), "r").read(), media_type="application/javascript")
+
+# --- NOVO: Rota proxy para busca de localização (Photon/OpenStreetMap) ---
+@app.get("/api/search_location")
+async def search_location_proxy(q: str):
+    if not q:
+        raise HTTPException(status_code=400, detail="Termo de busca vazio")
+    
+    url = f"https://photon.komoot.io/api/?q={urllib.parse.quote(q)}&limit=1"
+    
+    try:
+        req = URLRequest(url, headers={"User-Agent": "FRIDAY-OlhoDeDeus/1.0"})
+        with urlopen(req, timeout=10) as response:
+            data = json.loads(response.read().decode("utf-8"))
+            
+            if data.get("features") and len(data["features"]) > 0:
+                feature = data["features"][0]
+                coords = feature["geometry"]["coordinates"]
+                props = feature["properties"]
+                
+                return {
+                    "ok": True,
+                    "lng": coords[0],
+                    "lat": coords[1],
+                    "name": props.get("name", q),
+                    "country": props.get("country", ""),
+                    "state": props.get("state", "")
+                }
+            else:
+                return {"ok": False, "error": "Local não encontrado."}
+                
+    except Exception as e:
+        logger.error(f"Erro na busca Photon: {e}")
+        return {"ok": False, "error": "Falha na conexão com o serviço de mapas."}
+# -------------------------------------------------------------------------
 
 @app.get("/status")
 async def get_status(friday_session: Optional[str] = Cookie(None)):
@@ -688,10 +716,8 @@ async def chat_endpoint(data: ChatData, friday_session: Optional[str] = Cookie(N
                             result = exec_res.get("result")
                             _audit_tool(tc_data["name"], args, True, None)
                             
-                            # ---- NOVO: ENVIA COMANDO PARA O FRONTEND ----
                             if tc_data["name"] == "open_eye_of_god":
                                 yield f"data: {json.dumps({'action': 'open_eye_of_god'})}\n\n"
-                            # ---------------------------------------------
 
                             if tc_data["name"] == "play_music" and isinstance(result, dict):
                                 action = result.get("action")
