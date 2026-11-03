@@ -101,6 +101,7 @@ TOOL_STATUS = {
     "complete_task": "✓ Concluindo tarefa...",
     "save_memory": "🧠 Salvando memória...",
     "recall_memory": "🧠 Recuperando memória...",
+    "open_eye_of_god": "👁 Ativando Olho de Deus...",
 }
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -675,11 +676,16 @@ async def chat_endpoint(data: ChatData, friday_session: Optional[str] = Cookie(N
                         if not exec_res.get("ok"):
                             err_msg = exec_res.get("error", "Erro desconhecido na ferramenta")
                             _audit_tool(tc_data["name"], args, False, err_msg)
-                            # Em vez de quebrar, enviamos o erro para a IA explicar ao usuário
                             tool_content = f"ERRO NA FERRAMENTA: {err_msg}. Explique isso ao Chefe de forma natural e sugira uma solução se possível."
                         else:
                             result = exec_res.get("result")
                             _audit_tool(tc_data["name"], args, True, None)
+                            
+                            # ---- NOVO: ENVIA COMANDO PARA O FRONTEND ----
+                            if tc_data["name"] == "open_eye_of_god":
+                                yield f"data: {json.dumps({'action': 'open_eye_of_god'})}\n\n"
+                            # ---------------------------------------------
+
                             if tc_data["name"] == "play_music" and isinstance(result, dict):
                                 action = result.get("action")
                                 if action == "play_new" and result.get("url"): yield f"data: {json.dumps({'music': result['url']})}\n\n"
