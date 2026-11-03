@@ -1,5 +1,5 @@
 /* ============================================================
-   FRIDAY — App (Frontend lógica principal)
+   FRIDAY — App (Frontend lógica principal e Olho de Deus)
    ============================================================ */
 
 const $ = (id) => document.getElementById(id);
@@ -31,6 +31,9 @@ let lastAIResponseTime = 0;
 let audioCtx = null;
 
 let bgScene, bgCamera, bgRenderer, particlesMesh, linesMesh;
+
+// Variáveis do Olho de Deus
+let eyeScene, eyeCamera, eyeRenderer, earthMesh, pointsGroup;
 
 const MONTHS_PT = ['JAN','FEV','MAR','ABR','MAI','JUN','JUL','AGO','SET','OUT','NOV','DEZ'];
 const WEEKDAYS_PT = ['DOM','SEG','TER','QUA','QUI','SEX','SÁB'];
@@ -1214,7 +1217,136 @@ window.addEventListener('load', () => {
   }
 });
 
-/* ---------- OLHO DE DEUS ---------- */
+/* ============================================================
+   OLHO DE DEUS — Globo 3D Embutido
+   ============================================================ */
+
+function latLngToVector3(lat, lng, radius = 100) {
+  const phi = (90 - lat) * (Math.PI / 180);
+  const theta = (lng + 180) * (Math.PI / 180);
+  const x = -(radius * Math.sin(phi) * Math.cos(theta));
+  const z = (radius * Math.sin(phi) * Math.sin(theta));
+  const y = (radius * Math.cos(phi));
+  return new THREE.Vector3(x, y, z);
+}
+
+window.initEyeOfGodGlobe = function() {
+  const canvas = document.getElementById('eye-canvas');
+  if (!canvas || eyeRenderer) return;
+
+  eyeScene = new THREE.Scene();
+  
+  // Espera a animação de fade-in terminar para pegar o tamanho real do canvas
+  setTimeout(() => {
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    eyeCamera = new THREE.PerspectiveCamera(45, w / h, 0.1, 1000);
+    eyeCamera.position.z = 250;
+
+    eyeRenderer = new THREE.WebGLRenderer({ canvas: canvas, alpha: true, antialias: true });
+    eyeRenderer.setSize(w, h);
+    eyeRenderer.setPixelRatio(window.devicePixelRatio);
+
+    // 1. Esfera Sólida (Cor Escura para dar profundidade)
+    const earthGeo = new THREE.SphereGeometry(100, 64, 64);
+    const earthMat = new THREE.MeshPhongMaterial({
+      color: 0x001a22,
+      emissive: 0x000a10,
+      specular: new THREE.Color('cyan'),
+      shininess: 10,
+      transparent: true,
+      opacity: 0.8
+    });
+    earthMesh = new THREE.Mesh(earthGeo, earthMat);
+    eyeScene.add(earthMesh);
+
+    // 2. Wireframe Neon por cima (Visual "Olho de Deus")
+    const wireMat = new THREE.MeshBasicMaterial({
+      color: 0x00e5ff,
+      wireframe: true,
+      transparent: true,
+      opacity: 0.15
+    });
+    const wireMesh = new THREE.Mesh(earthGeo, wireMat);
+    eyeScene.add(wireMesh);
+
+    // 3. Iluminação
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+    eyeScene.add(ambientLight);
+    const dirLight = new THREE.DirectionalLight(0x00e5ff, 1);
+    dirLight.position.set(5, 3, 5);
+    eyeScene.add(dirLight);
+
+    // 4. Grupo de Pontos
+    pointsGroup = new THREE.Group();
+    eyeScene.add(pointsGroup);
+
+    // 5. Controles
+    const controls = new THREE.OrbitControls(eyeCamera, eyeRenderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.05;
+    controls.rotateSpeed = 0.5;
+    controls.enableZoom = true;
+    controls.autoRotate = true;
+    controls.autoRotateSpeed = 0.8;
+
+    // 6. Loop de Animação
+    function animateEye() {
+      requestAnimationFrame(animateEye);
+      controls.update();
+      eyeRenderer.render(eyeScene, eyeCamera);
+    }
+    animateEye();
+
+    // 7. Buscar dados reais
+    fetchEarthquakes();
+  }, 100);
+};
+
+async function fetchEarthquakes() {
+  try {
+    const response = await fetch('https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/2.5_month.geojson');
+    const data = await response.json();
+
+    while(pointsGroup.children.length > 0){ 
+      pointsGroup.remove(pointsGroup.children[0]); 
+    }
+
+    data.features.forEach(feature => {
+      const coords = feature.geometry.coordinates;
+      const mag = feature.properties.mag;
+      const lng = coords[0];
+      const lat = coords[1];
+
+      const pos = latLngToVector3(lat, lng, 101);
+
+      let color = 0x00ffff;
+      if (mag >= 5) color = 0xff0000;
+      else if (mag >= 4) color = 0xffaa00;
+
+      const pointGeo = new THREE.SphereGeometry(0.5 + (mag * 0.2), 8, 8);
+      const pointMat = new THREE.MeshBasicMaterial({ color: color });
+      const pointMesh = new THREE.Mesh(pointGeo, pointMat);
+      
+      pointMesh.position.copy(pos);
+      pointsGroup.add(pointMesh);
+    });
+
+    console.log(`[OLHO DE DEUS] ${data.features.length} terremotos plotados.`);
+  } catch (error) {
+    console.error("[OLHO DE DEUS] Falha ao buscar dados do USGS:", error);
+  }
+}
+
+window.addEventListener('resize', () => {
+  if (eyeCamera && eyeRenderer) {
+    eyeCamera.aspect = window.innerWidth / window.innerHeight;
+    eyeCamera.updateProjectionMatrix();
+    eyeRenderer.setSize(window.innerWidth, window.innerHeight);
+  }
+});
+
+/* ---------- CHAMADA DO OLHO DE DEUS ---------- */
 window.openEyeOfGod = function() {
   document.body.classList.add('hide-sidebar');
   
@@ -1231,8 +1363,11 @@ window.openEyeOfGod = function() {
       overlay.classList.remove('hidden');
       void overlay.offsetWidth; 
       overlay.classList.add('active');
+      
+      // Inicializa o globo
       if (window.initEyeOfGodGlobe) window.initEyeOfGodGlobe();
 
+      // Adiciona a funcionalidade de clicar nas abas laterais
       document.querySelectorAll('.eye-menu-btn').forEach(btn => {
         btn.onclick = () => {
           document.querySelectorAll('.eye-menu-btn').forEach(b => b.classList.remove('active'));
