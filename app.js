@@ -1209,3 +1209,49 @@ window.addEventListener('load', () => {
     ro.observe(stage);
   }
 });
+
+/* ---------- OLHO DE DEUS ---------- */
+window.openEyeOfGod = function() {
+  // 1. Fecha as abas laterais e o chat
+  document.body.classList.add('hide-sidebar');
+  
+  // 2. Efeito de Zoom no Reator (simula a câmera indo pra frente)
+  const stage = document.getElementById('reactorStage');
+  if (stage) {
+    stage.style.transition = 'transform 2s cubic-bezier(0.4, 0, 0.2, 1), opacity 2s';
+    stage.style.transform = 'scale(3)';
+    stage.style.opacity = '0';
+  }
+
+  // 3. Ativa o overlay do Olho de Deus
+  setTimeout(() => {
+    const overlay = document.getElementById('eyeOfGod');
+    overlay.classList.remove('hidden');
+    // Força o navegador a renderizar antes de mudar a opacidade para a transição funcionar
+    void overlay.offsetWidth; 
+    overlay.classList.add('active');
+    
+    // Opcional: Chamar o script do globo 3D aqui
+    if (window.initEyeOfGodGlobe) window.initEyeOfGodGlobe();
+  }, 1000); // 1 segundo de delay enquanto o reator "se aproxima"
+};
+
+document.getElementById('closeEyeBtn')?.addEventListener('click', () => {
+  const overlay = document.getElementById('eyeOfGod');
+  overlay.classList.remove('active');
+  
+  // Restaura o reator
+  const stage = document.getElementById('reactorStage');
+  if (stage) {
+    stage.style.transform = 'scale(1)';
+    stage.style.opacity = '1';
+    setTimeout(() => stage.style.transition = '', 2000);
+  }
+  
+  // Restaura as abas laterais se o usuário quiser
+  document.body.classList.remove('hide-sidebar');
+
+  setTimeout(() => {
+    overlay.classList.add('hidden');
+  }, 1500);
+});
