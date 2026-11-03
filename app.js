@@ -1,5 +1,5 @@
 /* ============================================================
-   FRIDAY — App (Frontend completo e Olho de Deus Refinado)
+   FRIDAY — App (Frontend Completo + Busca OpenStreetMap)
    ============================================================ */
 
 const $ = (id) => document.getElementById(id);
@@ -35,6 +35,7 @@ let bgScene, bgCamera, bgRenderer, particlesMesh, linesMesh;
 // Variáveis do Olho de Deus
 let eyeScene, eyeCamera, eyeRenderer, earthMesh, pointsGroup;
 let earthquakesGroup, cyclonesGroup, firesGroup;
+let targetMarkerGroup; // Grupo para o marcador de busca
 let currentMinMagnitude = 4; 
 
 const MONTHS_PT = ['JAN','FEV','MAR','ABR','MAI','JUN','JUL','AGO','SET','OUT','NOV','DEZ'];
@@ -1219,7 +1220,7 @@ window.addEventListener('load', () => {
 });
 
 /* ============================================================
-   OLHO DE DEUS — Globo 3D e Toggles Funcionais (Refinado)
+   OLHO DE DEUS — Globo 3D, Toggles e Busca OpenStreetMap
    ============================================================ */
 
 function latLngToVector3(lat, lng, radius = 100) {
@@ -1247,18 +1248,18 @@ window.initEyeOfGodGlobe = function() {
     eyeRenderer.setSize(w, h);
     eyeRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
-    // 1. Esfera com Textura (Removido o brilho usando MeshBasicMaterial e alta resolução)
-    const earthGeo = new THREE.SphereGeometry(100, 128, 128); // Mais segmentos = mais liso no zoom
+    // 1. Esfera com Textura (Alta resolução e sem brilho)
+    const earthGeo = new THREE.SphereGeometry(100, 128, 128); 
     const textureLoader = new THREE.TextureLoader();
     textureLoader.crossOrigin = 'anonymous';
     
     const texture = textureLoader.load('https://unpkg.com/three-globe/example/img/earth-night.jpg');
-    texture.anisotropy = eyeRenderer.capabilities.getMaxAnisotropy(); // Deixa nítido no zoom
+    texture.anisotropy = eyeRenderer.capabilities.getMaxAnisotropy();
 
     const earthMat = new THREE.MeshPhongMaterial({
       map: texture,
-      shininess: 5, // Brilho muito baixo
-      specular: 0x222222 // Reflexo escuro
+      shininess: 2, // Brilho mínimo
+      specular: 0x111111 
     });
     
     earthMesh = new THREE.Mesh(earthGeo, earthMat);
@@ -1276,19 +1277,23 @@ window.initEyeOfGodGlobe = function() {
     earthquakesGroup = new THREE.Group();
     cyclonesGroup = new THREE.Group();
     firesGroup = new THREE.Group();
+    targetMarkerGroup = new THREE.Group(); // Marcador de busca
     
     pointsGroup.add(earthquakesGroup);
     pointsGroup.add(cyclonesGroup);
     pointsGroup.add(firesGroup);
+    pointsGroup.add(targetMarkerGroup);
     eyeScene.add(pointsGroup);
 
     // 4. Controles
     const controls = new THREE.OrbitControls(eyeCamera, eyeRenderer.domElement);
+    window.eyeControls = controls; // Expõe globalmente
+    window.eyeCamera = eyeCamera;   // Expõe globalmente
     controls.enableDamping = true;
     controls.dampingFactor = 0.05;
     controls.rotateSpeed = 0.5;
     controls.enableZoom = true;
-    controls.minDistance = 120; // Limite de zoom
+    controls.minDistance = 120; 
     controls.maxDistance = 400;
     controls.autoRotate = true;
     controls.autoRotateSpeed = 0.8;
@@ -1297,41 +1302,47 @@ window.initEyeOfGodGlobe = function() {
     function animateEye() {
       requestAnimationFrame(animateEye);
       controls.update();
+      
+      // Anima o marcador de busca (pulsação)
+      if (targetMarkerGroup && targetMarkerGroup.children.length > 0) {
+        const t = performance.now() / 1000;
+        targetMarkerGroup.children.forEach(mesh => {
+            if (mesh.userData.isTarget) {
+                const scale = 1 + Math.sin(t * 5) * 0.2;
+                mesh.scale.set(scale, scale, scale);
+            }
+        });
+      }
+
       eyeRenderer.render(eyeScene, eyeCamera);
     }
     animateEye();
 
-    // 6. Buscar dados e configurar UI
+    // 6. Buscar dados, configurar UI e Busca
     fetchEarthquakes();
-    generateMockData(); // Gera ciclones e fogos
+    generateMockData();
     setupEyeUI();
+    setupSearchInput(); // Ativa a barra de busca
   }, 100);
 };
 
 function setupEyeUI() {
-    // Toggle Terremotos
     document.getElementById('toggle-earthquakes')?.addEventListener('change', (e) => {
         if (earthquakesGroup) earthquakesGroup.visible = e.target.checked;
     });
-
-    // Toggle Ciclones
     document.getElementById('toggle-cyclones')?.addEventListener('change', (e) => {
         if (cyclonesGroup) cyclonesGroup.visible = e.target.checked;
     });
-
-    // Toggle Queimadas
     document.getElementById('toggle-fires')?.addEventListener('change', (e) => {
         if (firesGroup) firesGroup.visible = e.target.checked;
     });
 
-    // Slider de Magnitude
     const eqSlider = document.getElementById('eq-slider');
     const eqVal = document.getElementById('eq-val');
     if (eqSlider) {
         eqSlider.addEventListener('input', (e) => {
             currentMinMagnitude = parseFloat(e.target.value);
             if (eqVal) eqVal.textContent = currentMinMagnitude;
-            
             if (earthquakesGroup) {
                 earthquakesGroup.children.forEach(mesh => {
                     if (mesh.userData.mag !== undefined) {
@@ -1343,9 +1354,7 @@ function setupEyeUI() {
     }
 }
 
-// Gera dados falsos para Ciclones e Queimadas para os botões funcionarem
 function generateMockData() {
-    // Ciclones (Anéis azuis em locais de furacões)
     const cycloneCoords = [[15, -45], [25, 135], [18, 115], [-15, 60]]; 
     cycloneCoords.forEach(c => {
         const pos = latLngToVector3(c[0], c[1], 102);
@@ -1358,9 +1367,8 @@ function generateMockData() {
     });
     cyclonesGroup.visible = false;
 
-    // Fogo (Pontos vermelhos na Amazônia, Califórnia, Austrália)
     for(let i=0; i<50; i++) {
-        const lat = (Math.random() * -20) - 5; // Amazônia aprox
+        const lat = (Math.random() * -20) - 5; 
         const lng = (Math.random() * 20) - 70;
         const pos = latLngToVector3(lat, lng, 101);
         const geo = new THREE.SphereGeometry(0.6, 8, 8);
@@ -1376,51 +1384,32 @@ async function fetchEarthquakes() {
   try {
     const response = await fetch('https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/2.5_month.geojson');
     const data = await response.json();
-
-    while(earthquakesGroup.children.length > 0){ 
-      earthquakesGroup.remove(earthquakesGroup.children[0]); 
-    }
-
+    while(earthquakesGroup.children.length > 0){ earthquakesGroup.remove(earthquakesGroup.children[0]); }
     data.features.forEach(feature => {
       const coords = feature.geometry.coordinates;
       const mag = feature.properties.mag;
-      const lng = coords[0];
-      const lat = coords[1];
-
-      const pos = latLngToVector3(lat, lng, 101);
-
+      const pos = latLngToVector3(coords[1], coords[0], 101);
       let color = 0x00ffff;
       if (mag >= 5) color = 0xff0000;
       else if (mag >= 4) color = 0xffaa00;
-
       const pointGeo = new THREE.SphereGeometry(0.5 + (mag * 0.2), 8, 8);
       const pointMat = new THREE.MeshBasicMaterial({ color: color });
       const pointMesh = new THREE.Mesh(pointGeo, pointMat);
-      
       pointMesh.position.copy(pos);
       pointMesh.userData.mag = mag;
       pointMesh.visible = mag >= currentMinMagnitude;
-      
       earthquakesGroup.add(pointMesh);
     });
-
-    console.log(`[OLHO DE DEUS] ${data.features.length} terremotos plotados.`);
-  } catch (error) {
-    console.error("[OLHO DE DEUS] Falha ao buscar dados do USGS:", error);
-  }
+  } catch (error) { console.error("[OLHO DE DEUS] Falha USGS:", error); }
 }
 
-// MENU LATERAL DIREITO INTERATIVO
 function updateEyePanel(category) {
     const header = document.querySelector('.eye-panel-header h3');
     const subtitle = document.querySelector('.eye-panel-header span');
     const content = document.querySelector('.eye-panel-content');
-
     if (!header || !subtitle || !content) return;
 
     header.textContent = category;
-    
-    // Cria um template genérico para o painel
     let html = '';
 
     if (category.includes('Eventos')) {
@@ -1484,7 +1473,6 @@ function updateEyePanel(category) {
             </div>
         `;
     } else {
-        // Padrão para os outros botões
         subtitle.textContent = "Módulo em desenvolvimento";
         html = `
             <div class="awareness-note" style="padding: 20px; text-align: center;">
@@ -1495,11 +1483,7 @@ function updateEyePanel(category) {
     }
 
     content.innerHTML = html;
-
-    // Recria os eventos se for a aba de Eventos
-    if (category.includes('Eventos')) {
-        setupEyeUI();
-    }
+    if (category.includes('Eventos')) setupEyeUI();
 }
 
 window.addEventListener('resize', () => {
@@ -1512,7 +1496,6 @@ window.addEventListener('resize', () => {
 
 window.openEyeOfGod = function() {
   document.body.classList.add('hide-sidebar');
-  
   const stage = document.getElementById('reactorStage');
   if (stage) {
     stage.style.transition = 'transform 2s cubic-bezier(0.4, 0, 0.2, 1), opacity 2s';
@@ -1528,7 +1511,6 @@ window.openEyeOfGod = function() {
       overlay.classList.add('active');
       if (window.initEyeOfGodGlobe) window.initEyeOfGodGlobe();
 
-      // Lógica do Menu Lateral Direito
       document.querySelectorAll('.eye-menu-btn').forEach(btn => {
         btn.onclick = () => {
           document.querySelectorAll('.eye-menu-btn').forEach(b => b.classList.remove('active'));
@@ -1544,17 +1526,135 @@ window.openEyeOfGod = function() {
 document.getElementById('closeEyeBtn')?.addEventListener('click', () => {
   const overlay = document.getElementById('eyeOfGod');
   if (overlay) overlay.classList.remove('active');
-  
   const stage = document.getElementById('reactorStage');
   if (stage) {
     stage.style.transform = 'scale(1)';
     stage.style.opacity = '1';
     setTimeout(() => stage.style.transition = '', 2000);
   }
-  
   document.body.classList.remove('hide-sidebar');
-
-  setTimeout(() => {
-    if (overlay) overlay.classList.add('hidden');
-  }, 1500);
+  setTimeout(() => { if (overlay) overlay.classList.add('hidden'); }, 1500);
 });
+
+/* ============================================================
+   BUSCA DE LOCALIZAÇÃO (OpenStreetMap / Photon API) e Animação
+   ============================================================ */
+
+function searchLocation(query) {
+    if (!query || !window.eyeCamera) return;
+
+    window.showToast(`🔍 Buscando "${query}"...`);
+
+    // API Gratuita, sem chave, baseada no OpenStreetMap
+    fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&limit=1`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.features && data.features.length > 0) {
+                // A API retorna [longitude, latitude]
+                const coords = data.features[0].geometry.coordinates;
+                const lng = coords[0];
+                const lat = coords[1];
+                const name = data.features[0].properties.name || query;
+                const country = data.features[0].properties.country ? `, ${data.features[0].properties.country}` : '';
+
+                // Converte para 3D e posiciona a câmera mais próxima (raio 150)
+                const targetPos = latLngToVector3(lat, lng, 150);
+
+                // Anima a câmera
+                animateCameraTo(targetPos);
+                
+                // Adiciona o marcador visual
+                addTargetMarker(lat, lng);
+
+                window.showToast(`📍 Localizado: ${name}${country}`);
+            } else {
+                window.showToast('❌ Local não encontrado. Tente outro nome.');
+            }
+        })
+        .catch(err => {
+            console.error("Erro na busca:", err);
+            window.showToast('❌ Erro ao conectar com o satélite de busca.');
+        });
+}
+
+// Adiciona um anel de alvo animado no local buscado
+function addTargetMarker(lat, lng) {
+    if (!targetMarkerGroup) return;
+    
+    // Limpa marcadores anteriores
+    while(targetMarkerGroup.children.length > 0){ 
+      targetMarkerGroup.remove(targetMarkerGroup.children[0]); 
+    }
+
+    const pos = latLngToVector3(lat, lng, 101);
+    
+    // Anel externo
+    const ringGeo = new THREE.RingGeometry(2.5, 3, 32);
+    const ringMat = new THREE.MeshBasicMaterial({ color: 0x00ff88, side: THREE.DoubleSide, transparent: true, opacity: 0.8 });
+    const ringMesh = new THREE.Mesh(ringGeo, ringMat);
+    ringMesh.position.copy(pos);
+    ringMesh.lookAt(0,0,0);
+    ringMesh.userData.isTarget = true;
+    
+    // Ponto central
+    const dotGeo = new THREE.SphereGeometry(0.8, 8, 8);
+    const dotMat = new THREE.MeshBasicMaterial({ color: 0x00ff88 });
+    const dotMesh = new THREE.Mesh(dotGeo, dotMat);
+    dotMesh.position.copy(pos);
+    
+    targetMarkerGroup.add(ringMesh);
+    targetMarkerGroup.add(dotMesh);
+}
+
+// Função de animação suave da câmera
+let cameraAnimationId = null;
+function animateCameraTo(targetPos) {
+    if (!window.eyeCamera) return;
+    
+    if (window.eyeControls) window.eyeControls.autoRotate = false;
+
+    const startPos = window.eyeCamera.position.clone();
+    const startTime = performance.now();
+    const duration = 1500;
+
+    if (cameraAnimationId) cancelAnimationFrame(cameraAnimationId);
+
+    function updateCamera() {
+        const elapsed = performance.now() - startTime;
+        const t = Math.min(elapsed / duration, 1);
+        const ease = 1 - Math.pow(1 - t, 3);
+
+        window.eyeCamera.position.lerpVectors(startPos, targetPos, ease);
+        window.eyeCamera.lookAt(0, 0, 0);
+
+        if (t < 1) {
+            cameraAnimationId = requestAnimationFrame(updateCamera);
+        } else {
+            cameraAnimationId = null;
+            if (window.eyeControls) {
+                window.eyeControls.target.set(0,0,0); 
+                window.eyeControls.update();
+            }
+        }
+    }
+    updateCamera();
+}
+
+// Configura o evento de tecla Enter no input de busca
+function setupSearchInput() {
+    const input = document.getElementById('eyeSearchInput');
+    if (!input) return;
+
+    const newInput = input.cloneNode(true);
+    input.parentNode.replaceChild(newInput, input);
+
+    newInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            const query = newInput.value.trim();
+            if (query) {
+                searchLocation(query);
+                newInput.value = ''; 
+            }
+        }
+    });
+}
