@@ -52,7 +52,7 @@ def _handler_get_crypto_price(coin="bitcoin"):
         return result
     except Exception as e: return {"error": f"Falha ao buscar cotação: {str(e)}"}
 
-def _handler_open_eye_of_god():
+def _handler_open_eye_of_god(**kwargs):
     return {"action": "open_eye_of_god", "status": "ativando"}
 
 REQUIRES_CONFIRMATION = {"send_email", "reply_to_email", "delete_calendar_event"}
