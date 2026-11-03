@@ -83,6 +83,11 @@ TOOL_REGISTRY = {
     "delete_calendar_event": {"description": "Exclui evento do calendário.", "handler": _handler_delete_calendar_event, "parameters": {"type": "object", "properties": {"event_id": {"type": "string", "description": "ID do evento"}}, "required": ["event_id"]}},
     "update_calendar_event": {"description": "Atualiza evento do calendário.", "handler": _handler_update_calendar_event, "parameters": {"type": "object", "properties": {"event_id": {"type": "string", "description": "ID do evento"}, "summary": {"type": "string", "description": "Novo título"}, "start_natural": {"type": "string", "description": "Nova data de início"}, "end_natural": {"type": "string", "description": "Nova data de término"}}, "required": ["event_id"]}},
     "find_free_slots": {"description": "Encontra horários livres na agenda.", "handler": _handler_find_free_slots, "parameters": {"type": "object", "properties": {"date_iso": {"type": "string", "description": "Data (YYYY-MM-DD)"}}, "required": ["date_iso"]}},
+    "open_eye_of_god": {
+    "description": "Ativa a interface global de monitoramento 'Olho de Deus' no painel do usuário.",
+    "handler": lambda: {"action": "open_eye_of_god"},
+    "parameters": {"type": "object", "properties": {}},
+    },
 }
 
 def public_tool_specs():
