@@ -596,7 +596,67 @@ input:checked + .slider:before{transform:translateX(18px);background:var(--cyan)
     <button id="closeSettingsBtn" class="hud-btn primary modal-btn" style="min-height:42px;">FECHAR</button>
   </div>
 </div>
+  
+<!-- OLHO DE DEUS OVERLAY -->
+<div id="eyeOfGod" class="eye-of-god-overlay hidden">
+    <canvas id="eye-canvas"></canvas>
+    
+    <!-- Barra de busca superior -->
+    <div class="eye-top-bar">
+        <div class="eye-search">
+            <span>🔍</span>
+            <input type="text" placeholder="Buscar cidade, lugar ou CEP..." readonly />
+            <span class="eye-shortcut">Esc</span>
+        </div>
+        <button id="closeEyeBtn" class="eye-close-btn">✖ FECHAR</button>
+    </div>
 
+    <!-- Painel de Eventos (Esquerda) -->
+    <div class="eye-panel-left">
+        <div class="eye-panel-header">
+            <h3>Eventos</h3>
+            <span>3 de 4 no mapa</span>
+        </div>
+        <div class="eye-panel-content">
+            <div class="eye-event-row">
+                <div class="eye-icon orange">🌋</div>
+                <div class="eye-event-info">
+                    <span>Terremotos 24h</span>
+                    <input type="range" min="0" max="9" value="4" class="eye-slider" id="eq-slider">
+                    <small>Magnitude > <span id="eq-val">4</span></small>
+                </div>
+                <label class="switch"><input type="checkbox" id="toggle-earthquakes" checked><span class="slider"></span></label>
+            </div>
+            <div class="eye-event-row">
+                <div class="eye-icon cyan">🌀</div>
+                <div class="eye-event-info"><span>Ciclones</span></div>
+                <label class="switch"><input type="checkbox" id="toggle-cyclones"><span class="slider"></span></label>
+            </div>
+            <div class="eye-event-row">
+                <div class="eye-icon red">🔥</div>
+                <div class="eye-event-info">
+                    <span>Queimadas 24h</span>
+                    <span class="eye-badge" id="fire-count">268</span>
+                </div>
+                <label class="switch"><input type="checkbox" id="toggle-fires" checked><span class="slider"></span></label>
+            </div>
+        </div>
+    </div>
+
+    <!-- Menu Direito Vertical (Categorias) -->
+    <div class="eye-menu-right">
+        <button class="eye-menu-btn"><span>🌪</span>Movimento</button>
+        <button class="eye-menu-btn"><span>🌌</span>Espaço</button>
+        <button class="eye-menu-btn active"><span>⚡</span>Eventos</button>
+        <button class="eye-menu-btn"><span>🌤</span>Clima</button>
+        <button class="eye-menu-btn"><span>🏙</span>Cidade</button>
+        <button class="eye-menu-btn"><span>📹</span>Câmeras</button>
+        <button class="eye-menu-btn"><span>🏭</span>Infra</button>
+        <button class="eye-menu-btn"><span>🗺</span>Mapa</button>
+        <button class="eye-menu-btn"><span>👤</span>Pessoal</button>
+    </div>
+</div>
+  
 <!-- CARREGANDO OS SCRIPTS EXTERNOS -->
 <script src="/reactor.js"></script>
 <script src="/app.js"></script>
