@@ -35,7 +35,7 @@ let bgScene, bgCamera, bgRenderer, particlesMesh, linesMesh;
 // Variáveis do Olho de Deus
 let eyeScene, eyeCamera, eyeRenderer, earthMesh, pointsGroup;
 let earthquakesGroup, cyclonesGroup, firesGroup;
-let targetMarkerGroup; // Grupo para o marcador de busca
+let targetMarkerGroup; 
 let currentMinMagnitude = 4; 
 
 const MONTHS_PT = ['JAN','FEV','MAR','ABR','MAI','JUN','JUL','AGO','SET','OUT','NOV','DEZ'];
@@ -1277,7 +1277,7 @@ window.initEyeOfGodGlobe = function() {
     earthquakesGroup = new THREE.Group();
     cyclonesGroup = new THREE.Group();
     firesGroup = new THREE.Group();
-    targetMarkerGroup = new THREE.Group(); // Marcador de busca
+    targetMarkerGroup = new THREE.Group();
     
     pointsGroup.add(earthquakesGroup);
     pointsGroup.add(cyclonesGroup);
@@ -1287,8 +1287,8 @@ window.initEyeOfGodGlobe = function() {
 
     // 4. Controles
     const controls = new THREE.OrbitControls(eyeCamera, eyeRenderer.domElement);
-    window.eyeControls = controls; // Expõe globalmente
-    window.eyeCamera = eyeCamera;   // Expõe globalmente
+    window.eyeControls = controls; 
+    window.eyeCamera = eyeCamera;   
     controls.enableDamping = true;
     controls.dampingFactor = 0.05;
     controls.rotateSpeed = 0.5;
@@ -1303,7 +1303,6 @@ window.initEyeOfGodGlobe = function() {
       requestAnimationFrame(animateEye);
       controls.update();
       
-      // Anima o marcador de busca (pulsação)
       if (targetMarkerGroup && targetMarkerGroup.children.length > 0) {
         const t = performance.now() / 1000;
         targetMarkerGroup.children.forEach(mesh => {
@@ -1322,7 +1321,7 @@ window.initEyeOfGodGlobe = function() {
     fetchEarthquakes();
     generateMockData();
     setupEyeUI();
-    setupSearchInput(); // Ativa a barra de busca
+    setupSearchInput(); 
   }, 100);
 };
 
@@ -1545,50 +1544,33 @@ function searchLocation(query) {
 
     window.showToast(`🔍 Buscando "${query}"...`);
 
-    // API Gratuita, sem chave, baseada no OpenStreetMap
-    fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&limit=1`)
+    // Chama o BACKEND, que por sua vez chama a API Photon
+    fetch(`/api/search_location?q=${encodeURIComponent(query)}`)
         .then(response => response.json())
         .then(data => {
-            if (data.features && data.features.length > 0) {
-                // A API retorna [longitude, latitude]
-                const coords = data.features[0].geometry.coordinates;
-                const lng = coords[0];
-                const lat = coords[1];
-                const name = data.features[0].properties.name || query;
-                const country = data.features[0].properties.country ? `, ${data.features[0].properties.country}` : '';
-
-                // Converte para 3D e posiciona a câmera mais próxima (raio 150)
-                const targetPos = latLngToVector3(lat, lng, 150);
-
-                // Anima a câmera
+            if (data.ok) {
+                const targetPos = latLngToVector3(data.lat, data.lng, 150);
                 animateCameraTo(targetPos);
-                
-                // Adiciona o marcador visual
-                addTargetMarker(lat, lng);
-
-                window.showToast(`📍 Localizado: ${name}${country}`);
+                addTargetMarker(data.lat, data.lng);
+                const locationName = data.country ? `${data.name}, ${data.country}` : data.name;
+                window.showToast(`📍 Localizado: ${locationName}`);
             } else {
-                window.showToast('❌ Local não encontrado. Tente outro nome.');
+                window.showToast(`❌ ${data.error || 'Local não encontrado.'}`);
             }
         })
         .catch(err => {
             console.error("Erro na busca:", err);
-            window.showToast('❌ Erro ao conectar com o satélite de busca.');
+            window.showToast('❌ Erro ao conectar com o serviço de mapas.');
         });
 }
 
-// Adiciona um anel de alvo animado no local buscado
 function addTargetMarker(lat, lng) {
     if (!targetMarkerGroup) return;
-    
-    // Limpa marcadores anteriores
     while(targetMarkerGroup.children.length > 0){ 
       targetMarkerGroup.remove(targetMarkerGroup.children[0]); 
     }
 
     const pos = latLngToVector3(lat, lng, 101);
-    
-    // Anel externo
     const ringGeo = new THREE.RingGeometry(2.5, 3, 32);
     const ringMat = new THREE.MeshBasicMaterial({ color: 0x00ff88, side: THREE.DoubleSide, transparent: true, opacity: 0.8 });
     const ringMesh = new THREE.Mesh(ringGeo, ringMat);
@@ -1596,7 +1578,6 @@ function addTargetMarker(lat, lng) {
     ringMesh.lookAt(0,0,0);
     ringMesh.userData.isTarget = true;
     
-    // Ponto central
     const dotGeo = new THREE.SphereGeometry(0.8, 8, 8);
     const dotMat = new THREE.MeshBasicMaterial({ color: 0x00ff88 });
     const dotMesh = new THREE.Mesh(dotGeo, dotMat);
@@ -1606,11 +1587,9 @@ function addTargetMarker(lat, lng) {
     targetMarkerGroup.add(dotMesh);
 }
 
-// Função de animação suave da câmera
 let cameraAnimationId = null;
 function animateCameraTo(targetPos) {
     if (!window.eyeCamera) return;
-    
     if (window.eyeControls) window.eyeControls.autoRotate = false;
 
     const startPos = window.eyeCamera.position.clone();
@@ -1640,7 +1619,6 @@ function animateCameraTo(targetPos) {
     updateCamera();
 }
 
-// Configura o evento de tecla Enter no input de busca
 function setupSearchInput() {
     const input = document.getElementById('eyeSearchInput');
     if (!input) return;
