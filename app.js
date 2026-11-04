@@ -351,7 +351,6 @@ function browserSpeak(text, runId, forceTest = false) {
 
 window.playTone = function(freq, type, duration, vol=0.04) {
   try {
-    // Só cria o AudioContext se o usuário já interagiu, evitando bloqueio do navegador
     if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     if (audioCtx.state === 'suspended') audioCtx.resume();
     const osc = audioCtx.createOscillator(); const gain = audioCtx.createGain();
@@ -914,7 +913,6 @@ async function sendCommandToFriday(command, isInitial = false) {
             }
 
             if (dataObj.music) {
-                // Correção do Erro 153: Carregar via API do YT
                 const match = dataObj.music.match(/embed\/([a-zA-Z0-9_-]{11})/);
                 if (match && match[1] && window.ytPlayer && window.ytPlayer.loadVideoById) {
                     window.ytPlayer.loadVideoById(match[1]);
