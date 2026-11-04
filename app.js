@@ -1,5 +1,5 @@
 /* ============================================================
-   FRIDAY — App (Frontend Completo + Busca OpenStreetMap)
+   FRIDAY — App (Frontend Completo com Olho de Deus e Work Mode)
    ============================================================ */
 
 const $ = (id) => document.getElementById(id);
@@ -37,6 +37,9 @@ let eyeScene, eyeCamera, eyeRenderer, earthMesh, pointsGroup;
 let earthquakesGroup, cyclonesGroup, firesGroup;
 let targetMarkerGroup; 
 let currentMinMagnitude = 4; 
+
+// Variáveis do Modo Trabalho
+let workModeActive = false;
 
 const MONTHS_PT = ['JAN','FEV','MAR','ABR','MAI','JUN','JUL','AGO','SET','OUT','NOV','DEZ'];
 const WEEKDAYS_PT = ['DOM','SEG','TER','QUA','QUI','SEX','SÁB'];
@@ -248,6 +251,7 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
     if (!$('palette').classList.contains('hidden')) { closePalette(); return; }
     if (!$('settingsModal').classList.contains('hidden')) { $('settingsModal').classList.add('hidden'); return; }
+    if (workModeActive) { closeWorkMode(); return; }
     if (window.speaking || window.listening) { window.stopVoice(); window.setStatus("Interrompido."); }
   }
   if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'k') {
@@ -499,19 +503,23 @@ window.onYouTubeIframeAPIReady = function() {
         videoId: '',
         playerVars: {
             'autoplay': 1,
-            'origin': window.location.origin, // <--- RESOLVE O ERRO 153
+            'origin': window.location.origin,
             'enablejsapi': 1
         },
         events: {
-            'onReady': () => { console.log('YT Pronto'); },
+            'onReady': () => { console.log('YT Player Pronto.'); },
             'onStateChange': (event) => {
-                if (event.data === YT.PlayerState.PLAYING) window.setStatus("Reproduzindo áudio...");
-                else if (event.data === YT.PlayerState.PAUSED) window.setStatus("Áudio pausado.");
-                else if (event.data === YT.PlayerState.ENDED) window.setStatus("Áudio finalizado.");
+                if (event.data === YT.PlayerState.PLAYING) {
+                    window.setStatus("Reproduzindo áudio...");
+                } else if (event.data === YT.PlayerState.PAUSED) {
+                    window.setStatus("Áudio pausado.");
+                } else if (event.data === YT.PlayerState.ENDED) {
+                    window.setStatus("Áudio finalizado.");
+                }
             },
             'onError': (event) => {
-                console.error("Erro YT:", event.data);
-                window.setStatus("Erro no vídeo.");
+                console.error("Erro no YouTube:", event.data);
+                window.setStatus("Erro ao reproduzir vídeo.");
                 window.showToast("⚠ Não foi possível reproduzir. O vídeo pode ter restrições.");
             }
         }
@@ -519,6 +527,7 @@ window.onYouTubeIframeAPIReady = function() {
 };
 $('closeMusicPlayer').addEventListener('click', () => {
   $('musicPlayerContainer').classList.add('hidden');
+  $('musicPlayer').src = "";
   if (window.ytPlayer && window.ytPlayer.stopVideo) window.ytPlayer.stopVideo();
 });
 
@@ -1141,14 +1150,22 @@ async function checkSession() {
     if (!res.ok) throw new Error("Falha ao verificar a sessão.");
     const data = await res.json();
     const calendarState = new URLSearchParams(location.search).get("calendar");
+    const workState = new URLSearchParams(location.search).get("work");
+    
     const msgMap = {
       connected: "Google Calendar conectado.", nosession: "Entre antes de conectar.", denied: "Autorização cancelada.",
       old: "Tentativa expirou.", state: "Sessão não confere.", config: "OAuth incompleto.",
       redirect: "Redirect URI inválida.", client: "Cliente OAuth recusado.", token: "Google não concluiu.", incomplete: "Resposta incompleta."
     };
+    
     if (data.authenticated) await activateAssistant();
+    
     if (msgMap[calendarState]) {
       window.setStatus(msgMap[calendarState]);
+      history.replaceState({}, "", location.pathname);
+    }
+    if (workState === 'connected') {
+      window.showToast("💼 Gmail Corporativo conectado com sucesso!");
       history.replaceState({}, "", location.pathname);
     }
   } catch (error) {
@@ -1203,6 +1220,7 @@ const PALETTE_COMMANDS = [
   { name: 'Parar voz', shortcut: 'Esc', action: () => window.stopVoice() },
   { name: 'Recarregar agenda', shortcut: '', action: () => { $('calendarPanel').classList.remove('hidden'); window.loadCalendarEvents('today'); } },
   { name: 'Conectar Google Calendar', shortcut: '', action: () => { window.location.href = '/calendar/connect'; } },
+  { name: 'Abrir Work Mode', shortcut: '', action: () => { openWorkMode(); } },
   { name: 'Nova conversa (limpar)', shortcut: '', action: () => $('messages').replaceChildren() },
   { name: 'Mostrar/ocultar sidebar', shortcut: '', action: () => document.body.classList.toggle('hide-sidebar') },
   { name: 'Mostrar/ocultar telemetria', shortcut: '', action: () => document.body.classList.toggle('hide-chart') },
@@ -1654,3 +1672,130 @@ function setupSearchInput() {
         }
     });
 }
+
+/* ============================================================
+   WORK MODE — Lógica de Transição e Carregamento de Dados
+   ============================================================ */
+
+function openWorkMode() {
+  if (workModeActive) return;
+  workModeActive = true;
+  
+  // Animação de zoom reverso
+  const stage = document.getElementById('reactorStage');
+  if (stage) {
+    stage.style.transition = 'transform 1s cubic-bezier(0.4, 0, 0.2, 1), opacity 1s';
+    stage.style.transform = 'scale(0.8)';
+    stage.style.opacity = '0';
+  }
+
+  setTimeout(() => {
+    const overlay = document.getElementById('workModeOverlay');
+    overlay.classList.remove('hidden');
+    void overlay.offsetWidth; 
+    overlay.classList.add('active');
+    
+    // Verifica se a conta está conectada
+    checkWorkStatus();
+    
+    // Se estiver conectado, já busca os e-mails
+    if ($('workConnectionStatus').classList.contains('connected')) {
+      fetchWorkEmails();
+    }
+  }, 800);
+}
+
+function closeWorkMode() {
+  if (!workModeActive) return;
+  workModeActive = false;
+  
+  const overlay = document.getElementById('workModeOverlay');
+  overlay.classList.remove('active');
+  
+  setTimeout(() => {
+    overlay.classList.add('hidden');
+    const stage = document.getElementById('reactorStage');
+    if (stage) {
+      stage.style.transform = 'scale(1)';
+      stage.style.opacity = '1';
+      setTimeout(() => stage.style.transition = '', 1000);
+    }
+  }, 600);
+}
+
+async function checkWorkStatus() {
+  try {
+    const res = await fetch("/work/status", { credentials: "same-origin" });
+    const data = await res.json();
+    const statusEl = $('workConnectionStatus');
+    const connectBtn = $('workConnectBtn');
+
+    if (data.connected) {
+      statusEl.textContent = "CONECTADO AO GMAIL";
+      statusEl.className = "work-status connected";
+      connectBtn.classList.add('hidden');
+    } else {
+      statusEl.textContent = "DESCONECTADO";
+      statusEl.className = "work-status disconnected";
+      connectBtn.classList.remove('hidden');
+    }
+  } catch (e) {
+    console.error("Erro ao verificar status do trabalho:", e);
+  }
+}
+
+async function fetchWorkEmails() {
+  const listEl = $('workEmailList');
+  listEl.innerHTML = '<div class="work-empty">Sincronizando e-mails...</div>';
+  $('workAISummary').textContent = "Analisando caixa de entrada...";
+
+  try {
+    const res = await fetch("/work/emails", { credentials: "same-origin" });
+    const data = await res.json();
+
+    if (data.error) {
+      listEl.innerHTML = `<div class="work-empty" style="color:var(--red)">${data.error}</div>`;
+      return;
+    }
+
+    const emails = data.emails || [];
+    $('workUnreadCount').textContent = `${emails.length} e-mails recentes`;
+    $('workPriorityCount').textContent = `${emails.filter(e => e.body.includes('urgente') || e.subject.includes('Urgente')).length} prioritários (estimado)`;
+    
+    if (emails.length === 0) {
+      listEl.innerHTML = '<div class="work-empty">Nenhum e-mail recente encontrado.</div>';
+      return;
+    }
+
+    listEl.innerHTML = '';
+    emails.forEach(email => {
+      const item = document.createElement('div');
+      item.className = 'work-email-item';
+      item.innerHTML = `
+        <div class="work-email-header">
+          <span>De: ${email.sender}</span>
+          <span>${email.date}</span>
+        </div>
+        <div class="work-email-subject">${email.subject}</div>
+        <div class="work-email-snippet">${email.snippet}</div>
+        <div class="work-email-footer">
+          <a href="${email.link}" target="_blank" class="work-email-link">Abrir no Gmail ↗</a>
+        </div>
+      `;
+      listEl.appendChild(item);
+    });
+
+    // Simulação de resumo da IA (numa versão real, enviaria os corpos para o backend resumir)
+    $('workAISummary').textContent = `Bom dia, Chefe. Você tem ${emails.length} e-mails recentes. Destaco o assunto "${emails[0].subject}" como o mais recente. Sugiro revisar as mensagens e responder as pendências.`;
+
+  } catch (e) {
+    listEl.innerHTML = '<div class="work-empty" style="color:var(--red)">Erro de conexão ao buscar e-mails.</div>';
+    console.error(e);
+  }
+}
+
+// Event Listeners do Work Mode
+$('openWorkModeBtn')?.addEventListener('click', openWorkMode);
+$('closeWorkModeBtn')?.addEventListener('click', closeWorkMode);
+$('workConnectBtn')?.addEventListener('click', () => { window.location.href = "/work/connect"; });
+$('workRefreshBtn')?.addEventListener('click', fetchWorkEmails);
