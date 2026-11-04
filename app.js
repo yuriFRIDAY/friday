@@ -38,8 +38,11 @@ let earthquakesGroup, cyclonesGroup, firesGroup;
 let targetMarkerGroup; 
 let currentMinMagnitude = 4; 
 
-// Variáveis do Modo Trabalho
+// Variáveis do Modo Trabalho (Declaradas APENAS UMA VEZ)
 let workModeActive = false;
+let globalWorkEmails = []; 
+let currentWorkFilter = 'all';
+let currentWorkSearch = '';
 
 const MONTHS_PT = ['JAN','FEV','MAR','ABR','MAI','JUN','JUL','AGO','SET','OUT','NOV','DEZ'];
 const WEEKDAYS_PT = ['DOM','SEG','TER','QUA','QUI','SEX','SÁB'];
@@ -570,13 +573,10 @@ window.setStatus = function(text) { $("status").textContent = text; };
 
 function formatEventDate(dateStr) {
   if (!dateStr) return "Dia inteiro";
-  
-  // Se for uma data de dia inteiro (YYYY-MM-DD), formata sem a hora
   if (dateStr.length === 10 && dateStr.includes('-')) {
       const [y, m, d] = dateStr.split('-');
       return `${d}/${m}/${y}`;
   }
-  
   const d = new Date(dateStr);
   if (isNaN(d.getTime())) return dateStr;
   return new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }).format(d);
@@ -1227,7 +1227,7 @@ const PALETTE_COMMANDS = [
   { name: 'Parar voz', shortcut: 'Esc', action: () => window.stopVoice() },
   { name: 'Recarregar agenda', shortcut: '', action: () => { $('calendarPanel').classList.remove('hidden'); window.loadCalendarEvents('today'); } },
   { name: 'Conectar Google Calendar', shortcut: '', action: () => { window.location.href = '/calendar/connect'; } },
-  { name: 'Abrir Work Mode', shortcut: '', action: () => { open(); } },
+  { name: 'Abrir Work Mode', shortcut: '', action: () => { openWorkMode(); } },
   { name: 'Nova conversa (limpar)', shortcut: '', action: () => $('messages').replaceChildren() },
   { name: 'Mostrar/ocultar sidebar', shortcut: '', action: () => document.body.classList.toggle('hide-sidebar') },
   { name: 'Mostrar/ocultar telemetria', shortcut: '', action: () => document.body.classList.toggle('hide-chart') },
@@ -1679,14 +1679,10 @@ function setupSearchInput() {
         }
     });
 }
+
 /* ============================================================
    WORK MODE — Lógica de Transição e Filtros
    ============================================================ */
-
-let workModeActive = false;
-let globalWorkEmails = []; // Guarda os e-mails para filtrar sem bater na API de novo
-let currentWorkFilter = 'all';
-let currentWorkSearch = '';
 
 function openWorkMode() {
   if (workModeActive) return;
@@ -1784,14 +1780,12 @@ function renderWorkEmails() {
   
   let filtered = globalWorkEmails;
 
-  // Aplica Filtro
   if (currentWorkFilter === 'unread') {
       filtered = filtered.filter(e => e.is_unread);
   } else if (currentWorkFilter === 'priority') {
       filtered = filtered.filter(e => e.subject.includes('Urgente') || e.body.includes('urgente') || e.subject.includes('Ação'));
   }
 
-  // Aplica Busca
   if (currentWorkSearch) {
       const q = currentWorkSearch.toLowerCase();
       filtered = filtered.filter(e => 
@@ -1810,7 +1804,6 @@ function renderWorkEmails() {
   filtered.forEach(email => {
     const item = document.createElement('div');
     item.className = 'work-email-item';
-    // Se for não lido, deixa a borda mais brilhante
     if (email.is_unread) item.style.borderLeftColor = '#ff9f00'; 
 
     item.innerHTML = `
@@ -1833,11 +1826,6 @@ function renderWorkEmails() {
   $('workAISummary').textContent = `Bom dia, Chefe. Exibindo ${filtered.length} e-mails. Sugiro focar nos não lidos primeiro.`;
 }
 
-// ==========================================
-// Event Listeners dos Filtros e Busca
-// ==========================================
-
-// Botões de Filtro (Todos, Não lidos, Prioritários)
 document.querySelectorAll('.work-filter').forEach((btn, index) => {
   btn.onclick = () => {
       document.querySelectorAll('.work-filter').forEach(b => b.classList.remove('active'));
@@ -1851,7 +1839,6 @@ document.querySelectorAll('.work-filter').forEach((btn, index) => {
   };
 });
 
-// Input de Busca
 document.querySelector('.work-search')?.addEventListener('input', (e) => {
   currentWorkSearch = e.target.value;
   renderWorkEmails();
