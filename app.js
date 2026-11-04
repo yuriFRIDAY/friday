@@ -351,6 +351,7 @@ function browserSpeak(text, runId, forceTest = false) {
 
 window.playTone = function(freq, type, duration, vol=0.04) {
   try {
+    // Só cria o AudioContext se o usuário já interagiu, evitando bloqueio do navegador
     if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     if (audioCtx.state === 'suspended') audioCtx.resume();
     const osc = audioCtx.createOscillator(); const gain = audioCtx.createGain();
@@ -492,10 +493,33 @@ function animateTTSVisualizer() {
   }
 }
 
-window.onYouTubeIframeAPIReady = function() { window.ytPlayer = new YT.Player('musicPlayer', { events: { 'onReady': () => {} } }); };
+window.onYouTubeIframeAPIReady = function() {
+    window.ytPlayer = new YT.Player('musicPlayer', {
+        height: '180',
+        width: '340',
+        videoId: '',
+        playerVars: {
+            'autoplay': 1,
+            'origin': window.location.origin, // <--- RESOLVE O ERRO 153
+            'enablejsapi': 1
+        },
+        events: {
+            'onReady': () => { console.log('YT Pronto'); },
+            'onStateChange': (event) => {
+                if (event.data === YT.PlayerState.PLAYING) window.setStatus("Reproduzindo áudio...");
+                else if (event.data === YT.PlayerState.PAUSED) window.setStatus("Áudio pausado.");
+                else if (event.data === YT.PlayerState.ENDED) window.setStatus("Áudio finalizado.");
+            },
+            'onError': (event) => {
+                console.error("Erro YT:", event.data);
+                window.setStatus("Erro no vídeo.");
+                window.showToast("⚠ Não foi possível reproduzir. O vídeo pode ter restrições.");
+            }
+        }
+    });
+};
 $('closeMusicPlayer').addEventListener('click', () => {
   $('musicPlayerContainer').classList.add('hidden');
-  $('musicPlayer').src = "";
   if (window.ytPlayer && window.ytPlayer.stopVideo) window.ytPlayer.stopVideo();
 });
 
@@ -890,9 +914,16 @@ async function sendCommandToFriday(command, isInitial = false) {
             }
 
             if (dataObj.music) {
-              $('musicPlayer').src = dataObj.music;
-              $('musicPlayerContainer').classList.remove('hidden');
-              if (currentToolCard) { currentToolCard.classList.remove('loading'); currentToolCard = null; }
+                // Correção do Erro 153: Carregar via API do YT
+                const match = dataObj.music.match(/embed\/([a-zA-Z0-9_-]{11})/);
+                if (match && match[1] && window.ytPlayer && window.ytPlayer.loadVideoById) {
+                    window.ytPlayer.loadVideoById(match[1]);
+                    $('musicPlayerContainer').classList.remove('hidden');
+                    window.setStatus("Buscando e reproduzindo áudio...");
+                } else {
+                    window.showToast("⚠ Falha ao carregar o ID do vídeo.");
+                }
+                if (currentToolCard) { currentToolCard.classList.remove('loading'); currentToolCard = null; }
             }
             if (dataObj.music_action) {
               if (dataObj.music_action === 'pause' && window.ytPlayer && window.ytPlayer.pauseVideo) window.ytPlayer.pauseVideo();
@@ -1248,7 +1279,6 @@ window.initEyeOfGodGlobe = function() {
     eyeRenderer.setSize(w, h);
     eyeRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
-    // 1. Esfera com Textura (Alta resolução e sem brilho)
     const earthGeo = new THREE.SphereGeometry(100, 128, 128); 
     const textureLoader = new THREE.TextureLoader();
     textureLoader.crossOrigin = 'anonymous';
@@ -1258,21 +1288,19 @@ window.initEyeOfGodGlobe = function() {
 
     const earthMat = new THREE.MeshPhongMaterial({
       map: texture,
-      shininess: 2, // Brilho mínimo
+      shininess: 2, 
       specular: 0x111111 
     });
     
     earthMesh = new THREE.Mesh(earthGeo, earthMat);
     eyeScene.add(earthMesh);
 
-    // 2. Iluminação (Luz branca suave)
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
     eyeScene.add(ambientLight);
     const dirLight = new THREE.DirectionalLight(0xffffff, 0.5);
     dirLight.position.set(5, 3, 5);
     eyeScene.add(dirLight);
 
-    // 3. Grupos de Dados
     pointsGroup = new THREE.Group();
     earthquakesGroup = new THREE.Group();
     cyclonesGroup = new THREE.Group();
@@ -1285,7 +1313,6 @@ window.initEyeOfGodGlobe = function() {
     pointsGroup.add(targetMarkerGroup);
     eyeScene.add(pointsGroup);
 
-    // 4. Controles
     const controls = new THREE.OrbitControls(eyeCamera, eyeRenderer.domElement);
     window.eyeControls = controls; 
     window.eyeCamera = eyeCamera;   
@@ -1298,7 +1325,6 @@ window.initEyeOfGodGlobe = function() {
     controls.autoRotate = true;
     controls.autoRotateSpeed = 0.8;
 
-    // 5. Loop de Animação
     function animateEye() {
       requestAnimationFrame(animateEye);
       controls.update();
@@ -1317,7 +1343,6 @@ window.initEyeOfGodGlobe = function() {
     }
     animateEye();
 
-    // 6. Buscar dados, configurar UI e Busca
     fetchEarthquakes();
     generateMockData();
     setupEyeUI();
@@ -1535,16 +1560,11 @@ document.getElementById('closeEyeBtn')?.addEventListener('click', () => {
   setTimeout(() => { if (overlay) overlay.classList.add('hidden'); }, 1500);
 });
 
-/* ============================================================
-   BUSCA DE LOCALIZAÇÃO (OpenStreetMap / Photon API) e Animação
-   ============================================================ */
-
 function searchLocation(query) {
     if (!query || !window.eyeCamera) return;
 
     window.showToast(`🔍 Buscando "${query}"...`);
 
-    // Chama o BACKEND, que por sua vez chama a API Photon
     fetch(`/api/search_location?q=${encodeURIComponent(query)}`)
         .then(response => response.json())
         .then(data => {
