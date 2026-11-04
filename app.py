@@ -365,11 +365,9 @@ def _calendar_events_query(access_token, time_min=None, time_max=None, max_resul
         summary = item.get("summary", "(sem título)")
         start_dict = item.get("start") or {}
         
-        # FILTRO: Ignora eventos de aniversário (dia inteiro e com "Parabéns" no título)
         if start_dict.get("date") and "Parabéns" in summary:
             continue
             
-        # Pega a data por dateTime OU por date (eventos de dia inteiro)
         start_str = start_dict.get("dateTime") or start_dict.get("date") or ""
         
         events.append({
@@ -519,11 +517,46 @@ async def search_location_proxy(q: str):
         logger.error(f"Erro na busca Photon: {e}")
         return {"ok": False, "error": "Falha na conexão com o serviço de mapas."}
 
+# --- WORK MODE ROUTES ---
 @app.get("/work/connect")
 async def work_connect(friday_session: Optional[str] = Cookie(None)):
-    if not friday_session: return RedirectResponse(url="/?work=nosession")
-    params = {"client_id": GOOGLE_OAUTH_CLIENT_ID, "redirect_uri": GOOGLE_OAUTH_REDIRECT_URI.replace("callback", "work_callback"), "response_type": "code", "scope": work_mode.GMAIL_SCOPE, "access_type": "offline", "prompt": "consent"}
-    return RedirectResponse(url=f"{GOOGLE_OAUTH_AUTHORIZE_URL}?{urlencode(params)}")
+    if not friday_session:
+        return RedirectResponse(url="/?work=nosession")
+    
+    try:
+        if not GOOGLE_OAUTH_CLIENT_ID:
+            raise ValueError("GOOGLE_OAUTH_CLIENT_ID não configurado no Render.")
+
+        redirect_uri = GOOGLE_OAUTH_REDIRECT_URI.replace("callback", "work_callback")
+        
+        params = {
+            "client_id": GOOGLE_OAUTH_CLIENT_ID,
+            "redirect_uri": redirect_uri,
+            "response_type": "code",
+            "scope": work_mode.GMAIL_SCOPE,
+            "access_type": "offline",
+            "prompt": "consent"
+        }
+        auth_url = f"{GOOGLE_OAUTH_AUTHORIZE_URL}?{urlencode(params)}"
+        return RedirectResponse(url=auth_url)
+    except Exception as e:
+        logger.error(f"Erro ao iniciar OAuth do Work Mode: {e}")
+        return RedirectResponse(url="/?work=error_config")
+
+@app.get("/oauth/google/work_callback")
+async def work_callback(request: Request):
+    code = request.query_params.get("code")
+    if not code: return RedirectResponse(url="/?work=denied")
+    try:
+        req = URLRequest(GOOGLE_OAUTH_TOKEN_URL, data=urlencode({
+            "code": code, "client_id": GOOGLE_OAUTH_CLIENT_ID, "client_secret": GOOGLE_OAUTH_CLIENT_SECRET,
+            "redirect_uri": GOOGLE_OAUTH_REDIRECT_URI.replace("callback", "work_callback"), "grant_type": "authorization_code",
+        }).encode(), headers={"Content-Type": "application/x-www-form-urlencoded"}, method="POST")
+        with urlopen(req, timeout=15) as resp: res = json.loads(resp.read().decode())
+        work_mode.save_work_tokens(res["access_token"], res.get("refresh_token"), res.get("expires_in", 3600))
+        _push_notification("💼 Conta Corporativa (Gmail) conectada!")
+        return RedirectResponse(url="/?work=connected")
+    except Exception: return RedirectResponse(url="/?work=token")
 
 @app.get("/work/status")
 async def work_status(friday_session: Optional[str] = Cookie(None)):
@@ -538,6 +571,7 @@ async def work_emails(friday_session: Optional[str] = Cookie(None)):
     
     emails = work_mode.fetch_work_emails(at, max_results=5)
     return {"emails": emails}
+# --- END WORK MODE ROUTES ---
 
 @app.get("/status")
 async def get_status(friday_session: Optional[str] = Cookie(None)):
@@ -798,33 +832,8 @@ async def chat_endpoint(data: ChatData, friday_session: Optional[str] = Cookie(N
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
-@app.get("/work/connect")
-async def work_connect(friday_session: Optional[str] = Cookie(None)):
-    if not friday_session:
-        return RedirectResponse(url="/?work=nosession")
-    
-    try:
-        # Garante que a URL de redirecionamento está correta
-        redirect_uri = GOOGLE_OAUTH_REDIRECT_URI.replace("callback", "work_callback")
-        
-        params = {
-            "client_id": GOOGLE_OAUTH_CLIENT_ID,
-            "redirect_uri": redirect_uri,
-            "response_type": "code",
-            "scope": work_mode.GMAIL_SCOPE,
-            "access_type": "offline",
-            "prompt": "consent"
-        }
-        auth_url = f"{GOOGLE_OAUTH_AUTHORIZE_URL}?{urlencode(params)}"
-        return RedirectResponse(url=auth_url)
-    except Exception as e:
-        logger.error(f"Erro ao iniciar OAuth do Work Mode: {e}")
-        # Redireciona para uma tela de erro amigável em vez de 500
-        return RedirectResponse(url="/?work=error_config")
-
 if __name__ == "__main__":
     import uvicorn
-    # As flags abaixo resolvem o problema de HTTPS no Render
     uvicorn.run(
         app, 
         host="0.0.0.0", 
