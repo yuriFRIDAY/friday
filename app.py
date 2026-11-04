@@ -359,7 +359,27 @@ def _calendar_events_query(access_token, time_min=None, time_max=None, max_resul
         with urlopen(req, timeout=15) as resp:
             result = json.loads(resp.read().decode())
     except Exception: return None
-    return [{"id": item.get("id", ""), "summary": item.get("summary", "(sem título)"), "start": (item.get("start") or {}).get("dateTime", ""), "hangoutLink": item.get("hangoutLink", "")} for item in (result.get("items") or [])[:max_results]]
+    
+    events = []
+    for item in (result.get("items") or []):
+        summary = item.get("summary", "(sem título)")
+        start_dict = item.get("start") or {}
+        
+        # FILTRO: Ignora eventos de aniversário (dia inteiro e com "Parabéns" no título)
+        if start_dict.get("date") and "Parabéns" in summary:
+            continue
+            
+        # Pega a data por dateTime OU por date (eventos de dia inteiro)
+        start_str = start_dict.get("dateTime") or start_dict.get("date") or ""
+        
+        events.append({
+            "id": item.get("id", ""), 
+            "summary": summary, 
+            "start": start_str, 
+            "hangoutLink": item.get("hangoutLink", "")
+        })
+        
+    return events[:max_results]
 
 def _calendar_today_events(access_token):
     now = time.localtime()
