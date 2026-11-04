@@ -1,3 +1,4 @@
+import os
 import json
 import urllib.parse
 import xml.etree.ElementTree as ET
@@ -14,7 +15,7 @@ def _handler_get_weather(city="São Paulo"):
     city_encoded = urllib.parse.quote(city)
     try:
         req = Request(f"https://wttr.in/{city_encoded}?format=j1&lang=pt", headers={"User-Agent": "FRIDAY/1.0"})
-        with urlopen(req, timeout=10) as response:
+        with urlopen(req, timeout=8) as response:
             data = json.loads(response.read().decode("utf-8"))
 
         current = data["current_condition"][0]
@@ -49,6 +50,29 @@ def _handler_get_news(category="mundo"):
         return result
     except Exception as e:
         return {"error": f"Falha ao buscar notícias: {str(e)}"}
+
+def _handler_get_crypto_price(coin="bitcoin"):
+    cache_key = f"crypto_{coin}"
+    cached = _get_cache(cache_key)
+    if cached: return cached
+
+    try:
+        url = f"https://api.coingecko.com/api/v3/simple/price?ids={coin.lower()}&vs_currencies=usd,brl&include_24hr_change=true"
+        req = Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urlopen(req, timeout=10) as response:
+            data = json.loads(response.read().decode("utf-8"))
+
+        if coin.lower() not in data: return {"error": f"Moeda '{coin}' não encontrada."}
+
+        info = data[coin.lower()]
+        change = info.get('usd_24h_change', 0)
+        direction = "📈" if change > 0 else "📉"
+        result = f"{coin.capitalize()}: US$ {info['usd']:,.2f} | R$ {info['brl']:,.2f} ({direction} {change:.1f}% 24h)."
+
+        _set_cache(cache_key, result, ttl_seconds=300)
+        return result
+    except Exception as e:
+        return {"error": f"Falha ao buscar cotação: {str(e)}"}
 
 def _handler_search_web(query, max_results=3):
     cache_key = f"search_{query}_{max_results}"
