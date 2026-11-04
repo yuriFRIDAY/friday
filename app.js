@@ -1227,7 +1227,7 @@ const PALETTE_COMMANDS = [
   { name: 'Parar voz', shortcut: 'Esc', action: () => window.stopVoice() },
   { name: 'Recarregar agenda', shortcut: '', action: () => { $('calendarPanel').classList.remove('hidden'); window.loadCalendarEvents('today'); } },
   { name: 'Conectar Google Calendar', shortcut: '', action: () => { window.location.href = '/calendar/connect'; } },
-  { name: 'Abrir Work Mode', shortcut: '', action: () => { openWorkMode(); } },
+  { name: 'Abrir Work Mode', shortcut: '', action: () => { open(); } },
   { name: 'Nova conversa (limpar)', shortcut: '', action: () => $('messages').replaceChildren() },
   { name: 'Mostrar/ocultar sidebar', shortcut: '', action: () => document.body.classList.toggle('hide-sidebar') },
   { name: 'Mostrar/ocultar telemetria', shortcut: '', action: () => document.body.classList.toggle('hide-chart') },
@@ -1679,16 +1679,19 @@ function setupSearchInput() {
         }
     });
 }
-
 /* ============================================================
-   WORK MODE — Lógica de Transição e Carregamento de Dados
+   WORK MODE — Lógica de Transição e Filtros
    ============================================================ */
+
+let workModeActive = false;
+let globalWorkEmails = []; // Guarda os e-mails para filtrar sem bater na API de novo
+let currentWorkFilter = 'all';
+let currentWorkSearch = '';
 
 function openWorkMode() {
   if (workModeActive) return;
   workModeActive = true;
   
-  // Animação de zoom reverso
   const stage = document.getElementById('reactorStage');
   if (stage) {
     stage.style.transition = 'transform 1s cubic-bezier(0.4, 0, 0.2, 1), opacity 1s';
@@ -1702,10 +1705,8 @@ function openWorkMode() {
     void overlay.offsetWidth; 
     overlay.classList.add('active');
     
-    // Verifica se a conta está conectada
     checkWorkStatus();
     
-    // Se estiver conectado, já busca os e-mails
     if ($('workConnectionStatus').classList.contains('connected')) {
       fetchWorkEmails();
     }
@@ -1761,39 +1762,16 @@ async function fetchWorkEmails() {
     const data = await res.json();
 
     if (data.error) {
-      listEl.innerHTML = `<div class="work-empty" style="color:var(--red)">${data.error}</div>`;
+      listEl.innerHTML = `<div class="work-empty" style="color:var(--red)">Erro: ${data.error}</div>`;
       return;
     }
 
-    const emails = data.emails || [];
-    $('workUnreadCount').textContent = `${emails.length} e-mails recentes`;
-    $('workPriorityCount').textContent = `${emails.filter(e => e.body.includes('urgente') || e.subject.includes('Urgente')).length} prioritários (estimado)`;
+    globalWorkEmails = data.emails || [];
     
-    if (emails.length === 0) {
-      listEl.innerHTML = '<div class="work-empty">Nenhum e-mail recente encontrado.</div>';
-      return;
-    }
-
-    listEl.innerHTML = '';
-    emails.forEach(email => {
-      const item = document.createElement('div');
-      item.className = 'work-email-item';
-      item.innerHTML = `
-        <div class="work-email-header">
-          <span>De: ${email.sender}</span>
-          <span>${email.date}</span>
-        </div>
-        <div class="work-email-subject">${email.subject}</div>
-        <div class="work-email-snippet">${email.snippet}</div>
-        <div class="work-email-footer">
-          <a href="${email.link}" target="_blank" class="work-email-link">Abrir no Gmail ↗</a>
-        </div>
-      `;
-      listEl.appendChild(item);
-    });
-
-    // Simulação de resumo da IA (numa versão real, enviaria os corpos para o backend resumir)
-    $('workAISummary').textContent = `Bom dia, Chefe. Você tem ${emails.length} e-mails recentes. Destaco o assunto "${emails[0].subject}" como o mais recente. Sugiro revisar as mensagens e responder as pendências.`;
+    $('workUnreadCount').textContent = `${globalWorkEmails.filter(e => e.is_unread).length} não lidos`;
+    $('workPriorityCount').textContent = `${globalWorkEmails.filter(e => e.subject.includes('Urgente') || e.body.includes('urgente')).length} prioritários`;
+    
+    renderWorkEmails();
 
   } catch (e) {
     listEl.innerHTML = '<div class="work-empty" style="color:var(--red)">Erro de conexão ao buscar e-mails.</div>';
@@ -1801,7 +1779,84 @@ async function fetchWorkEmails() {
   }
 }
 
-// Event Listeners do Work Mode
+function renderWorkEmails() {
+  const listEl = $('workEmailList');
+  
+  let filtered = globalWorkEmails;
+
+  // Aplica Filtro
+  if (currentWorkFilter === 'unread') {
+      filtered = filtered.filter(e => e.is_unread);
+  } else if (currentWorkFilter === 'priority') {
+      filtered = filtered.filter(e => e.subject.includes('Urgente') || e.body.includes('urgente') || e.subject.includes('Ação'));
+  }
+
+  // Aplica Busca
+  if (currentWorkSearch) {
+      const q = currentWorkSearch.toLowerCase();
+      filtered = filtered.filter(e => 
+          e.subject.toLowerCase().includes(q) || 
+          e.sender.toLowerCase().includes(q) || 
+          e.snippet.toLowerCase().includes(q)
+      );
+  }
+
+  if (filtered.length === 0) {
+    listEl.innerHTML = '<div class="work-empty">Nenhum e-mail encontrado com esses filtros.</div>';
+    return;
+  }
+
+  listEl.innerHTML = '';
+  filtered.forEach(email => {
+    const item = document.createElement('div');
+    item.className = 'work-email-item';
+    // Se for não lido, deixa a borda mais brilhante
+    if (email.is_unread) item.style.borderLeftColor = '#ff9f00'; 
+
+    item.innerHTML = `
+      <div class="work-email-header">
+        <span><b>De:</b> ${email.sender}</span>
+        <span>${email.date}</span>
+      </div>
+      <div class="work-email-subject">
+        ${email.is_unread ? '<span style="color:var(--orange); font-size:10px; margin-right:5px;">● NÃO LIDO</span>' : ''}
+        ${email.subject}
+      </div>
+      <div class="work-email-snippet">${email.snippet}</div>
+      <div class="work-email-footer">
+        <a href="${email.link}" target="_blank" class="work-email-link">Abrir no Gmail ↗</a>
+      </div>
+    `;
+    listEl.appendChild(item);
+  });
+
+  $('workAISummary').textContent = `Bom dia, Chefe. Exibindo ${filtered.length} e-mails. Sugiro focar nos não lidos primeiro.`;
+}
+
+// ==========================================
+// Event Listeners dos Filtros e Busca
+// ==========================================
+
+// Botões de Filtro (Todos, Não lidos, Prioritários)
+document.querySelectorAll('.work-filter').forEach((btn, index) => {
+  btn.onclick = () => {
+      document.querySelectorAll('.work-filter').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      
+      if (index === 1) currentWorkFilter = 'unread';
+      else if (index === 2) currentWorkFilter = 'priority';
+      else currentWorkFilter = 'all';
+      
+      renderWorkEmails();
+  };
+});
+
+// Input de Busca
+document.querySelector('.work-search')?.addEventListener('input', (e) => {
+  currentWorkSearch = e.target.value;
+  renderWorkEmails();
+});
+
 $('openWorkModeBtn')?.addEventListener('click', openWorkMode);
 $('closeWorkModeBtn')?.addEventListener('click', closeWorkMode);
 $('workConnectBtn')?.addEventListener('click', () => { window.location.href = "/work/connect"; });
