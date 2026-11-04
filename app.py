@@ -566,11 +566,20 @@ async def work_status(friday_session: Optional[str] = Cookie(None)):
 @app.get("/work/emails")
 async def work_emails(friday_session: Optional[str] = Cookie(None)):
     if not friday_session: raise HTTPException(401)
-    at = work_mode.get_valid_work_token(GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET)
-    if not at: return {"error": "Conta corporativa não conectada ou expirada."}
     
-    emails = work_mode.fetch_work_emails(at, max_results=5)
-    return {"emails": emails}
+    at = work_mode.get_valid_work_token(GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET)
+    if not at: 
+        return {"error": "Conta corporativa não conectada ou expirada."}
+    
+    try:
+        emails = work_mode.fetch_work_emails(at, max_results=5)
+        if isinstance(emails, dict) and "error" in emails:
+            return {"error": emails["error"]}
+            
+        return {"emails": emails}
+    except Exception as e:
+        logger.error(f"Erro inesperado ao buscar e-mails: {e}")
+        return {"error": str(e)}
 # --- END WORK MODE ROUTES ---
 
 @app.get("/status")
