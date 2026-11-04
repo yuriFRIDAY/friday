@@ -569,7 +569,14 @@ function setWaveformState(state) {
 window.setStatus = function(text) { $("status").textContent = text; };
 
 function formatEventDate(dateStr) {
-  if (!dateStr) return "Sem data";
+  if (!dateStr) return "Dia inteiro";
+  
+  // Se for uma data de dia inteiro (YYYY-MM-DD), formata sem a hora
+  if (dateStr.length === 10 && dateStr.includes('-')) {
+      const [y, m, d] = dateStr.split('-');
+      return `${d}/${m}/${y}`;
+  }
+  
   const d = new Date(dateStr);
   if (isNaN(d.getTime())) return dateStr;
   return new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }).format(d);
