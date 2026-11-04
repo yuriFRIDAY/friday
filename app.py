@@ -466,7 +466,6 @@ async def serve_manifest():
 async def serve_sw():
     return Response(content=open(os.path.join(BASE_DIR, "sw.js"), "r").read(), media_type="application/javascript")
 
-# --- NOVO: Rota proxy para busca de localização (Photon/OpenStreetMap) ---
 @app.get("/api/search_location")
 async def search_location_proxy(q: str):
     if not q:
@@ -498,7 +497,6 @@ async def search_location_proxy(q: str):
     except Exception as e:
         logger.error(f"Erro na busca Photon: {e}")
         return {"ok": False, "error": "Falha na conexão com o serviço de mapas."}
-# -------------------------------------------------------------------------
 
 @app.get("/status")
 async def get_status(friday_session: Optional[str] = Cookie(None)):
