@@ -41,6 +41,7 @@ from core.friday_tools import (
     TOOL_REGISTRY, execute_tool, public_tool_specs,
     set_calendar_context, set_memory_context,
 )
+import core.work_mode as work_mode
 
 logger = logging.getLogger("friday.main")
 if not logger.handlers:
@@ -593,6 +594,43 @@ async def calendar_events(range: str = "upcoming", friday_session: Optional[str]
     if not at: return {"events": []}
     events = _calendar_today_events(at) if range == "today" else _calendar_events_query(at)
     return {"events": events or []}
+
+# --- NOVAS ROTAS DO MODO TRABALHO ---
+@app.get("/work/connect")
+async def work_connect(friday_session: Optional[str] = Cookie(None)):
+    if not friday_session: return RedirectResponse(url="/?work=nosession")
+    params = {"client_id": GOOGLE_OAUTH_CLIENT_ID, "redirect_uri": GOOGLE_OAUTH_REDIRECT_URI.replace("callback", "work_callback"), "response_type": "code", "scope": work_mode.GMAIL_SCOPE, "access_type": "offline", "prompt": "consent"}
+    return RedirectResponse(url=f"{GOOGLE_OAUTH_AUTHORIZE_URL}?{urlencode(params)}")
+
+@app.get("/oauth/google/work_callback")
+async def work_callback(request: Request):
+    code = request.query_params.get("code")
+    if not code: return RedirectResponse(url="/?work=denied")
+    try:
+        req = URLRequest(GOOGLE_OAUTH_TOKEN_URL, data=urlencode({
+            "code": code, "client_id": GOOGLE_OAUTH_CLIENT_ID, "client_secret": GOOGLE_OAUTH_CLIENT_SECRET,
+            "redirect_uri": GOOGLE_OAUTH_REDIRECT_URI.replace("callback", "work_callback"), "grant_type": "authorization_code",
+        }).encode(), headers={"Content-Type": "application/x-www-form-urlencoded"}, method="POST")
+        with urlopen(req, timeout=15) as resp: res = json.loads(resp.read().decode())
+        work_mode.save_work_tokens(res["access_token"], res.get("refresh_token"), res.get("expires_in", 3600))
+        _push_notification("💼 Conta Corporativa (Gmail) conectada!")
+        return RedirectResponse(url="/?work=connected")
+    except Exception: return RedirectResponse(url="/?work=token")
+
+@app.get("/work/status")
+async def work_status(friday_session: Optional[str] = Cookie(None)):
+    if not friday_session: return JSONResponse(status_code=401, content={"connected": False})
+    return {"connected": bool(work_mode.WORK_TOKEN_STORE)}
+
+@app.get("/work/emails")
+async def work_emails(friday_session: Optional[str] = Cookie(None)):
+    if not friday_session: raise HTTPException(401)
+    at = work_mode.get_valid_work_token(GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET)
+    if not at: return {"error": "Conta corporativa não conectada ou expirada."}
+    
+    emails = work_mode.fetch_work_emails(at, max_results=5)
+    return {"emails": emails}
+# --------------------------------------
 
 @app.post("/chat")
 async def chat_endpoint(data: ChatData, friday_session: Optional[str] = Cookie(None)):
