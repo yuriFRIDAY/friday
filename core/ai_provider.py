@@ -20,14 +20,13 @@ if not logger.handlers:
     logger.addHandler(handler)
 logger.propagate = False
 
-MAX_HISTORY_MESSAGES = 20
-
+# Reduzido para evitar estouro do limite de 8000 TPM
+MAX_HISTORY_MESSAGES = 10 
 
 class FridayAIProvider:
     def __init__(self):
         self.api_key = os.getenv("GROQ_API_KEY", "").strip()
         self.base_url = "https://api.groq.com/openai/v1"
-        self.smtp_user = os.getenv("SMTP_USER", "")
         self.data_dir = os.getenv("DATA_DIR", ".")
         if os.path.exists("/data") and os.access("/data", os.W_OK):
             self.data_dir = "/data"
@@ -46,28 +45,15 @@ class FridayAIProvider:
             now = datetime.now(ZoneInfo("America/Sao_Paulo")) if HAS_ZONEINFO else datetime.now(timezone(timedelta(hours=-3)))
         except Exception:
             now = datetime.now(timezone(timedelta(hours=-3)))
-        dias = ["segunda-feira", "terça-feira", "quarta-feira", "quinta-feira", "sexta-feira", "sábado", "domingo"]
-        return f"Hoje é {dias[now.weekday()]}, {now.strftime('%d/%m/%Y')} e agora são {now.strftime('%H:%M')} (Horário de Brasília)."
+        return f"Hoje: {now.strftime('%d/%m/%Y')} - {now.strftime('%H:%M')} (Brasília)."
 
     def _get_system_prompt(self):
         return """
-Você é a F.R.I.D.A.Y. (Female Replacement Intelligent Digital Assistant Youth).
-Você é a IA pessoal e braço direito do Chefe. Sua inspiração é o JARVIS e a FRIDAY do universo Stark.
-
-SUA PERSONALIDADE:
-- Elegante, eficiente e leal. Você é uma parceira brilhante e de confiança, não uma serva.
-- Humor sutil, inteligente e levemente sarcástico (dry humor), mas sempre com respeito.
-- Chame o usuário de "Chefe" ou "Senhor".
-- Seja natural e conversacional. Evite respostas monossilábicas ou excessivamente robóticas.
-
-DIRETRIZES DE OPERAÇÃO:
-1. Vá direto ao ponto quando a pergunta for simples, mas adicione um toque de conversa (ex: "São 15:35, Chefe. O que planeja para o resto da tarde?").
-2. Se uma ferramenta (como a agenda ou o clima) for necessária, use-a.
-3. **TRATAMENTO DE ERROS:** Se uma ferramenta retornar um erro (ex: "ERRO NA FERRAMENTA: Calendar indisponível"), NÃO diga apenas "Desculpe". Explique o motivo real ao Chefe com suas palavras (ex: "Chefe, tentei acessar sua agenda, mas parece que a conta do Google ainda não está conectada.").
-4. Antecipe as necessidades do Chefe. Se ele diz que está saindo do trabalho, pergunte se ele quer saber do trânsito ou da agenda.
-5. Responda SEMPRE em português brasileiro natural.
-6. O contexto de tempo atual será injetado no início da mensagem do usuário. Use isso para agendamentos.
-7. **OLHO DE DEUS:** Se o Chefe mandar abrir o "Olho de Deus" (ou "God's Eye"), use imediatamente a ferramenta open_eye_of_god e responda com uma frase curta e cinematográfica (ex: "Acessando satélites globais. Olho de Deus ativo, Chefe.").
+Você é a F.R.I.D.A.Y., IA pessoal do Chefe (inspirada no JARVIS).
+Personalidade: Elegante, direta, leal e com humor sutil. Chame-o de "Chefe".
+Seja concisa nas respostas. Não enrole.
+Se uma ferramenta falhar, explique o motivo brevemente e ofereça uma alternativa.
+Se o Chefe pedir para abrir o "Olho de Deus", use a ferramenta open_eye_of_god.
 """.strip()
 
     def _trim_history(self, messages):
@@ -124,8 +110,8 @@ DIRETRIZES DE OPERAÇÃO:
             "model": self._get_model(is_vision),
             "messages": [{"role": "system", "content": self._get_system_prompt()}] + trimmed,
             "stream": True,
-            "max_tokens": 4096,
-            "temperature": 0.65,
+            "max_tokens": 2048, # Reduzido para economizar cota
+            "temperature": 0.6,
         }
         if formatted_tools:
             payload["tools"] = formatted_tools
@@ -151,14 +137,21 @@ DIRETRIZES DE OPERAÇÃO:
                 break
             except HTTPError as e:
                 body = e.read().decode("utf-8", errors="replace")
-                logger.error(f"Groq HTTP {e.code} (tentativa {attempt+1}/3): {body[:200]}")
-                last_err = f"Groq HTTP {e.code}: {body[:500]}"
-                if e.code < 500 or attempt == 2:
+                logger.error(f"Groq HTTP {e.code}: {body[:200]}")
+                last_err = f"Groq HTTP {e.code}: {body[:200]}"
+                
+                if e.code == 429:
+                    retry_after = e.headers.get("retry-after")
+                    wait_time = int(retry_after) if retry_after else (5 * (2 ** attempt))
+                    logger.warning(f"Rate limit atingido. Aguardando {wait_time}s...")
+                    time.sleep(wait_time)
+                elif e.code < 500 or attempt == 2:
                     yield {"error": last_err}
                     return
-                time.sleep(2 ** attempt)
+                else:
+                    time.sleep(2 ** attempt)
             except Exception as e:
-                logger.exception(f"Erro conexão Groq (tentativa {attempt+1}/3)")
+                logger.exception(f"Erro conexão Groq")
                 last_err = str(e)[:300]
                 if attempt == 2:
                     yield {"error": f"Erro de conexão: {last_err}"}
@@ -172,21 +165,16 @@ DIRETRIZES DE OPERAÇÃO:
         try:
             with response:
                 for line in response:
-                    if not line:
-                        break
+                    if not line: break
                     line = line.decode("utf-8", errors="replace").strip()
-                    if not line.startswith("data:"):
-                        continue
+                    if not line.startswith("data:"): continue
                     data_str = line[5:].strip()
-                    if data_str == "[DONE]":
-                        break
+                    if data_str == "[DONE]": break
                     try:
                         chunk_data = json.loads(data_str)
-                    except json.JSONDecodeError:
-                        continue
+                    except json.JSONDecodeError: continue
                     choices = chunk_data.get("choices") or []
-                    if not choices:
-                        continue
+                    if not choices: continue
                     delta = choices[0].get("delta") or {}
                     if delta.get("content"):
                         yield {"text": delta["content"]}
