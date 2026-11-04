@@ -56,15 +56,23 @@ def get_valid_work_token(client_id, client_secret):
         except Exception:
             return None
 
+def _b64_decode(data):
+    try:
+        data = data.replace('-', '+').replace('_', '/')
+        padding = '=' * (-len(data) % 4)
+        return base64.b64decode(data + padding).decode("utf-8", errors="ignore")
+    except Exception:
+        return ""
+
 def extract_email_body(payload):
     if payload.get("mimeType") == "text/plain":
         data = payload.get("body", {}).get("data", "")
-        if data: return base64.urlsafe_b64decode(data + "===" ).decode("utf-8", errors="ignore")
+        if data: return _b64_decode(data)
     elif payload.get("mimeType") == "text/html":
         data = payload.get("body", {}).get("data", "")
         if data:
-            html = base64.urlsafe_b64decode(data + "===" ).decode("utf-8", errors="ignore")
-            text = re.sub(r'<[^>]+>', ' ', html) # Remove tags HTML simples
+            html = _b64_decode(data)
+            text = re.sub(r'<[^>]+>', ' ', html)
             return re.sub(r'\s+', ' ', text).strip()
     
     for part in payload.get("parts", []):
@@ -94,7 +102,7 @@ def fetch_work_emails(access_token, max_results=5):
                 date = next((h["value"] for h in headers if h["name"].lower() == "date"), "")
                 
                 snippet = msg_data.get("snippet", "")
-                body = extract_email_body(msg_data.get("payload", {}))[:2000] # Limita o tamanho
+                body = extract_email_body(msg_data.get("payload", {}))[:2000]
                 
                 emails.append({
                     "id": msg['id'],
