@@ -1174,6 +1174,13 @@ async function checkSession() {
     if (workState === 'connected') {
       window.showToast("💼 Gmail Corporativo conectado com sucesso!");
       history.replaceState({}, "", location.pathname);
+    } else if (workState === 'error_config') {
+      window.showToast("❌ Erro: Variáveis do Google não configuradas no Render.", 8000);
+      window.setStatus("Falha na configuração do OAuth.");
+      history.replaceState({}, "", location.pathname);
+    } else if (workState === 'nosession') {
+      window.showToast("⚠ Faça login antes de conectar o e-mail.");
+      history.replaceState({}, "", location.pathname);
     }
   } catch (error) {
     console.error("FRIDAY session check:", error);
@@ -1730,6 +1737,11 @@ function closeWorkMode() {
 async function checkWorkStatus() {
   try {
     const res = await fetch("/work/status", { credentials: "same-origin" });
+    
+    if (!res.ok) {
+        throw new Error(`Servidor respondeu ${res.status}`);
+    }
+
     const data = await res.json();
     const statusEl = $('workConnectionStatus');
     const connectBtn = $('workConnectBtn');
@@ -1745,6 +1757,11 @@ async function checkWorkStatus() {
     }
   } catch (e) {
     console.error("Erro ao verificar status do trabalho:", e);
+    const statusEl = $('workConnectionStatus');
+    if (statusEl) {
+        statusEl.textContent = "ERRO DE CONEXÃO";
+        statusEl.className = "work-status disconnected";
+    }
   }
 }
 
@@ -1755,14 +1772,19 @@ async function fetchWorkEmails() {
 
   try {
     const res = await fetch("/work/emails", { credentials: "same-origin" });
+    if (!res.ok) throw new Error("Falha na resposta do servidor");
+    
     const data = await res.json();
 
     if (data.error) {
       listEl.innerHTML = `<div class="work-empty" style="color:var(--red)">Erro: ${data.error}</div>`;
+      globalWorkEmails = []; // <-- GARANTE QUE É UMA LISTA VAZIA
+      $('workUnreadCount').textContent = "0 não lidos";
+      $('workPriorityCount').textContent = "0 prioritários";
       return;
     }
 
-    globalWorkEmails = data.emails || [];
+    globalWorkEmails = Array.isArray(data.emails) ? data.emails : [];
     
     $('workUnreadCount').textContent = `${globalWorkEmails.filter(e => e.is_unread).length} não lidos`;
     $('workPriorityCount').textContent = `${globalWorkEmails.filter(e => e.subject.includes('Urgente') || e.body.includes('urgente')).length} prioritários`;
@@ -1771,12 +1793,17 @@ async function fetchWorkEmails() {
 
   } catch (e) {
     listEl.innerHTML = '<div class="work-empty" style="color:var(--red)">Erro de conexão ao buscar e-mails.</div>';
+    globalWorkEmails = []; // <-- GARANTE QUE É UMA LISTA VAZIA
     console.error(e);
   }
 }
 
 function renderWorkEmails() {
   const listEl = $('workEmailList');
+  
+  if (!Array.isArray(globalWorkEmails)) {
+      globalWorkEmails = [];
+  }
   
   let filtered = globalWorkEmails;
 
