@@ -20,7 +20,6 @@ if not logger.handlers:
     logger.addHandler(handler)
 logger.propagate = False
 
-# Reduzido para evitar estouro do limite de 8000 TPM
 MAX_HISTORY_MESSAGES = 10 
 
 class FridayAIProvider:
@@ -110,7 +109,7 @@ Se o Chefe pedir para abrir o "Olho de Deus", use a ferramenta open_eye_of_god.
             "model": self._get_model(is_vision),
             "messages": [{"role": "system", "content": self._get_system_prompt()}] + trimmed,
             "stream": True,
-            "max_tokens": 2048, # Reduzido para economizar cota
+            "max_tokens": 2048, 
             "temperature": 0.6,
         }
         if formatted_tools:
