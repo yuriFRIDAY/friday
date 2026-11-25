@@ -587,7 +587,7 @@ async def work_status(friday_session: Optional[str] = Cookie(None)):
 
 @app.get("/work/emails")
 async def work_emails(friday_session: Optional[str] = Cookie(None)):
-    if not friday_session: raise HTTPException(401)
+    if not SESSION_STORE.get(friday_session): raise HTTPException(401)
     
     at = work_mode.get_valid_work_token(GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET)
     if not at: 
@@ -635,7 +635,9 @@ async def login(data: LoginData, response: Response, request: Request):
     except Exception as e: raise HTTPException(500, str(e))
 
 @app.post("/logout")
-async def logout(response: Response):
+async def logout(response: Response, friday_session: Optional[str] = Cookie(None)):
+    if friday_session:
+        SESSION_STORE.invalidate(friday_session)
     response.delete_cookie(key="friday_session", path="/", httponly=True, samesite="lax")
     return {"ok": True}
 
@@ -668,6 +670,7 @@ async def calendar_connect(friday_session: Optional[str] = Cookie(None)):
     if not SESSION_STORE.get(friday_session): return RedirectResponse(url="/?calendar=nosession")
     oauth_state = secrets.token_urlsafe(32)
     with _OAUTH_STATE_LOCK:
+        _OAUTH_STATES = {key: value for key, value in _OAUTH_STATES.items() if value.get("expires_at", 0) > time.time()}
         _OAUTH_STATES[oauth_state] = {"session": friday_session, "expires_at": time.time() + 600, "kind": "calendar"}
     params = {"client_id": GOOGLE_OAUTH_CLIENT_ID, "redirect_uri": GOOGLE_OAUTH_REDIRECT_URI, "response_type": "code", "scope": GOOGLE_SCOPES, "access_type": "offline", "prompt": "consent", "state": oauth_state}
     return RedirectResponse(url=f"{GOOGLE_OAUTH_AUTHORIZE_URL}?{urlencode(params)}")
@@ -696,7 +699,7 @@ async def google_callback(request: Request):
 @app.get("/calendar/status")
 async def calendar_status(friday_session: Optional[str] = Cookie(None)):
     try:
-        if not friday_session: return JSONResponse(status_code=401, content={"connected": False})
+        if not SESSION_STORE.get(friday_session): return JSONResponse(status_code=401, content={"connected": False})
         return {"connected": bool(GOOGLE_TOKEN_STORE.get(GOOGLE_OWNER_KEY))}
     except Exception:
         return JSONResponse(status_code=200, content={"connected": False})
