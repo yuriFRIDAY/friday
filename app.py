@@ -368,7 +368,7 @@ def _calendar_api_error(operation, error):
         if status == 429:
             return {"error": "O Google limitou temporariamente as solicitações. Tente novamente em alguns minutos."}
         return {"error": f"Falha no Google Calendar (HTTP {status}). Tente novamente."}
-    if isinstance(error, (URLError, TimeoutError, socket.timeout)):
+    if isinstance(error, (URLError, TimeoutError)):
         logger.warning("Google Calendar %s network failure: %s", operation, type(error).__name__)
         return {"error": "Não foi possível alcançar o Google Calendar. Verifique a conexão e tente novamente."}
     logger.exception("Google Calendar %s unexpected failure", operation)
