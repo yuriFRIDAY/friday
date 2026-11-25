@@ -42,6 +42,7 @@ from core.friday_tools import (
 import core.work_mode as work_mode
 from core.database import DATABASE_URL, DB_PATH, get_db
 from core.project_manager import ProjectManager, ProjectManagerError
+from core.project_intelligence import ProjectIntelligence
 
 project_manager = ProjectManager()
 
@@ -948,6 +949,19 @@ async def pm_add_dependency(task_id: int, data: DependencyCreate, friday_session
 async def pm_remove_dependency(task_id: int, depends_on_task_id: int, friday_session: Optional[str] = Cookie(None)):
     if not SESSION_STORE.get(friday_session): raise HTTPException(401)
     return {"ok": project_manager.remove_dependency(task_id, depends_on_task_id)}
+
+
+@app.get("/api/project-intelligence")
+async def pm_project_intelligence(friday_session: Optional[str] = Cookie(None)):
+    if not SESSION_STORE.get(friday_session):
+        raise HTTPException(401)
+    try:
+        return ProjectIntelligence(project_manager).analyze()
+    except ProjectManagerError as exc:
+        return _pm_error(exc)
+    except Exception as exc:
+        logger.exception("Falha ao analisar projetos")
+        raise HTTPException(500, "Não foi possível analisar os projetos agora.")
 
 if __name__ == "__main__":
     import uvicorn
