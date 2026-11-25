@@ -5,7 +5,6 @@ import base64
 import urllib.parse
 import threading
 import re
-from pathlib import Path
 from urllib.request import Request, urlopen
 
 from core.database import DATA_DIR
