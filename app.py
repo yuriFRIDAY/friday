@@ -606,7 +606,7 @@ async def work_emails(friday_session: Optional[str] = Cookie(None)):
 
 @app.get("/status")
 async def get_status(friday_session: Optional[str] = Cookie(None)):
-    if not friday_session: raise HTTPException(401)
+    if not SESSION_STORE.get(friday_session): raise HTTPException(401)
     global STATUS_QUEUE
     with QUEUE_LOCK:
         msgs = list(STATUS_QUEUE); STATUS_QUEUE.clear()
