@@ -37,13 +37,9 @@ def _resolve_sqlite_path():
         path.parent.mkdir(parents=True, exist_ok=True)
         return str(path)
 
-    configured_dir = os.getenv("DATA_DIR", "").strip()
-    if configured_dir:
-        path = Path(DATA_DIR) / "friday.db"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        return str(path)
-
     candidates = []
+    # The old app.py opened ./friday.db while task tools opened
+    # DATA_DIR/friday.db. Detect both even when DATA_DIR is configured.
     for candidate in (Path.cwd() / "friday.db", Path(DATA_DIR) / "friday.db"):
         resolved = candidate.resolve()
         if resolved.exists() and resolved not in candidates:
