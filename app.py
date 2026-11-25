@@ -73,6 +73,8 @@ QUEUE_LOCK = threading.Lock()
 _CHAT_RATE = defaultdict(list)
 _RATE_LOCK = threading.Lock()
 _TOKEN_LOCK = threading.Lock()
+_OAUTH_STATE_LOCK = threading.Lock()
+_OAUTH_STATES = {}
 
 MAX_IMAGE_BYTES = 8_000_000
 MAX_PDF_BYTES = 12_000_000
@@ -538,6 +540,9 @@ async def work_connect(friday_session: Optional[str] = Cookie(None)):
             raise ValueError("GOOGLE_OAUTH_CLIENT_ID não configurado no Render.")
 
         redirect_uri = GOOGLE_OAUTH_REDIRECT_URI.replace("callback", "work_callback")
+        oauth_state = secrets.token_urlsafe(32)
+        with _OAUTH_STATE_LOCK:
+            _OAUTH_STATES[oauth_state] = {"session": friday_session, "expires_at": time.time() + 600, "kind": "work"}
         
         params = {
             "client_id": GOOGLE_OAUTH_CLIENT_ID,
@@ -545,7 +550,8 @@ async def work_connect(friday_session: Optional[str] = Cookie(None)):
             "response_type": "code",
             "scope": work_mode.GMAIL_SCOPE,
             "access_type": "offline",
-            "prompt": "consent"
+            "prompt": "consent",
+            "state": oauth_state
         }
         auth_url = f"{GOOGLE_OAUTH_AUTHORIZE_URL}?{urlencode(params)}"
         return RedirectResponse(url=auth_url)
@@ -556,7 +562,13 @@ async def work_connect(friday_session: Optional[str] = Cookie(None)):
 @app.get("/oauth/google/work_callback")
 async def work_callback(request: Request):
     code = request.query_params.get("code")
-    if not code: return RedirectResponse(url="/?work=denied")
+    oauth_state = request.query_params.get("state", "")
+    with _OAUTH_STATE_LOCK:
+        state_record = _OAUTH_STATES.pop(oauth_state, None)
+    if (not code or not state_record or state_record.get("kind") != "work"
+            or state_record.get("expires_at", 0) < time.time()
+            or not SESSION_STORE.get(state_record.get("session"))):
+        return RedirectResponse(url="/?work=denied")
     try:
         req = URLRequest(GOOGLE_OAUTH_TOKEN_URL, data=urlencode({
             "code": code, "client_id": GOOGLE_OAUTH_CLIENT_ID, "client_secret": GOOGLE_OAUTH_CLIENT_SECRET,
@@ -654,13 +666,22 @@ async def get_metrics(friday_session: Optional[str] = Cookie(None)):
 @app.get("/calendar/connect")
 async def calendar_connect(friday_session: Optional[str] = Cookie(None)):
     if not SESSION_STORE.get(friday_session): return RedirectResponse(url="/?calendar=nosession")
-    params = {"client_id": GOOGLE_OAUTH_CLIENT_ID, "redirect_uri": GOOGLE_OAUTH_REDIRECT_URI, "response_type": "code", "scope": GOOGLE_SCOPES, "access_type": "offline", "prompt": "consent"}
+    oauth_state = secrets.token_urlsafe(32)
+    with _OAUTH_STATE_LOCK:
+        _OAUTH_STATES[oauth_state] = {"session": friday_session, "expires_at": time.time() + 600, "kind": "calendar"}
+    params = {"client_id": GOOGLE_OAUTH_CLIENT_ID, "redirect_uri": GOOGLE_OAUTH_REDIRECT_URI, "response_type": "code", "scope": GOOGLE_SCOPES, "access_type": "offline", "prompt": "consent", "state": oauth_state}
     return RedirectResponse(url=f"{GOOGLE_OAUTH_AUTHORIZE_URL}?{urlencode(params)}")
 
 @app.get("/oauth/google/callback")
 async def google_callback(request: Request):
     code = request.query_params.get("code")
-    if not code: return RedirectResponse(url="/?calendar=denied")
+    oauth_state = request.query_params.get("state", "")
+    with _OAUTH_STATE_LOCK:
+        state_record = _OAUTH_STATES.pop(oauth_state, None)
+    if (not code or not state_record or state_record.get("kind") != "calendar"
+            or state_record.get("expires_at", 0) < time.time()
+            or not SESSION_STORE.get(state_record.get("session"))):
+        return RedirectResponse(url="/?calendar=denied")
     try:
         req = URLRequest(GOOGLE_OAUTH_TOKEN_URL, data=urlencode({
             "code": code, "client_id": GOOGLE_OAUTH_CLIENT_ID, "client_secret": GOOGLE_OAUTH_CLIENT_SECRET,
