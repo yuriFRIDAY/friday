@@ -41,6 +41,9 @@ from core.friday_tools import (
 )
 import core.work_mode as work_mode
 from core.database import DATABASE_URL, DB_PATH, get_db
+from core.project_manager import ProjectManager, ProjectManagerError
+
+project_manager = ProjectManager()
 
 logger = logging.getLogger("friday.main")
 if not logger.handlers:
@@ -395,6 +398,26 @@ set_calendar_context(
 )
 
 class LoginData(BaseModel): password: str
+class ProjectCreate(BaseModel):
+    name: str
+    description: str = ""
+class ProjectUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    status: Optional[str] = None
+class TaskCreate(BaseModel):
+    title: str
+    description: str = ""
+    priority: str = "medium"
+    due_date: Optional[str] = None
+class TaskUpdate(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    status: Optional[str] = None
+    priority: Optional[str] = None
+    due_date: Optional[str] = None
+class DependencyCreate(BaseModel):
+    depends_on_task_id: int
 class ChatData(BaseModel):
     command: str
     pdf: Optional[str] = None
@@ -423,7 +446,7 @@ async def text_to_speech_get(text: str = "", friday_session: Optional[str] = Coo
 
 async def _tts_impl(text: str, friday_session):
     try:
-        if not friday_session: raise HTTPException(status_code=401)
+        if not SESSION_STORE.get(friday_session): raise HTTPException(status_code=401)
         if not text: raise HTTPException(status_code=400)
         api_key = os.getenv("ELEVENLABS_API_KEY", "").strip()
         if not api_key: return Response(status_code=204)
@@ -507,7 +530,7 @@ async def search_location_proxy(q: str):
 # --- WORK MODE ROUTES ---
 @app.get("/work/connect")
 async def work_connect(friday_session: Optional[str] = Cookie(None)):
-    if not friday_session:
+    if not SESSION_STORE.get(friday_session):
         return RedirectResponse(url="/?work=nosession")
     
     try:
@@ -547,7 +570,7 @@ async def work_callback(request: Request):
 
 @app.get("/work/status")
 async def work_status(friday_session: Optional[str] = Cookie(None)):
-    if not friday_session: return JSONResponse(status_code=401, content={"connected": False})
+    if not SESSION_STORE.get(friday_session): return JSONResponse(status_code=401, content={"connected": False})
     return {"connected": bool(work_mode.WORK_TOKEN_STORE)}
 
 @app.get("/work/emails")
@@ -606,7 +629,7 @@ async def logout(response: Response):
 
 @app.get("/session")
 async def check_session(friday_session: Optional[str] = Cookie(None)):
-    if friday_session and SESSION_STORE.get(friday_session): return {"authenticated": True}
+    if SESSION_STORE.get(friday_session): return {"authenticated": True}
     return {"authenticated": False}
 
 @app.get("/history")
@@ -630,7 +653,7 @@ async def get_metrics(friday_session: Optional[str] = Cookie(None)):
 
 @app.get("/calendar/connect")
 async def calendar_connect(friday_session: Optional[str] = Cookie(None)):
-    if not friday_session: return RedirectResponse(url="/?calendar=nosession")
+    if not SESSION_STORE.get(friday_session): return RedirectResponse(url="/?calendar=nosession")
     params = {"client_id": GOOGLE_OAUTH_CLIENT_ID, "redirect_uri": GOOGLE_OAUTH_REDIRECT_URI, "response_type": "code", "scope": GOOGLE_SCOPES, "access_type": "offline", "prompt": "consent"}
     return RedirectResponse(url=f"{GOOGLE_OAUTH_AUTHORIZE_URL}?{urlencode(params)}")
 
@@ -827,6 +850,79 @@ async def chat_endpoint(data: ChatData, friday_session: Optional[str] = Cookie(N
         event_generator(), media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+# --- PROJECT MANAGER API ---
+def _pm_error(exc):
+    return JSONResponse(status_code=400, content={"error": str(exc)})
+
+@app.get("/api/projects")
+async def pm_list_projects(friday_session: Optional[str] = Cookie(None), include_archived: bool = False):
+    if not SESSION_STORE.get(friday_session): raise HTTPException(401)
+    return {"projects": project_manager.list_projects(include_archived=include_archived)}
+
+@app.post("/api/projects")
+async def pm_create_project(data: ProjectCreate, friday_session: Optional[str] = Cookie(None)):
+    if not SESSION_STORE.get(friday_session): raise HTTPException(401)
+    try:
+        return {"project": project_manager.create_project(data.name, data.description)}
+    except ProjectManagerError as exc:
+        return _pm_error(exc)
+
+@app.patch("/api/projects/{project_id}")
+async def pm_update_project(project_id: int, data: ProjectUpdate, friday_session: Optional[str] = Cookie(None)):
+    if not SESSION_STORE.get(friday_session): raise HTTPException(401)
+    try:
+        changes = data.dict(exclude_unset=True, exclude_none=True)
+        return {"project": project_manager.update_project(project_id, **changes)}
+    except ProjectManagerError as exc:
+        return _pm_error(exc)
+
+@app.delete("/api/projects/{project_id}")
+async def pm_delete_project(project_id: int, friday_session: Optional[str] = Cookie(None)):
+    if not SESSION_STORE.get(friday_session): raise HTTPException(401)
+    if not project_manager.delete_project(project_id):
+        raise HTTPException(404, "Projeto não encontrado.")
+    return {"ok": True}
+
+@app.get("/api/projects/{project_id}/tasks")
+async def pm_list_tasks(project_id: int, status: Optional[str] = None, friday_session: Optional[str] = Cookie(None)):
+    if not SESSION_STORE.get(friday_session): raise HTTPException(401)
+    try:
+        return {"tasks": project_manager.list_tasks(project_id, status=status)}
+    except ProjectManagerError as exc:
+        return _pm_error(exc)
+
+@app.post("/api/projects/{project_id}/tasks")
+async def pm_create_task(project_id: int, data: TaskCreate, friday_session: Optional[str] = Cookie(None)):
+    if not SESSION_STORE.get(friday_session): raise HTTPException(401)
+    try:
+        task = project_manager.create_task(project_id, data.title, data.description, data.priority, data.due_date)
+        return {"task": task}
+    except ProjectManagerError as exc:
+        return _pm_error(exc)
+
+@app.patch("/api/tasks/{task_id}")
+async def pm_update_task(task_id: int, data: TaskUpdate, friday_session: Optional[str] = Cookie(None)):
+    if not SESSION_STORE.get(friday_session): raise HTTPException(401)
+    try:
+        changes = data.dict(exclude_unset=True, exclude_none=True)
+        return {"task": project_manager.update_task(task_id, **changes)}
+    except ProjectManagerError as exc:
+        return _pm_error(exc)
+
+@app.post("/api/tasks/{task_id}/dependencies")
+async def pm_add_dependency(task_id: int, data: DependencyCreate, friday_session: Optional[str] = Cookie(None)):
+    if not SESSION_STORE.get(friday_session): raise HTTPException(401)
+    try:
+        return {"task": project_manager.add_dependency(task_id, data.depends_on_task_id)}
+    except ProjectManagerError as exc:
+        return _pm_error(exc)
+
+@app.delete("/api/tasks/{task_id}/dependencies/{depends_on_task_id}")
+async def pm_remove_dependency(task_id: int, depends_on_task_id: int, friday_session: Optional[str] = Cookie(None)):
+    if not SESSION_STORE.get(friday_session): raise HTTPException(401)
+    return {"ok": project_manager.remove_dependency(task_id, depends_on_task_id)}
 
 if __name__ == "__main__":
     import uvicorn
