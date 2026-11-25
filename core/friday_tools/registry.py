@@ -9,6 +9,9 @@ from .tasks import _handler_create_task, _handler_list_tasks, _handler_complete_
 from .system import _handler_get_current_time, _handler_get_system_status, _handler_get_morning_briefing
 from .music import _handler_play_music
 from .context import _MEMORY_CONTEXT
+from core.permissions import PermissionManager
+
+_PERMISSION_MANAGER = PermissionManager()
 
 logger = logging.getLogger("friday.tools")
 
@@ -99,8 +102,14 @@ def execute_tool(tool_name, arguments, user_role="owner", session=None, confirme
     if not tool:
         return {"ok": False, "error": "Ferramenta não encontrada."}
 
-    if tool_name in REQUIRES_CONFIRMATION and not confirmed:
-        return {"ok": False, "error": "Confirmação necessária para executar esta ação."}
+    if not _PERMISSION_MANAGER.has_permission(user_role, "use_tools"):
+        return {"ok": False, "error": "Permissão negada: uso de ferramentas não autorizado para este perfil."}
+
+    if tool_name in REQUIRES_CONFIRMATION:
+        if not _PERMISSION_MANAGER.has_permission(user_role, "critical_operations"):
+            return {"ok": False, "error": "Permissão negada: operação crítica não autorizada."}
+        if not confirmed:
+            return {"ok": False, "error": "Confirmação explícita necessária. A execução automática pelo chat foi bloqueada."}
 
     try:
         result = tool["handler"](**arguments)

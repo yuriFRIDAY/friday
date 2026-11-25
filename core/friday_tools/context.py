@@ -1,22 +1,9 @@
-import os
 import time
 import threading
-import sqlite3
 
-try:
-    import psycopg2
-    HAS_PSYCOPG2 = True
-except ImportError:
-    HAS_PSYCOPG2 = False
+from core.database import DATABASE_URL, DB_PATH, DATA_DIR, get_db
 
-DATA_DIR = os.getenv("DATA_DIR", ".")
-if os.path.exists("/data") and os.access("/data", os.W_OK):
-    DATA_DIR = "/data"
-DB_PATH = os.path.join(DATA_DIR, "friday.db")
-
-DATABASE_URL = os.getenv("DATABASE_URL", "")
-if DATABASE_URL.startswith("postgres://"):
-    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+HAS_PSYCOPG2 = bool(DATABASE_URL)
 
 _CALENDAR_CONTEXT = {}
 _MEMORY_CONTEXT = {}
@@ -35,9 +22,7 @@ def set_memory_context(save_func, recall_func, delete_func=None):
     _MEMORY_CONTEXT.update({"save": save_func, "recall": recall_func, "delete": delete_func})
 
 def _get_db():
-    if DATABASE_URL and HAS_PSYCOPG2:
-        return psycopg2.connect(DATABASE_URL)
-    return sqlite3.connect(DB_PATH)
+    return get_db()
 
 _CACHE = {}
 _CACHE_LOCK = threading.Lock()

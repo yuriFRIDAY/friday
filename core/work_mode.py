@@ -7,7 +7,9 @@ import threading
 import re
 from urllib.request import Request, urlopen
 
-WORK_TOKEN_FILE = os.path.join(os.getenv("DATA_DIR", "."), ".friday_work_tokens.json")
+from core.database import DATA_DIR
+
+WORK_TOKEN_FILE = os.getenv("FRIDAY_WORK_TOKEN_FILE", "").strip() or os.path.join(DATA_DIR, ".friday_work_tokens.json")
 WORK_TOKEN_STORE = {}
 WORK_LOCK = threading.Lock()
 
@@ -18,22 +20,46 @@ def _load_work_tokens():
     global WORK_TOKEN_STORE
     try:
         with open(WORK_TOKEN_FILE, "r", encoding="utf-8") as f:
-            WORK_TOKEN_STORE = json.load(f)
-    except Exception:
+            data = json.load(f)
+        WORK_TOKEN_STORE = data if isinstance(data, dict) else {}
+    except FileNotFoundError:
+        WORK_TOKEN_STORE = {}
+    except Exception as e:
+        print(f"Erro ao carregar tokens do trabalho: {e}")
         WORK_TOKEN_STORE = {}
 
 _load_work_tokens()
 
-def save_work_tokens(access_token, refresh_token, expires_in):
+def _save_work_tokens_unlocked(access_token, refresh_token, expires_in):
     global WORK_TOKEN_STORE
     WORK_TOKEN_STORE["access_token"] = access_token
     WORK_TOKEN_STORE["refresh_token"] = refresh_token or WORK_TOKEN_STORE.get("refresh_token")
-    WORK_TOKEN_STORE["expires_at"] = time.time() + int(expires_in)
+    WORK_TOKEN_STORE["expires_at"] = time.time() + max(60, int(expires_in))
+    directory = os.path.dirname(WORK_TOKEN_FILE) or "."
+    os.makedirs(directory, exist_ok=True)
+    temporary = WORK_TOKEN_FILE + ".tmp"
     try:
-        with open(WORK_TOKEN_FILE, "w", encoding="utf-8") as f:
+        with open(temporary, "w", encoding="utf-8") as f:
             json.dump(WORK_TOKEN_STORE, f)
-    except Exception as e:
-        print(f"Erro ao salvar tokens do trabalho: {e}")
+        try:
+            os.chmod(temporary, 0o600)
+        except OSError:
+            pass
+        os.replace(temporary, WORK_TOKEN_FILE)
+        try:
+            os.chmod(WORK_TOKEN_FILE, 0o600)
+        except OSError:
+            pass
+    finally:
+        if os.path.exists(temporary):
+            try:
+                os.remove(temporary)
+            except OSError:
+                pass
+
+def save_work_tokens(access_token, refresh_token, expires_in):
+    with WORK_LOCK:
+        _save_work_tokens_unlocked(access_token, refresh_token, expires_in)
 
 def get_valid_work_token(client_id, client_secret):
     with WORK_LOCK:
@@ -52,7 +78,7 @@ def get_valid_work_token(client_id, client_secret):
             req = Request("https://oauth2.googleapis.com/token", data=data, headers={"Content-Type": "application/x-www-form-urlencoded"})
             with urlopen(req, timeout=10) as resp:
                 res = json.loads(resp.read().decode())
-                save_work_tokens(res["access_token"], refresh_token, res.get("expires_in", 3600))
+                _save_work_tokens_unlocked(res["access_token"], refresh_token, res.get("expires_in", 3600))
                 return res["access_token"]
         except Exception:
             return None

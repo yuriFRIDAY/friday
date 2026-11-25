@@ -20,8 +20,6 @@ from urllib.parse import urlencode
 from urllib.request import Request as URLRequest, urlopen
 from urllib.error import HTTPError, URLError
 
-import psycopg2
-import psycopg2.extras
 
 from fastapi import FastAPI, Request, Response, HTTPException, Cookie
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse, FileResponse
@@ -42,6 +40,10 @@ from core.friday_tools import (
     set_calendar_context, set_memory_context,
 )
 import core.work_mode as work_mode
+from core.database import DATABASE_URL, DB_PATH, get_db
+from core.project_manager import ProjectManager, ProjectManagerError
+
+project_manager = ProjectManager()
 
 logger = logging.getLogger("friday.main")
 if not logger.handlers:
@@ -65,16 +67,14 @@ auth = FridayAuth()
 SESSION_STORE = SessionStore(ttl_seconds=1800)
 friday = FridayAssistant()
 
-DATABASE_URL = os.getenv("DATABASE_URL", "")
-if DATABASE_URL.startswith("postgres://"):
-    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
-
 STATUS_QUEUE = []
 NOTIFICATION_QUEUE = []
 QUEUE_LOCK = threading.Lock()
 _CHAT_RATE = defaultdict(list)
 _RATE_LOCK = threading.Lock()
 _TOKEN_LOCK = threading.Lock()
+_OAUTH_STATE_LOCK = threading.Lock()
+_OAUTH_STATES = {}
 
 MAX_IMAGE_BYTES = 8_000_000
 MAX_PDF_BYTES = 12_000_000
@@ -164,14 +164,6 @@ def _check_chat_rate(session_token):
         calls.append(now)
         _CHAT_RATE[session_token] = calls
         return True
-
-def get_db():
-    if not DATABASE_URL:
-        import sqlite3
-        conn = sqlite3.connect("friday.db")
-        conn.row_factory = sqlite3.Row
-        return conn
-    return psycopg2.connect(DATABASE_URL)
 
 def init_db():
     try:
@@ -408,6 +400,26 @@ set_calendar_context(
 )
 
 class LoginData(BaseModel): password: str
+class ProjectCreate(BaseModel):
+    name: str
+    description: str = ""
+class ProjectUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    status: Optional[str] = None
+class TaskCreate(BaseModel):
+    title: str
+    description: str = ""
+    priority: str = "medium"
+    due_date: Optional[str] = None
+class TaskUpdate(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    status: Optional[str] = None
+    priority: Optional[str] = None
+    due_date: Optional[str] = None
+class DependencyCreate(BaseModel):
+    depends_on_task_id: int
 class ChatData(BaseModel):
     command: str
     pdf: Optional[str] = None
@@ -436,7 +448,7 @@ async def text_to_speech_get(text: str = "", friday_session: Optional[str] = Coo
 
 async def _tts_impl(text: str, friday_session):
     try:
-        if not friday_session: raise HTTPException(status_code=401)
+        if not SESSION_STORE.get(friday_session): raise HTTPException(status_code=401)
         if not text: raise HTTPException(status_code=400)
         api_key = os.getenv("ELEVENLABS_API_KEY", "").strip()
         if not api_key: return Response(status_code=204)
@@ -520,7 +532,7 @@ async def search_location_proxy(q: str):
 # --- WORK MODE ROUTES ---
 @app.get("/work/connect")
 async def work_connect(friday_session: Optional[str] = Cookie(None)):
-    if not friday_session:
+    if not SESSION_STORE.get(friday_session):
         return RedirectResponse(url="/?work=nosession")
     
     try:
@@ -528,6 +540,9 @@ async def work_connect(friday_session: Optional[str] = Cookie(None)):
             raise ValueError("GOOGLE_OAUTH_CLIENT_ID não configurado no Render.")
 
         redirect_uri = GOOGLE_OAUTH_REDIRECT_URI.replace("callback", "work_callback")
+        oauth_state = secrets.token_urlsafe(32)
+        with _OAUTH_STATE_LOCK:
+            _OAUTH_STATES[oauth_state] = {"session": friday_session, "expires_at": time.time() + 600, "kind": "work"}
         
         params = {
             "client_id": GOOGLE_OAUTH_CLIENT_ID,
@@ -535,7 +550,8 @@ async def work_connect(friday_session: Optional[str] = Cookie(None)):
             "response_type": "code",
             "scope": work_mode.GMAIL_SCOPE,
             "access_type": "offline",
-            "prompt": "consent"
+            "prompt": "consent",
+            "state": oauth_state
         }
         auth_url = f"{GOOGLE_OAUTH_AUTHORIZE_URL}?{urlencode(params)}"
         return RedirectResponse(url=auth_url)
@@ -546,7 +562,13 @@ async def work_connect(friday_session: Optional[str] = Cookie(None)):
 @app.get("/oauth/google/work_callback")
 async def work_callback(request: Request):
     code = request.query_params.get("code")
-    if not code: return RedirectResponse(url="/?work=denied")
+    oauth_state = request.query_params.get("state", "")
+    with _OAUTH_STATE_LOCK:
+        state_record = _OAUTH_STATES.pop(oauth_state, None)
+    if (not code or not state_record or state_record.get("kind") != "work"
+            or state_record.get("expires_at", 0) < time.time()
+            or not SESSION_STORE.get(state_record.get("session"))):
+        return RedirectResponse(url="/?work=denied")
     try:
         req = URLRequest(GOOGLE_OAUTH_TOKEN_URL, data=urlencode({
             "code": code, "client_id": GOOGLE_OAUTH_CLIENT_ID, "client_secret": GOOGLE_OAUTH_CLIENT_SECRET,
@@ -560,12 +582,12 @@ async def work_callback(request: Request):
 
 @app.get("/work/status")
 async def work_status(friday_session: Optional[str] = Cookie(None)):
-    if not friday_session: return JSONResponse(status_code=401, content={"connected": False})
+    if not SESSION_STORE.get(friday_session): return JSONResponse(status_code=401, content={"connected": False})
     return {"connected": bool(work_mode.WORK_TOKEN_STORE)}
 
 @app.get("/work/emails")
 async def work_emails(friday_session: Optional[str] = Cookie(None)):
-    if not friday_session: raise HTTPException(401)
+    if not SESSION_STORE.get(friday_session): raise HTTPException(401)
     
     at = work_mode.get_valid_work_token(GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET)
     if not at: 
@@ -584,7 +606,7 @@ async def work_emails(friday_session: Optional[str] = Cookie(None)):
 
 @app.get("/status")
 async def get_status(friday_session: Optional[str] = Cookie(None)):
-    if not friday_session: raise HTTPException(401)
+    if not SESSION_STORE.get(friday_session): raise HTTPException(401)
     global STATUS_QUEUE
     with QUEUE_LOCK:
         msgs = list(STATUS_QUEUE); STATUS_QUEUE.clear()
@@ -592,7 +614,7 @@ async def get_status(friday_session: Optional[str] = Cookie(None)):
 
 @app.get("/notifications")
 async def get_notifications(friday_session: Optional[str] = Cookie(None)):
-    if not friday_session: raise HTTPException(401)
+    if not SESSION_STORE.get(friday_session): raise HTTPException(401)
     global NOTIFICATION_QUEUE
     with QUEUE_LOCK:
         if NOTIFICATION_QUEUE:
@@ -613,23 +635,25 @@ async def login(data: LoginData, response: Response, request: Request):
     except Exception as e: raise HTTPException(500, str(e))
 
 @app.post("/logout")
-async def logout(response: Response):
+async def logout(response: Response, friday_session: Optional[str] = Cookie(None)):
+    if friday_session:
+        SESSION_STORE.invalidate(friday_session)
     response.delete_cookie(key="friday_session", path="/", httponly=True, samesite="lax")
     return {"ok": True}
 
 @app.get("/session")
 async def check_session(friday_session: Optional[str] = Cookie(None)):
-    if friday_session and SESSION_STORE.get(friday_session): return {"authenticated": True}
+    if SESSION_STORE.get(friday_session): return {"authenticated": True}
     return {"authenticated": False}
 
 @app.get("/history")
 async def get_history(friday_session: Optional[str] = Cookie(None)):
-    if not friday_session: raise HTTPException(401)
+    if not SESSION_STORE.get(friday_session): raise HTTPException(401)
     return {"history": _db_get_history(friday_session)}
 
 @app.get("/system_metrics")
 async def get_metrics(friday_session: Optional[str] = Cookie(None)):
-    if not friday_session: raise HTTPException(401)
+    if not SESSION_STORE.get(friday_session): raise HTTPException(401)
     try:
         load1, _, _ = os.getloadavg(); cpu_percent = min(100, round(load1 * 10, 1))
     except Exception: cpu_percent = 0
@@ -643,14 +667,24 @@ async def get_metrics(friday_session: Optional[str] = Cookie(None)):
 
 @app.get("/calendar/connect")
 async def calendar_connect(friday_session: Optional[str] = Cookie(None)):
-    if not friday_session: return RedirectResponse(url="/?calendar=nosession")
-    params = {"client_id": GOOGLE_OAUTH_CLIENT_ID, "redirect_uri": GOOGLE_OAUTH_REDIRECT_URI, "response_type": "code", "scope": GOOGLE_SCOPES, "access_type": "offline", "prompt": "consent"}
+    if not SESSION_STORE.get(friday_session): return RedirectResponse(url="/?calendar=nosession")
+    oauth_state = secrets.token_urlsafe(32)
+    with _OAUTH_STATE_LOCK:
+        _OAUTH_STATES = {key: value for key, value in _OAUTH_STATES.items() if value.get("expires_at", 0) > time.time()}
+        _OAUTH_STATES[oauth_state] = {"session": friday_session, "expires_at": time.time() + 600, "kind": "calendar"}
+    params = {"client_id": GOOGLE_OAUTH_CLIENT_ID, "redirect_uri": GOOGLE_OAUTH_REDIRECT_URI, "response_type": "code", "scope": GOOGLE_SCOPES, "access_type": "offline", "prompt": "consent", "state": oauth_state}
     return RedirectResponse(url=f"{GOOGLE_OAUTH_AUTHORIZE_URL}?{urlencode(params)}")
 
 @app.get("/oauth/google/callback")
 async def google_callback(request: Request):
     code = request.query_params.get("code")
-    if not code: return RedirectResponse(url="/?calendar=denied")
+    oauth_state = request.query_params.get("state", "")
+    with _OAUTH_STATE_LOCK:
+        state_record = _OAUTH_STATES.pop(oauth_state, None)
+    if (not code or not state_record or state_record.get("kind") != "calendar"
+            or state_record.get("expires_at", 0) < time.time()
+            or not SESSION_STORE.get(state_record.get("session"))):
+        return RedirectResponse(url="/?calendar=denied")
     try:
         req = URLRequest(GOOGLE_OAUTH_TOKEN_URL, data=urlencode({
             "code": code, "client_id": GOOGLE_OAUTH_CLIENT_ID, "client_secret": GOOGLE_OAUTH_CLIENT_SECRET,
@@ -665,14 +699,14 @@ async def google_callback(request: Request):
 @app.get("/calendar/status")
 async def calendar_status(friday_session: Optional[str] = Cookie(None)):
     try:
-        if not friday_session: return JSONResponse(status_code=401, content={"connected": False})
+        if not SESSION_STORE.get(friday_session): return JSONResponse(status_code=401, content={"connected": False})
         return {"connected": bool(GOOGLE_TOKEN_STORE.get(GOOGLE_OWNER_KEY))}
     except Exception:
         return JSONResponse(status_code=200, content={"connected": False})
 
 @app.get("/calendar/events")
 async def calendar_events(range: str = "upcoming", friday_session: Optional[str] = Cookie(None)):
-    if not friday_session: raise HTTPException(401)
+    if not SESSION_STORE.get(friday_session): raise HTTPException(401)
     at = _usable_calendar_access_token()
     if not at: return {"events": []}
     events = _calendar_today_events(at) if range == "today" else _calendar_events_query(at)
@@ -680,7 +714,7 @@ async def calendar_events(range: str = "upcoming", friday_session: Optional[str]
 
 @app.post("/chat")
 async def chat_endpoint(data: ChatData, friday_session: Optional[str] = Cookie(None)):
-    if not friday_session: raise HTTPException(401)
+    if not SESSION_STORE.get(friday_session): raise HTTPException(401)
 
     if not _check_chat_rate(friday_session):
         raise HTTPException(429, "Muitas mensagens em pouco tempo. Aguarde um instante, chefe.")
@@ -788,7 +822,7 @@ async def chat_endpoint(data: ChatData, friday_session: Optional[str] = Cookie(N
                         yield f"data: {json.dumps({'tool': tc_data['name']})}\n\n"
                         last_emit_ts = time.time()
 
-                        exec_res = execute_tool(tc_data["name"], args, session=session, confirmed=True)
+                        exec_res = execute_tool(tc_data["name"], args, session=session, confirmed=False)
 
                         if not exec_res.get("ok"):
                             err_msg = exec_res.get("error", "Erro desconhecido na ferramenta")
@@ -840,6 +874,79 @@ async def chat_endpoint(data: ChatData, friday_session: Optional[str] = Cookie(N
         event_generator(), media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+# --- PROJECT MANAGER API ---
+def _pm_error(exc):
+    return JSONResponse(status_code=400, content={"error": str(exc)})
+
+@app.get("/api/projects")
+async def pm_list_projects(friday_session: Optional[str] = Cookie(None), include_archived: bool = False):
+    if not SESSION_STORE.get(friday_session): raise HTTPException(401)
+    return {"projects": project_manager.list_projects(include_archived=include_archived)}
+
+@app.post("/api/projects")
+async def pm_create_project(data: ProjectCreate, friday_session: Optional[str] = Cookie(None)):
+    if not SESSION_STORE.get(friday_session): raise HTTPException(401)
+    try:
+        return {"project": project_manager.create_project(data.name, data.description)}
+    except ProjectManagerError as exc:
+        return _pm_error(exc)
+
+@app.patch("/api/projects/{project_id}")
+async def pm_update_project(project_id: int, data: ProjectUpdate, friday_session: Optional[str] = Cookie(None)):
+    if not SESSION_STORE.get(friday_session): raise HTTPException(401)
+    try:
+        changes = data.dict(exclude_unset=True, exclude_none=True)
+        return {"project": project_manager.update_project(project_id, **changes)}
+    except ProjectManagerError as exc:
+        return _pm_error(exc)
+
+@app.delete("/api/projects/{project_id}")
+async def pm_delete_project(project_id: int, friday_session: Optional[str] = Cookie(None)):
+    if not SESSION_STORE.get(friday_session): raise HTTPException(401)
+    if not project_manager.delete_project(project_id):
+        raise HTTPException(404, "Projeto não encontrado.")
+    return {"ok": True}
+
+@app.get("/api/projects/{project_id}/tasks")
+async def pm_list_tasks(project_id: int, status: Optional[str] = None, friday_session: Optional[str] = Cookie(None)):
+    if not SESSION_STORE.get(friday_session): raise HTTPException(401)
+    try:
+        return {"tasks": project_manager.list_tasks(project_id, status=status)}
+    except ProjectManagerError as exc:
+        return _pm_error(exc)
+
+@app.post("/api/projects/{project_id}/tasks")
+async def pm_create_task(project_id: int, data: TaskCreate, friday_session: Optional[str] = Cookie(None)):
+    if not SESSION_STORE.get(friday_session): raise HTTPException(401)
+    try:
+        task = project_manager.create_task(project_id, data.title, data.description, data.priority, data.due_date)
+        return {"task": task}
+    except ProjectManagerError as exc:
+        return _pm_error(exc)
+
+@app.patch("/api/tasks/{task_id}")
+async def pm_update_task(task_id: int, data: TaskUpdate, friday_session: Optional[str] = Cookie(None)):
+    if not SESSION_STORE.get(friday_session): raise HTTPException(401)
+    try:
+        changes = data.dict(exclude_unset=True, exclude_none=True)
+        return {"task": project_manager.update_task(task_id, **changes)}
+    except ProjectManagerError as exc:
+        return _pm_error(exc)
+
+@app.post("/api/tasks/{task_id}/dependencies")
+async def pm_add_dependency(task_id: int, data: DependencyCreate, friday_session: Optional[str] = Cookie(None)):
+    if not SESSION_STORE.get(friday_session): raise HTTPException(401)
+    try:
+        return {"task": project_manager.add_dependency(task_id, data.depends_on_task_id)}
+    except ProjectManagerError as exc:
+        return _pm_error(exc)
+
+@app.delete("/api/tasks/{task_id}/dependencies/{depends_on_task_id}")
+async def pm_remove_dependency(task_id: int, depends_on_task_id: int, friday_session: Optional[str] = Cookie(None)):
+    if not SESSION_STORE.get(friday_session): raise HTTPException(401)
+    return {"ok": project_manager.remove_dependency(task_id, depends_on_task_id)}
 
 if __name__ == "__main__":
     import uvicorn

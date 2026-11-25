@@ -16,7 +16,8 @@ class PermissionManager:
                 "read_memory",
                 "write_memory",
                 "use_tools",
-                "configure"
+                "configure",
+                "critical_operations"
             ],
 
             "system": [
