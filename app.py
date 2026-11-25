@@ -307,9 +307,13 @@ _load_google_token_store()
 
 def _save_owner_calendar_tokens(access_token, refresh_token, expires_in, scope):
     global GOOGLE_TOKEN_STORE
+    previous = GOOGLE_TOKEN_STORE.get(GOOGLE_OWNER_KEY, {})
     GOOGLE_TOKEN_STORE[GOOGLE_OWNER_KEY] = {
-        "access_token": access_token, "refresh_token": refresh_token,
-        "expires_at": time.time() + max(60, int(expires_in)), "scope": scope or "",
+        "access_token": access_token,
+        "refresh_token": refresh_token or previous.get("refresh_token"),
+        "expires_at": time.time() + max(60, int(expires_in)),
+        # Google may omit "scope" in refresh responses; never erase known grants.
+        "scope": scope or previous.get("scope", ""),
     }
     try:
         os.makedirs(os.path.dirname(GOOGLE_TOKEN_FILE) or ".", exist_ok=True)
@@ -337,11 +341,39 @@ def _usable_calendar_access_token():
             }).encode(), headers={"Content-Type": "application/x-www-form-urlencoded"}, method="POST")
             with urlopen(req, timeout=15) as resp:
                 res = json.loads(resp.read().decode())
-                _save_owner_calendar_tokens(res["access_token"], refresh_token, res.get("expires_in", 3600), res.get("scope", ""))
+                _save_owner_calendar_tokens(res["access_token"], refresh_token, res.get("expires_in", 3600), res.get("scope", record.get("scope", "")))
                 return res["access_token"]
         except Exception as e:
             logger.warning(f"Falha ao renovar token Google: {e}")
             return None
+
+def _calendar_api_error(operation, error):
+    """Convert Google API failures to actionable messages without exposing credentials."""
+    if isinstance(error, HTTPError):
+        status = error.code
+        try:
+            body = json.loads(error.read().decode("utf-8", errors="replace"))
+            detail = (body.get("error") or {}).get("message", "")
+        except Exception:
+            detail = ""
+        logger.warning("Google Calendar %s failed: HTTP %s (%s)", operation, status, detail[:300])
+        if status == 401:
+            return {"error": "A autorização do Google expirou ou foi revogada. Reconecte o Google Calendar nas configurações."}
+        if status == 403:
+            return {"error": "O Google negou a operação. Verifique se a conta autorizada permite editar eventos e se o escopo calendar.events foi concedido."}
+        if status == 400:
+            return {"error": "O Google rejeitou os dados do evento. Confira data, horário e fuso horário."}
+        if status == 404:
+            return {"error": "O calendário ou evento solicitado não foi encontrado."}
+        if status == 429:
+            return {"error": "O Google limitou temporariamente as solicitações. Tente novamente em alguns minutos."}
+        return {"error": f"Falha no Google Calendar (HTTP {status}). Tente novamente."}
+    if isinstance(error, (URLError, TimeoutError, socket.timeout)):
+        logger.warning("Google Calendar %s network failure: %s", operation, type(error).__name__)
+        return {"error": "Não foi possível alcançar o Google Calendar. Verifique a conexão e tente novamente."}
+    logger.exception("Google Calendar %s unexpected failure", operation)
+    return {"error": "Ocorreu uma falha inesperada ao comunicar com o Google Calendar."}
+
 
 def _calendar_events_query(access_token, time_min=None, time_max=None, max_results=10):
     params = {"maxResults": str(max_results), "singleEvents": "true", "orderBy": "startTime"}
@@ -351,7 +383,9 @@ def _calendar_events_query(access_token, time_min=None, time_max=None, max_resul
     try:
         with urlopen(req, timeout=15) as resp:
             result = json.loads(resp.read().decode())
-    except Exception: return None
+    except Exception as error:
+        _calendar_api_error("list events", error)
+        return None
     
     events = []
     for item in (result.get("items") or []):
@@ -379,20 +413,26 @@ def _calendar_today_events(access_token):
 def _calendar_create_event(access_token, payload):
     req = URLRequest("https://www.googleapis.com/calendar/v3/calendars/primary/events", data=json.dumps(payload).encode(), headers={"Content-Type": "application/json", "Authorization": "Bearer " + access_token}, method="POST")
     try:
-        with urlopen(req, timeout=15) as resp: return json.loads(resp.read().decode())
-    except Exception: return None
+        with urlopen(req, timeout=15) as resp:
+            return json.loads(resp.read().decode())
+    except Exception as error:
+        return _calendar_api_error("create event", error)
 
 def _calendar_delete_event(access_token, event_id):
     req = URLRequest(f"https://www.googleapis.com/calendar/v3/calendars/primary/events/{event_id}", headers={"Authorization": "Bearer " + access_token}, method="DELETE")
     try:
-        with urlopen(req, timeout=15): return {"ok": True}
-    except Exception: return None
+        with urlopen(req, timeout=15):
+            return {"ok": True}
+    except Exception as error:
+        return _calendar_api_error("delete event", error)
 
 def _calendar_update_event(access_token, event_id, payload):
     req = URLRequest(f"https://www.googleapis.com/calendar/v3/calendars/primary/events/{event_id}", data=json.dumps(payload).encode(), headers={"Content-Type": "application/json", "Authorization": "Bearer " + access_token}, method="PATCH")
     try:
-        with urlopen(req, timeout=15) as resp: return json.loads(resp.read().decode())
-    except Exception: return None
+        with urlopen(req, timeout=15) as resp:
+            return json.loads(resp.read().decode())
+    except Exception as error:
+        return _calendar_api_error("update event", error)
 
 set_calendar_context(
     access_token_provider=_usable_calendar_access_token, events_query=_calendar_events_query,
@@ -694,6 +734,9 @@ async def google_callback(request: Request):
         }).encode(), headers={"Content-Type": "application/x-www-form-urlencoded"}, method="POST")
         with urlopen(req, timeout=15) as resp: res = json.loads(resp.read().decode())
         _save_owner_calendar_tokens(res["access_token"], res.get("refresh_token"), res.get("expires_in", 3600), res.get("scope", ""))
+        saved_scope = GOOGLE_TOKEN_STORE.get(GOOGLE_OWNER_KEY, {}).get("scope", "")
+        if "https://www.googleapis.com/auth/calendar.events" not in saved_scope.split():
+            logger.warning("Google OAuth completed without the calendar.events scope")
         _push_notification("🔗 Google Calendar conectado com sucesso")
         return RedirectResponse(url="/?calendar=connected")
     except Exception: return RedirectResponse(url="/?calendar=token")
@@ -701,10 +744,23 @@ async def google_callback(request: Request):
 @app.get("/calendar/status")
 async def calendar_status(friday_session: Optional[str] = Cookie(None)):
     try:
-        if not SESSION_STORE.get(friday_session): return JSONResponse(status_code=401, content={"connected": False})
-        return {"connected": bool(GOOGLE_TOKEN_STORE.get(GOOGLE_OWNER_KEY))}
+        if not SESSION_STORE.get(friday_session):
+            return JSONResponse(status_code=401, content={"connected": False, "scope_ok": False})
+        record = GOOGLE_TOKEN_STORE.get(GOOGLE_OWNER_KEY) or {}
+        granted_scopes = set((record.get("scope") or "").split())
+        calendar_scope = "https://www.googleapis.com/auth/calendar.events"
+        has_calendar_scope = calendar_scope in granted_scopes
+        token_available = bool(record.get("access_token") or record.get("refresh_token"))
+        return {
+            "connected": token_available and has_calendar_scope,
+            "token_available": token_available,
+            "scope_ok": has_calendar_scope,
+            "reauthorization_required": token_available and not has_calendar_scope,
+            "scopes": sorted(granted_scopes),
+        }
     except Exception:
-        return JSONResponse(status_code=200, content={"connected": False})
+        logger.exception("Falha ao consultar status do Google Calendar")
+        return JSONResponse(status_code=200, content={"connected": False, "scope_ok": False})
 
 @app.get("/calendar/events")
 async def calendar_events(range: str = "upcoming", friday_session: Optional[str] = Cookie(None)):
