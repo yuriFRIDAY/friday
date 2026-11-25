@@ -20,8 +20,6 @@ from urllib.parse import urlencode
 from urllib.request import Request as URLRequest, urlopen
 from urllib.error import HTTPError, URLError
 
-import psycopg2
-import psycopg2.extras
 
 from fastapi import FastAPI, Request, Response, HTTPException, Cookie
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse, FileResponse
@@ -42,6 +40,7 @@ from core.friday_tools import (
     set_calendar_context, set_memory_context,
 )
 import core.work_mode as work_mode
+from core.database import DATABASE_URL, DB_PATH, get_db
 
 logger = logging.getLogger("friday.main")
 if not logger.handlers:
@@ -64,10 +63,6 @@ app = FastAPI(title="FRIDAY API")
 auth = FridayAuth()
 SESSION_STORE = SessionStore(ttl_seconds=1800)
 friday = FridayAssistant()
-
-DATABASE_URL = os.getenv("DATABASE_URL", "")
-if DATABASE_URL.startswith("postgres://"):
-    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
 STATUS_QUEUE = []
 NOTIFICATION_QUEUE = []
@@ -164,14 +159,6 @@ def _check_chat_rate(session_token):
         calls.append(now)
         _CHAT_RATE[session_token] = calls
         return True
-
-def get_db():
-    if not DATABASE_URL:
-        import sqlite3
-        conn = sqlite3.connect("friday.db")
-        conn.row_factory = sqlite3.Row
-        return conn
-    return psycopg2.connect(DATABASE_URL)
 
 def init_db():
     try:
@@ -788,7 +775,7 @@ async def chat_endpoint(data: ChatData, friday_session: Optional[str] = Cookie(N
                         yield f"data: {json.dumps({'tool': tc_data['name']})}\n\n"
                         last_emit_ts = time.time()
 
-                        exec_res = execute_tool(tc_data["name"], args, session=session, confirmed=True)
+                        exec_res = execute_tool(tc_data["name"], args, session=session, confirmed=False)
 
                         if not exec_res.get("ok"):
                             err_msg = exec_res.get("error", "Erro desconhecido na ferramenta")
