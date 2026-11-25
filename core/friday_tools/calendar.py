@@ -20,29 +20,45 @@ def _handler_get_calendar_events(range_value="upcoming"):
     else:
         events = None
 
+    if events is None: return {"error": "Falha ao consultar o Google Calendar. Consulte os registros da FRIDAY."}
     if not events: return {"events": []}
     return {"range": range_value, "events": [{"id": e.get("id"), "summary": e.get("summary"), "start": _format_iso_to_br(e.get("start")), "hangoutLink": e.get("hangoutLink")} for e in events]}
 
 def _handler_create_calendar_event(summary, start_natural, end_natural=None):
+    if not isinstance(summary, str) or not summary.strip():
+        return {"error": "Informe um título para o evento."}
     start_dt = _parse_natural_date(start_natural)
-    if not start_dt: return {"error": "Data de início inválida."}
-
+    if not start_dt:
+        return {"error": f"Não consegui interpretar a data e o horário de início: {start_natural}"}
     end_dt = _parse_natural_date(end_natural) if end_natural else start_dt + timedelta(hours=1)
-
+    if not end_dt:
+        return {"error": f"Não consegui interpretar a data e o horário de término: {end_natural}"}
+    if end_dt <= start_dt:
+        return {"error": "O término do evento precisa ser posterior ao início."}
     ctx = _CALENDAR_CONTEXT.get("access_token_provider")
     create = _CALENDAR_CONTEXT.get("create_event")
-
-    if not callable(ctx) or not callable(create): return {"error": "Calendar indisponível."}
-
-    access_token = ctx()
-    if not access_token: return {"error": "Calendar indisponível (Token inválido ou expirado)."}
-
-    payload = {"summary": summary, "start": {"dateTime": start_dt.isoformat(), "timeZone": "America/Sao_Paulo"}, "end": {"dateTime": end_dt.isoformat(), "timeZone": "America/Sao_Paulo"}}
-    res = create(access_token, payload)
-
-    if res: return {"ok": True, "summary": summary, "start": start_dt.isoformat()}
-    return {"error": "O Google recusou a criação do evento."}
-
+    if not callable(ctx) or not callable(create):
+        return {"error": "Google Calendar indisponível. Verifique a configuração da integração."}
+    try:
+        access_token = ctx()
+    except Exception:
+        return {"error": "Não foi possível validar a autorização do Google Calendar. Reconecte a conta nas configurações."}
+    if not access_token:
+        return {"error": "A autorização do Google Calendar está ausente ou expirou. Reconecte a conta nas configurações."}
+    payload = {
+        "summary": summary.strip(),
+        "start": {"dateTime": start_dt.isoformat(), "timeZone": "America/Sao_Paulo"},
+        "end": {"dateTime": end_dt.isoformat(), "timeZone": "America/Sao_Paulo"},
+    }
+    try:
+        res = create(access_token, payload)
+    except Exception:
+        return {"error": "Falha inesperada ao enviar o evento ao Google Calendar. Consulte os registros da FRIDAY."}
+    if isinstance(res, dict) and res.get("error"):
+        return res
+    if isinstance(res, dict) and res.get("id"):
+        return {"ok": True, "summary": summary.strip(), "start": start_dt.isoformat(), "event_id": res["id"]}
+    return {"error": "O Google Calendar não confirmou a criação do evento. Nenhum sucesso foi registrado."}
 def _handler_delete_calendar_event(event_id):
     ctx = _CALENDAR_CONTEXT.get("access_token_provider")
     delete = _CALENDAR_CONTEXT.get("delete_event")
@@ -52,8 +68,14 @@ def _handler_delete_calendar_event(event_id):
     access_token = ctx()
     if not access_token: return {"error": "Calendar indisponível."}
 
-    if delete(access_token, event_id): return {"ok": True}
-    return {"error": "Falha ao deletar."}
+    try:
+        result = delete(access_token, event_id)
+    except Exception:
+        return {"error": "Falha inesperada ao excluir o evento."}
+    if isinstance(result, dict) and result.get("error"):
+        return result
+    if result: return {"ok": True}
+    return {"error": "O Google Calendar não confirmou a exclusão do evento."}
 
 def _handler_update_calendar_event(event_id, summary=None, start_natural=None, end_natural=None, description=None):
     start_dt = _parse_natural_date(start_natural) if start_natural else None
@@ -75,9 +97,15 @@ def _handler_update_calendar_event(event_id, summary=None, start_natural=None, e
 
     if not payload: return {"error": "Nenhum campo para atualizar."}
 
-    res = update(access_token, event_id, payload)
-    if res: return {"ok": True, "updated": True}
-    return {"error": "Falha ao atualizar."}
+    try:
+        res = update(access_token, event_id, payload)
+    except Exception:
+        return {"error": "Falha inesperada ao atualizar o evento."}
+    if isinstance(res, dict) and res.get("error"):
+        return res
+    if isinstance(res, dict) and (res.get("id") or res.get("updated")):
+        return {"ok": True, "updated": True}
+    return {"error": "O Google Calendar não confirmou a atualização do evento."}
 
 def _handler_find_free_slots(date_iso):
     ctx = _CALENDAR_CONTEXT.get("access_token_provider")

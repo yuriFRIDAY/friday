@@ -1051,19 +1051,33 @@ window.startVoice = function(isContinuous = false) {
 
 $("voiceBtn").addEventListener("click", () => window.startVoice(false));
 
+function connectGoogleCalendar() {
+  window.location.href = "/calendar/connect";
+}
+
 async function checkCalendarConnection() {
+  const statusEl = $("calendarConnectionStatus");
   try {
     const res = await fetch("/calendar/status", { credentials: "same-origin", cache: "no-store" });
     const data = await res.json();
     if (res.ok && data.connected) {
       $("calendarConnect").textContent = "📅 CONNECTED";
+      if (statusEl) statusEl.textContent = "Conectado e autorizado para criar e editar eventos.";
       window.loadCalendarEvents("upcoming");
       return true;
     }
-  } catch (e) {}
+    $("calendarConnect").textContent = "📅 CONNECT CALENDAR";
+    if (statusEl) statusEl.textContent = data.reauthorization_required
+      ? "Conta encontrada, mas a permissão de edição não foi confirmada. Reautorize a integração."
+      : "Google Calendar não conectado. Conecte sua conta para consultar e criar eventos.";
+  } catch (e) {
+    if (statusEl) statusEl.textContent = "Não foi possível verificar a conexão com o Google Calendar.";
+  }
   return false;
 }
-$("calendarConnect").addEventListener("click", () => { window.location.href = "/calendar/connect"; });
+$("calendarConnect").addEventListener("click", connectGoogleCalendar);
+const calendarSettingsConnectBtn = $("calendarSettingsConnectBtn");
+if (calendarSettingsConnectBtn) calendarSettingsConnectBtn.addEventListener("click", connectGoogleCalendar);
 $("refreshCalendarTodayBtn").addEventListener("click", () => window.loadCalendarEvents("today"));
 $("refreshCalendarBtn").addEventListener("click", () => window.loadCalendarEvents("upcoming"));
 $("stopSpeakTop").addEventListener("click", () => { window.stopVoice(); window.setStatus("Fala interrompida."); });
