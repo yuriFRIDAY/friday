@@ -667,6 +667,7 @@ async def get_metrics(friday_session: Optional[str] = Cookie(None)):
 
 @app.get("/calendar/connect")
 async def calendar_connect(friday_session: Optional[str] = Cookie(None)):
+    global _OAUTH_STATES
     if not SESSION_STORE.get(friday_session): return RedirectResponse(url="/?calendar=nosession")
     oauth_state = secrets.token_urlsafe(32)
     with _OAUTH_STATE_LOCK:
