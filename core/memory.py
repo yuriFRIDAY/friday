@@ -1,11 +1,13 @@
 from contextlib import contextmanager
 import sqlite3
 
+from core.database import DB_PATH
+
 
 class FridayMemory:
 
-    def __init__(self, database="friday.db"):
-        self.database = database
+    def __init__(self, database=None):
+        self.database = database or DB_PATH or "friday.db"
         self.create_table()
 
     def connect(self):
