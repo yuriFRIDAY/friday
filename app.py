@@ -614,7 +614,7 @@ async def get_status(friday_session: Optional[str] = Cookie(None)):
 
 @app.get("/notifications")
 async def get_notifications(friday_session: Optional[str] = Cookie(None)):
-    if not friday_session: raise HTTPException(401)
+    if not SESSION_STORE.get(friday_session): raise HTTPException(401)
     global NOTIFICATION_QUEUE
     with QUEUE_LOCK:
         if NOTIFICATION_QUEUE:
@@ -648,12 +648,12 @@ async def check_session(friday_session: Optional[str] = Cookie(None)):
 
 @app.get("/history")
 async def get_history(friday_session: Optional[str] = Cookie(None)):
-    if not friday_session: raise HTTPException(401)
+    if not SESSION_STORE.get(friday_session): raise HTTPException(401)
     return {"history": _db_get_history(friday_session)}
 
 @app.get("/system_metrics")
 async def get_metrics(friday_session: Optional[str] = Cookie(None)):
-    if not friday_session: raise HTTPException(401)
+    if not SESSION_STORE.get(friday_session): raise HTTPException(401)
     try:
         load1, _, _ = os.getloadavg(); cpu_percent = min(100, round(load1 * 10, 1))
     except Exception: cpu_percent = 0
@@ -706,7 +706,7 @@ async def calendar_status(friday_session: Optional[str] = Cookie(None)):
 
 @app.get("/calendar/events")
 async def calendar_events(range: str = "upcoming", friday_session: Optional[str] = Cookie(None)):
-    if not friday_session: raise HTTPException(401)
+    if not SESSION_STORE.get(friday_session): raise HTTPException(401)
     at = _usable_calendar_access_token()
     if not at: return {"events": []}
     events = _calendar_today_events(at) if range == "today" else _calendar_events_query(at)
@@ -714,7 +714,7 @@ async def calendar_events(range: str = "upcoming", friday_session: Optional[str]
 
 @app.post("/chat")
 async def chat_endpoint(data: ChatData, friday_session: Optional[str] = Cookie(None)):
-    if not friday_session: raise HTTPException(401)
+    if not SESSION_STORE.get(friday_session): raise HTTPException(401)
 
     if not _check_chat_rate(friday_session):
         raise HTTPException(429, "Muitas mensagens em pouco tempo. Aguarde um instante, chefe.")
